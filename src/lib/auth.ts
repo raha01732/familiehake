@@ -10,10 +10,7 @@ export async function getSessionOrRedirect() {
   if (!userId) return { user: null, role: null as UserRole | null };
 
   const user = await currentUser();
-
-
-  const role =
-    (user?.publicMetadata?.role as UserRole) ||
+  const role = (user?.publicMetadata?.role as UserRole) ?? "member";
 
   return { user, role };
 }
