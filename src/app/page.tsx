@@ -15,18 +15,20 @@ export default function PublicLanding() {
 
         <div className="flex flex-col sm:flex-row gap-3">
           <Link
-            href="/sign-in"
-            className="flex-1 text-center rounded-xl bg-zinc-100 text-zinc-900 font-medium py-2 text-sm"
-          >
-            Anmelden
-          </Link>
+  href={"/sign-in" as any}
+  className="flex-1 text-center rounded-xl bg-zinc-100 text-zinc-900 font-medium py-2 text-sm"
+>
+  Anmelden
+</Link>
+
 
           <Link
-            href="/signup-locked"
-            className="flex-1 text-center rounded-xl border border-zinc-600 text-zinc-200 font-medium py-2 text-sm hover:bg-zinc-800/60"
-          >
-            Zugang anfragen
-          </Link>
+  href={"/signup-locked" as any}
+  className="flex-1 text-center rounded-xl border border-zinc-600 text-zinc-200 font-medium py-2 text-sm hover:bg-zinc-800/60"
+>
+  Zugang anfragen
+</Link>
+
         </div>
 
         <p className="text-[11px] text-zinc-600 leading-relaxed">
