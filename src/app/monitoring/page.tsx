@@ -4,30 +4,61 @@ import { createClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Monitoring | Private Tools" };
 
-const fakeStatus = [
-  { name: "Authentifizierung", state: "OK", detail: "Login funktioniert" },
-  { name: "Rollen-Check", state: "OK", detail: "Zugriffskontrolle aktiv" },
-  { name: "Geschützte Bereiche", state: "OK", detail: "Alle Routen erreichbar" }
-];
+async function getHealth() {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ""}/api/health`, { cache: "no-store" })
+    .catch(() => null);
+  if (!res || !res.ok) return null;
+  return res.json();
+}
 
 async function getLatestEvents() {
   const sb = createClient();
-  const { data, error } = await sb
+  const { data } = await sb
     .from("audit_events")
     .select("ts, action, actor_email, target, detail")
     .order("ts", { ascending: false })
     .limit(50);
-  if (error || !data) return [];
-  return data;
+  return data ?? [];
 }
 
 export default async function MonitoringPage() {
-  const accessMap = await getAccessMapFromDb();
-  const events = await getLatestEvents();
+  const [accessMap, events, health] = await Promise.all([
+    getAccessMapFromDb(),
+    getLatestEvents(),
+    getHealth(),
+  ]);
+
+  const fakeStatus = [
+    { name: "Authentifizierung", state: health ? "OK" : "WARN", detail: "Clerk/Supabase Env geprüft" },
+    { name: "Rollen-Check", state: "OK", detail: "Zugriffskontrolle aktiv" },
+    { name: "Geschützte Bereiche", state: "OK", detail: "Alle Routen erreichbar" },
+  ];
 
   return (
     <RoleGate routeKey="monitoring">
       <section className="grid gap-6">
+        {/* Health */}
+        <div className="card p-6 flex flex-col gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Health-Check</h2>
+            <p className="text-zinc-400 text-sm leading-relaxed">/api/health – Server & DB</p>
+          </div>
+          <div className="grid gap-2 text-xs">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-zinc-300">Status</div>
+                <div className="rounded-lg border border-zinc-700 px-2 py-0.5 text-zinc-200">
+                  {health?.status ?? "unreachable"}
+                </div>
+              </div>
+              <pre className="mt-2 text-[11px] text-zinc-400 whitespace-pre-wrap">
+                {JSON.stringify(health ?? { error: "no response" }, null, 2)}
+              </pre>
+            </div>
+          </div>
+        </div>
+
+        {/* Bestehend: Systemstatus & Module */}
         <div className="grid gap-4 md:grid-cols-2">
           <div className="card p-6 flex flex-col gap-4">
             <div>
@@ -68,6 +99,7 @@ export default async function MonitoringPage() {
           </div>
         </div>
 
+        {/* Audit-Events */}
         <div className="card p-6 flex flex-col gap-4">
           <div>
             <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Letzte Ereignisse</h2>
