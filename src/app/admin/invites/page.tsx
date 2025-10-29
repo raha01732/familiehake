@@ -14,7 +14,6 @@ async function listInvites() {
     email: i.emailAddress,
     status: (i.status as InviteStatus) ?? "pending",
     createdAt: i.createdAt,
-    expiresAt: i.expiresAt,
     publicMetadata: (i.publicMetadata ?? {}) as Record<string, unknown>,
   }));
 }
@@ -200,7 +199,6 @@ export default async function AdminInvitesPage({
                 <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2 font-medium">Rolle</th>
                 <th className="px-3 py-2 font-medium">Erstellt</th>
-                <th className="px-3 py-2 font-medium">Ablauf</th>
                 <th className="px-3 py-2 font-medium">Aktion</th>
               </tr>
             </thead>
@@ -219,9 +217,6 @@ export default async function AdminInvitesPage({
                     <td className="px-3 py-2 text-zinc-500 text-xs">
                       {i.createdAt ? new Date(i.createdAt).toLocaleString() : "—"}
                     </td>
-                    <td className="px-3 py-2 text-zinc-500 text-xs">
-                      {i.expiresAt ? new Date(i.expiresAt).toLocaleString() : "—"}
-                    </td>
                     <td className="px-3 py-2">
                       {i.status === "pending" ? (
                         <form action={revokeInviteAction}>
@@ -239,7 +234,7 @@ export default async function AdminInvitesPage({
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td className="px-3 py-3 text-zinc-500 text-xs" colSpan={6}>
+                  <td className="px-3 py-3 text-zinc-500 text-xs" colSpan={5}>
                     Keine Einladungen im ausgewählten Filter.
                   </td>
                 </tr>
