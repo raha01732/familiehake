@@ -1,6 +1,7 @@
 import { RoleGate } from "@/components/RoleGate";
 import { clerkClient } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { logAudit } from "@/lib/audit";
 
 async function getUsers() {
   const client = await clerkClient();
@@ -17,8 +18,22 @@ async function updateRole(formData: FormData) {
   "use server";
   const userId = formData.get("userId") as string;
   const role = formData.get("role") as "admin" | "member";
+
   const client = await clerkClient();
+  const user = await client.users.getUser(userId);
+  const prevRole = (user.publicMetadata?.role as "admin" | "member" | undefined) ?? "member";
+
   await client.users.updateUser(userId, { publicMetadata: { role } });
+
+  // Audit: role_change
+  await logAudit({
+    action: "role_change",
+    actorUserId: null, // optional: falls du hier den Admin erfassen willst → currentUser() im Server Action Kontext lesen
+    actorEmail: null,
+    target: userId,
+    detail: { from: prevRole, to: role, email: user.emailAddresses?.[0]?.emailAddress }
+  });
+
   revalidatePath("/admin/users");
 }
 
