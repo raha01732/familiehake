@@ -2,7 +2,6 @@ import { RoleGate } from "@/components/RoleGate";
 import { clerkClient } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
-import { Modal } from "@/components/Modal";
 import { logAudit } from "@/lib/audit";
 import {
   clerkAddEmailAddress,
@@ -65,14 +64,12 @@ async function saveUserAction(formData: FormData): Promise<void> {
   const lastName = (formData.get("lastName") as string)?.trim() || "";
   const username = (formData.get("username") as string)?.trim() || "";
   const role = (formData.get("role") as UserRole) ?? "member";
-
   if (!userId) return;
 
   const client = await clerkClient();
   const before = await client.users.getUser(userId);
   const prevRole = (before.publicMetadata?.role as UserRole | undefined) ?? "member";
 
-  // ⚠️ Clerk erwartet undefined statt null
   await client.users.updateUser(userId, {
     firstName: firstName || undefined,
     lastName: lastName || undefined,
@@ -89,7 +86,6 @@ async function saveUserAction(formData: FormData): Promise<void> {
       detail: { from: prevRole, to: role, email: before.emailAddresses?.[0]?.emailAddress },
     });
   }
-
   revalidatePath("/admin/users");
 }
 
@@ -99,7 +95,6 @@ async function updateRole(formData: FormData) {
   const userId = formData.get("userId") as string;
   const role = formData.get("role") as UserRole;
   const client = await clerkClient();
-
   const before = await client.users.getUser(userId);
   const prevRole = (before.publicMetadata?.role as UserRole | undefined) ?? "member";
 
@@ -114,7 +109,6 @@ async function updateRole(formData: FormData) {
       detail: { from: prevRole, to: role, email: before.emailAddresses?.[0]?.emailAddress },
     });
   }
-
   revalidatePath("/admin/users");
 }
 
@@ -330,198 +324,188 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
         </div>
       </section>
 
-      {/* Modal */}
-      <EditUserModal user={editUser} q={q} roleFilter={roleFilter} />
-    </RoleGate>
-  );
-}
-
-/** Client-Modal Wrapper */
-function EditUserModal({
-  user,
-  q,
-  roleFilter,
-}: {
-  user: Awaited<ReturnType<typeof getOneUser>> | null;
-  q: string;
-  roleFilter: "all" | UserRole;
-}) {
-  "use client";
-  const open = !!user;
-
-  const closeHref = `/admin/users?${new URLSearchParams(
-    Object.fromEntries(
-      Object.entries({ q, role: roleFilter }).filter(([_, v]) => (v ?? "") !== "" && v !== "all")
-    )
-  ).toString()}`;
-
-  return (
-    <Modal
-      open={open}
-      onClose={() => {
-        window.location.href = closeHref || "/admin/users";
-      }}
-      title={user ? `Benutzer bearbeiten` : "Benutzer bearbeiten"}
-    >
-      {user ? (
-        <div className="flex flex-col gap-5">
-          {/* Profil & Rolle */}
-          <form action={saveUserAction} className="flex flex-col gap-3">
-            <input type="hidden" name="userId" value={user.id} />
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-zinc-400">Vorname</label>
-                <input
-                  name="firstName"
-                  defaultValue={user.firstName}
-                  className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-zinc-400">Nachname</label>
-                <input
-                  name="lastName"
-                  defaultValue={user.lastName}
-                  className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs text-zinc-400">Benutzername</label>
-              <input
-                name="username"
-                defaultValue={user.username}
-                className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs text-zinc-400">Rolle</label>
-              <select
-                name="role"
-                defaultValue={user.role}
-                className="mt-1 rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
-              >
-                <option value="member">member</option>
-                <option value="admin">admin</option>
-              </select>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
+      {/* Modal (Server-rendered, ohne JS-Handler) */}
+      {editUser ? (
+        <div className="fixed inset-0 z-[100]">
+          <div className="absolute inset-0 bg-black/60" />
+          <div className="relative mx-auto mt-24 w-full max-w-lg card p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <div className="text-sm font-semibold text-zinc-100">Benutzer bearbeiten</div>
+              {/* Schließen per Link (kein onClick nötig) */}
               <a
-                href={closeHref || "/admin/users"}
-                className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60"
+                href={`/admin/users?${new URLSearchParams(
+                  Object.fromEntries(
+                    Object.entries({ q, role: roleFilter }).filter(([_, v]) => (v ?? "") !== "" && v !== "all")
+                  )
+                ).toString()}`}
+                className="text-xs rounded-lg border border-zinc-700 text-zinc-300 px-2 py-1 hover:bg-zinc-800/60"
               >
-                Abbrechen
+                Schließen
               </a>
-              <button className="rounded-lg border border-green-700 text-green-300 text-xs font-medium px-3 py-2 hover:bg-green-900/30">
-                Speichern
-              </button>
             </div>
-          </form>
 
-          {/* E-Mail-Adressen verwalten */}
-          <div className="border-t border-zinc-800 pt-4">
-            <div className="text-sm font-semibold text-zinc-100 mb-2">E-Mail-Adressen</div>
+            <div className="p-5 flex flex-col gap-5">
+              {/* Profil & Rolle */}
+              <form action={saveUserAction} className="flex flex-col gap-3">
+                <input type="hidden" name="userId" value={editUser.id} />
 
-            {/* Liste */}
-            <div className="grid gap-2">
-              {user.emails.map((e) => {
-                const status = e.verification?.status ?? "unverified";
-                const verified = status === "verified";
-                return (
-                  <div
-                    key={e.id}
-                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 gap-2"
-                  >
-                    <div className="text-xs text-zinc-300">
-                      {e.email}{" "}
-                      {e.isPrimary ? (
-                        <span className="ml-2 rounded border border-purple-700 text-purple-300 px-2 py-0.5">primary</span>
-                      ) : null}
-                      <span
-                        className={`ml-2 rounded border px-2 py-0.5 ${
-                          verified
-                            ? "border-green-700 text-green-300"
-                            : "border-amber-600 text-amber-300"
-                        }`}
-                      >
-                        {verified ? "verified" : status}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {!verified && (
-                        <form
-                          action={async (fd: FormData) => {
-                            "use server";
-                            const emailId = fd.get("emailId") as string;
-                            if (!emailId) return;
-                            await clerkPrepareEmailVerification(emailId);
-                            revalidatePath("/admin/users");
-                          }}
-                        >
-                          <input type="hidden" name="emailId" value={e.id} />
-                          <button className="rounded-lg border border-amber-700 text-amber-300 text-xs font-medium px-3 py-1 hover:bg-amber-900/30">
-                            Verifizierung senden
-                          </button>
-                        </form>
-                      )}
-
-                      {!e.isPrimary && verified && (
-                        <form action={makePrimaryEmailAction}>
-                          <input type="hidden" name="userId" value={user.id} />
-                          <input type="hidden" name="emailId" value={e.id} />
-                          <button className="rounded-lg border border-green-700 text-green-300 text-xs font-medium px-3 py-1 hover:bg-green-900/30">
-                            Als primär setzen
-                          </button>
-                        </form>
-                      )}
-
-                      {!e.isPrimary && (
-                        <form action={deleteEmailAction}>
-                          <input type="hidden" name="userId" value={user.id} />
-                          <input type="hidden" name="emailId" value={e.id} />
-                          <button className="rounded-lg border border-red-700 text-red-300 text-xs font-medium px-3 py-1 hover:bg-red-900/30">
-                            Entfernen
-                          </button>
-                        </form>
-                      )}
-                    </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-zinc-400">Vorname</label>
+                    <input
+                      name="firstName"
+                      defaultValue={editUser.firstName}
+                      className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+                    />
                   </div>
-                );
-              })}
+                  <div>
+                    <label className="text-xs text-zinc-400">Nachname</label>
+                    <input
+                      name="lastName"
+                      defaultValue={editUser.lastName}
+                      className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+                    />
+                  </div>
+                </div>
 
-              {user.emails.length === 0 && (
-                <div className="text-[11px] text-zinc-500">Keine E-Mail-Adressen vorhanden.</div>
-              )}
-            </div>
+                <div>
+                  <label className="text-xs text-zinc-400">Benutzername</label>
+                  <input
+                    name="username"
+                    defaultValue={editUser.username}
+                    className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+                  />
+                </div>
 
-            {/* Neue E-Mail hinzufügen */}
-            <form action={addEmailAction} className="mt-3 flex items-end gap-2">
-              <input type="hidden" name="userId" value={user.id} />
-              <div className="flex-1">
-                <label className="text-xs text-zinc-400">Neue E-Mail</label>
-                <input
-                  name="newEmail"
-                  type="email"
-                  placeholder="neue@mail.tld"
-                  className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
-                />
+                <div>
+                  <label className="text-xs text-zinc-400">Rolle</label>
+                  <select
+                    name="role"
+                    defaultValue={editUser.role}
+                    className="mt-1 rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+                  >
+                    <option value="member">member</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <a
+                    href={`/admin/users?${new URLSearchParams(
+                      Object.fromEntries(
+                        Object.entries({ q, role: roleFilter }).filter(([_, v]) => (v ?? "") !== "" && v !== "all")
+                      )
+                    ).toString()}`}
+                    className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60"
+                  >
+                    Abbrechen
+                  </a>
+                  <button className="rounded-lg border border-green-700 text-green-300 text-xs font-medium px-3 py-2 hover:bg-green-900/30">
+                    Speichern
+                  </button>
+                </div>
+              </form>
+
+              {/* E-Mail-Adressen verwalten */}
+              <div className="border-t border-zinc-800 pt-4">
+                <div className="text-sm font-semibold text-zinc-100 mb-2">E-Mail-Adressen</div>
+
+                {/* Liste */}
+                <div className="grid gap-2">
+                  {editUser.emails.map((e) => {
+                    const status = e.verification?.status ?? "unverified";
+                    const verified = status === "verified";
+                    return (
+                      <div
+                        key={e.id}
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 gap-2"
+                      >
+                        <div className="text-xs text-zinc-300">
+                          {e.email}{" "}
+                          {e.isPrimary ? (
+                            <span className="ml-2 rounded border border-purple-700 text-purple-300 px-2 py-0.5">primary</span>
+                          ) : null}
+                          <span
+                            className={`ml-2 rounded border px-2 py-0.5 ${
+                              verified
+                                ? "border-green-700 text-green-300"
+                                : "border-amber-600 text-amber-300"
+                            }`}
+                          >
+                            {verified ? "verified" : status}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {!verified && (
+                            <form action={async (fd: FormData) => {
+                              "use server";
+                              const emailId = fd.get("emailId") as string;
+                              if (!emailId) return;
+                              await clerkPrepareEmailVerification(emailId);
+                              revalidatePath("/admin/users");
+                            }}>
+                              <input type="hidden" name="emailId" value={e.id} />
+                              <button className="rounded-lg border border-amber-700 text-amber-300 text-xs font-medium px-3 py-1 hover:bg-amber-900/30">
+                                Verifizierung senden
+                              </button>
+                            </form>
+                          )}
+
+                          {!e.isPrimary && verified && (
+                            <form action={makePrimaryEmailAction}>
+                              <input type="hidden" name="userId" value={editUser.id} />
+                              <input type="hidden" name="emailId" value={e.id} />
+                              <button className="rounded-lg border border-green-700 text-green-300 text-xs font-medium px-3 py-1 hover:bg-green-900/30">
+                                Als primär setzen
+                              </button>
+                            </form>
+                          )}
+
+                          {!e.isPrimary && (
+                            <form action={deleteEmailAction}>
+                              <input type="hidden" name="userId" value={editUser.id} />
+                              <input type="hidden" name="emailId" value={e.id} />
+                              <button className="rounded-lg border border-red-700 text-red-300 text-xs font-medium px-3 py-1 hover:bg-red-900/30">
+                                Entfernen
+                              </button>
+                            </form>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {editUser.emails.length === 0 && (
+                    <div className="text-[11px] text-zinc-500">Keine E-Mail-Adressen vorhanden.</div>
+                  )}
+                </div>
+
+                {/* Neue E-Mail hinzufügen */}
+                <form action={addEmailAction} className="mt-3 flex items-end gap-2">
+                  <input type="hidden" name="userId" value={editUser.id} />
+                  <div className="flex-1">
+                    <label className="text-xs text-zinc-400">Neue E-Mail</label>
+                    <input
+                      name="newEmail"
+                      type="email"
+                      placeholder="neue@mail.tld"
+                      className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+                    />
+                  </div>
+                  <button className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60">
+                    Hinzufügen & Link senden
+                  </button>
+                </form>
+
+                <div className="text-[11px] text-zinc-500 mt-2">
+                  Hinweis: Der Nutzer muss den Verifizierungslink öffnen. Danach kannst du „Als primär setzen“ klicken.
+                </div>
               </div>
-              <button className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60">
-                Hinzufügen & Link senden
-              </button>
-            </form>
-
-            <div className="text-[11px] text-zinc-500 mt-2">
-              Hinweis: Der Nutzer muss den Verifizierungslink öffnen. Danach kannst du „Als primär setzen“ klicken.
             </div>
           </div>
         </div>
       ) : null}
-    </Modal>
+    </RoleGate>
   );
 }
