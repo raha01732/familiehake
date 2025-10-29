@@ -1,20 +1,12 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-
-const isProtectedRoute = createRouteMatcher([
-  "/dashboard(.*)",
-  "/admin(.*)",
-  "/settings(.*)",
-  "/monitoring(.*)"
-]);
-
-export default clerkMiddleware((auth, req) => {
-  if (isProtectedRoute(req)) {
-    auth().protect(); // zwingt Login
-  }
-});
+// TEMP: Auth in der Edge deaktiviert, um Prod-500 zu debuggen.
 
 export const config = {
   matcher: [
     "/((?!_next|.*\\..*).*)" // alle Pages außer static assets
   ]
 };
+
+export default function middleware() {
+  // absichtlich leer
+  // wir greifen Clerk hier NICHT mehr an
+}
