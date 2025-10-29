@@ -12,11 +12,17 @@ export default async function AdminPage() {
           Nur Nutzer mit <code className="text-[11px] bg-zinc-800 px-1 py-0.5 rounded">role = "admin"</code>.
         </p>
 
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div className="grid sm:grid-cols-3 gap-4">
           <Link href="/admin/users" className="rounded-xl border border-zinc-800 p-4 bg-zinc-900/40 hover:bg-zinc-900/60">
             <div className="text-zinc-100 font-semibold">Benutzer &amp; Rollen</div>
             <div className="text-zinc-500 text-sm">Rollen vergeben (admin/member)</div>
           </Link>
+
+          <Link href="/admin/invites" className="rounded-xl border border-zinc-800 p-4 bg-zinc-900/40 hover:bg-zinc-900/60">
+            <div className="text-zinc-100 font-semibold">Einladungen</div>
+            <div className="text-zinc-500 text-sm">Invite senden, verwalten</div>
+          </Link>
+
           <Link href="/monitoring" className="rounded-xl border border-zinc-800 p-4 bg-zinc-900/40 hover:bg-zinc-900/60">
             <div className="text-zinc-100 font-semibold">Monitoring</div>
             <div className="text-zinc-500 text-sm">Systemstatus &amp; Logs</div>
