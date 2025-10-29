@@ -4,56 +4,54 @@ import { getAccessMapFromDb } from "@/lib/access-db";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 
-// Simple Info-Banner
-function Banner({ kind, msg }: { kind: "ok" | "err"; msg: string }) {
-  const base =
-    kind === "ok"
-      ? "border-green-700 text-green-300 bg-green-900/20"
-      : "border-red-700 text-red-300 bg-red-900/20";
-  return <div className={`rounded-xl border px-3 py-2 text-xs ${base}`}>{msg}</div>;
-}
-
 export const metadata = { title: "Settings | Private Tools" };
 
-// ⬇️ NICHT exportieren: Server Action (Upsert)
-async function upsertAccessAction(formData: FormData) {
+// ⬇️ Server Action: Upsert (muss void/Promise<void> zurückgeben)
+async function upsertAccessAction(formData: FormData): Promise<void> {
   "use server";
   const route = (formData.get("route") as string)?.trim();
   const roles = (formData.getAll("roles") as string[]).map((r) => r.trim()) as UserRole[];
 
-  if (!route) return { ok: false, message: "Route darf nicht leer sein." };
-  if (roles.length === 0) return { ok: false, message: "Mindestens eine Rolle auswählen." };
+  if (!route || roles.length === 0) {
+    // Optional: Logging; keine Rückgabe erlaubt
+    console.warn("upsertAccessAction: invalid payload", { route, roles });
+    return;
+  }
 
   try {
     const sb = createAdminClient();
     const { error } = await sb
       .from("tools_access")
-      .upsert({ route, roles, updated_at: new Date().toISOString() }, { onConflict: "route" });
-
-    if (error) return { ok: false, message: `DB-Fehler beim Upsert: ${error.message}` };
-
+      .upsert(
+        { route, roles, updated_at: new Date().toISOString() },
+        { onConflict: "route" }
+      );
+    if (error) {
+      console.error("upsertAccessAction: db error", error);
+    }
+  } catch (e) {
+    console.error("upsertAccessAction: server error", e);
+  } finally {
     revalidatePath("/settings");
-    return { ok: true, message: `Regel für /${route} gespeichert.` };
-  } catch (e: any) {
-    return { ok: false, message: `Serverfehler: ${e?.message ?? "unbekannt"}` };
   }
 }
 
-// ⬇️ NICHT exportieren: Server Action (Delete)
-async function deleteAccessAction(formData: FormData) {
+// ⬇️ Server Action: Delete (muss void/Promise<void> zurückgeben)
+async function deleteAccessAction(formData: FormData): Promise<void> {
   "use server";
   const route = (formData.get("route") as string)?.trim();
-  if (!route) return { ok: false, message: "Route fehlt." };
+  if (!route) return;
 
   try {
     const sb = createAdminClient();
     const { error } = await sb.from("tools_access").delete().eq("route", route);
-    if (error) return { ok: false, message: `DB-Fehler beim Löschen: ${error.message}` };
-
+    if (error) {
+      console.error("deleteAccessAction: db error", error);
+    }
+  } catch (e) {
+    console.error("deleteAccessAction: server error", e);
+  } finally {
     revalidatePath("/settings");
-    return { ok: true, message: `Regel für /${route} gelöscht.` };
-  } catch (e: any) {
-    return { ok: false, message: `Serverfehler: ${e?.message ?? "unbekannt"}` };
   }
 }
 
@@ -76,7 +74,10 @@ export default async function SettingsPage() {
         <div className="grid gap-4">
           {rows.map(([route, roles]) => (
             <div key={route} className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-              <form action={upsertAccessAction} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <form
+                action={upsertAccessAction}
+                className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+              >
                 <div className="flex-1">
                   <div className="text-zinc-100 font-medium text-sm">/{route}</div>
                   <input type="hidden" name="route" value={route} />
@@ -113,7 +114,10 @@ export default async function SettingsPage() {
 
         {/* Neuer Eintrag */}
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-          <form action={upsertAccessAction} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <form
+            action={upsertAccessAction}
+            className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+          >
             <div className="flex-1">
               <label className="text-xs text-zinc-400">Neue Route (ohne führenden Slash)</label>
               <input
@@ -125,7 +129,13 @@ export default async function SettingsPage() {
             <div className="flex items-center gap-3">
               {allRoles.map((r) => (
                 <label key={r} className="text-xs text-zinc-200 flex items-center gap-1">
-                  <input type="checkbox" name="roles" value={r} className="accent-zinc-200" defaultChecked={r === "member"} />
+                  <input
+                    type="checkbox"
+                    name="roles"
+                    value={r}
+                    className="accent-zinc-200"
+                    defaultChecked={r === "member"}
+                  />
                   {r}
                 </label>
               ))}
