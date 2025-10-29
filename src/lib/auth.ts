@@ -14,7 +14,6 @@ export async function getSessionOrRedirect() {
 
   const role =
     (user?.publicMetadata?.role as UserRole) ||
-    (isInitAdmin ? ("admin" as UserRole) : "member");
 
   return { user, role };
 }
