@@ -38,7 +38,7 @@ async function getUsers(limit = 100) {
 async function getOneUser(userId: string) {
   const client = await clerkClient();
   const u = await client.users.getUser(userId);
-  const primaryId = u.primaryEmailAddressId ?? null;
+  const primaryId = u.primaryEmailAddressId ?? undefined;
 
   const emails: EmailInfo[] = (u.emailAddresses ?? []).map((e) => ({
     id: e.id,
@@ -72,10 +72,11 @@ async function saveUserAction(formData: FormData): Promise<void> {
   const before = await client.users.getUser(userId);
   const prevRole = (before.publicMetadata?.role as UserRole | undefined) ?? "member";
 
+  // ⚠️ Clerk erwartet undefined statt null
   await client.users.updateUser(userId, {
-    firstName: firstName || null,
-    lastName: lastName || null,
-    username: username || null,
+    firstName: firstName || undefined,
+    lastName: lastName || undefined,
+    username: username || undefined,
     publicMetadata: { role },
   });
 
@@ -126,7 +127,7 @@ async function addEmailAction(formData: FormData): Promise<void> {
 
   try {
     const created = await clerkAddEmailAddress(userId, newEmail);
-    await clerkPrepareEmailVerification(created.id); // schickt Verifizierungslink
+    await clerkPrepareEmailVerification(created.id); // Verifizierungslink senden
     await logAudit({
       action: "role_change",
       actorUserId: null,
@@ -440,24 +441,28 @@ function EditUserModal({
                       {e.isPrimary ? (
                         <span className="ml-2 rounded border border-purple-700 text-purple-300 px-2 py-0.5">primary</span>
                       ) : null}
-                      <span className={`ml-2 rounded border px-2 py-0.5 ${
-                        verified
-                          ? "border-green-700 text-green-300"
-                          : "border-amber-600 text-amber-300"
-                      }`}>
+                      <span
+                        className={`ml-2 rounded border px-2 py-0.5 ${
+                          verified
+                            ? "border-green-700 text-green-300"
+                            : "border-amber-600 text-amber-300"
+                        }`}
+                      >
                         {verified ? "verified" : status}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-2">
                       {!verified && (
-                        <form action={async (fd: FormData) => {
-                          "use server";
-                          const emailId = fd.get("emailId") as string;
-                          if (!emailId) return;
-                          await clerkPrepareEmailVerification(emailId);
-                          revalidatePath("/admin/users");
-                        }}>
+                        <form
+                          action={async (fd: FormData) => {
+                            "use server";
+                            const emailId = fd.get("emailId") as string;
+                            if (!emailId) return;
+                            await clerkPrepareEmailVerification(emailId);
+                            revalidatePath("/admin/users");
+                          }}
+                        >
                           <input type="hidden" name="emailId" value={e.id} />
                           <button className="rounded-lg border border-amber-700 text-amber-300 text-xs font-medium px-3 py-1 hover:bg-amber-900/30">
                             Verifizierung senden
@@ -512,7 +517,7 @@ function EditUserModal({
             </form>
 
             <div className="text-[11px] text-zinc-500 mt-2">
-              Hinweis: Der Nutzer muss die Verifizierung per E-Mail-Link abschließen. Danach kannst du „Als primär setzen“ klicken.
+              Hinweis: Der Nutzer muss den Verifizierungslink öffnen. Danach kannst du „Als primär setzen“ klicken.
             </div>
           </div>
         </div>
