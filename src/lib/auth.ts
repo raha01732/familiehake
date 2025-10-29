@@ -11,25 +11,6 @@ export async function getSessionOrRedirect() {
 
   const user = await currentUser();
 
-  // ------------------------------------------------------------------------
-  // 🧩 TEMPORÄRER BLOCK: Bootstrap-Admin per ENV
-  //
-  // Zweck: Den ersten Admin manuell bestimmen, falls noch keiner existiert.
-  // Danach in Vercel:
-  //    INIT_ADMIN_EMAIL=deine.admin@mail.tld
-  //
-  // Nach erfolgreichem Login als dieser User → Admin-Rolle im /admin/users
-  // setzen und diesen Code-Block + ENV-Variable wieder entfernen.
-  // ------------------------------------------------------------------------
-  const initAdminEmail = process.env.INIT_ADMIN_EMAIL?.toLowerCase();
-  const isInitAdmin =
-    !!initAdminEmail &&
-    user?.emailAddresses?.some(
-      (e) => e.emailAddress.toLowerCase() === initAdminEmail
-    );
-  // ------------------------------------------------------------------------
-  // 🧩 ENDE des temporären Blocks
-  // ------------------------------------------------------------------------
 
   const role =
     (user?.publicMetadata?.role as UserRole) ||
