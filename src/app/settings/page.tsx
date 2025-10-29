@@ -10,39 +10,28 @@ function Banner({ kind, msg }: { kind: "ok" | "err"; msg: string }) {
     kind === "ok"
       ? "border-green-700 text-green-300 bg-green-900/20"
       : "border-red-700 text-red-300 bg-red-900/20";
-  return (
-    <div className={`rounded-xl border px-3 py-2 text-xs ${base}`}>
-      {msg}
-    </div>
-  );
+  return <div className={`rounded-xl border px-3 py-2 text-xs ${base}`}>{msg}</div>;
 }
 
 export const metadata = { title: "Settings | Private Tools" };
 
-// Server Action: Upsert
-export async function upsertAccessAction(formData: FormData) {
+// ⬇️ NICHT exportieren: Server Action (Upsert)
+async function upsertAccessAction(formData: FormData) {
   "use server";
   const route = (formData.get("route") as string)?.trim();
-  // Alle angehakten Rollen einsammeln
   const roles = (formData.getAll("roles") as string[]).map((r) => r.trim()) as UserRole[];
 
-  // Mindest-Validierung
-  if (!route) {
-    return { ok: false, message: "Route darf nicht leer sein." };
-  }
-  if (roles.length === 0) {
-    return { ok: false, message: "Mindestens eine Rolle auswählen." };
-  }
+  if (!route) return { ok: false, message: "Route darf nicht leer sein." };
+  if (roles.length === 0) return { ok: false, message: "Mindestens eine Rolle auswählen." };
 
   try {
     const sb = createAdminClient();
-    const { error } = await sb.from("tools_access").upsert(
-      { route, roles, updated_at: new Date().toISOString() },
-      { onConflict: "route" }
-    );
-    if (error) {
-      return { ok: false, message: `DB-Fehler beim Upsert: ${error.message}` };
-    }
+    const { error } = await sb
+      .from("tools_access")
+      .upsert({ route, roles, updated_at: new Date().toISOString() }, { onConflict: "route" });
+
+    if (error) return { ok: false, message: `DB-Fehler beim Upsert: ${error.message}` };
+
     revalidatePath("/settings");
     return { ok: true, message: `Regel für /${route} gespeichert.` };
   } catch (e: any) {
@@ -50,8 +39,8 @@ export async function upsertAccessAction(formData: FormData) {
   }
 }
 
-// Server Action: Delete
-export async function deleteAccessAction(formData: FormData) {
+// ⬇️ NICHT exportieren: Server Action (Delete)
+async function deleteAccessAction(formData: FormData) {
   "use server";
   const route = (formData.get("route") as string)?.trim();
   if (!route) return { ok: false, message: "Route fehlt." };
@@ -59,9 +48,8 @@ export async function deleteAccessAction(formData: FormData) {
   try {
     const sb = createAdminClient();
     const { error } = await sb.from("tools_access").delete().eq("route", route);
-    if (error) {
-      return { ok: false, message: `DB-Fehler beim Löschen: ${error.message}` };
-    }
+    if (error) return { ok: false, message: `DB-Fehler beim Löschen: ${error.message}` };
+
     revalidatePath("/settings");
     return { ok: true, message: `Regel für /${route} gelöscht.` };
   } catch (e: any) {
@@ -73,10 +61,6 @@ export default async function SettingsPage() {
   const accessMap = await getAccessMapFromDb();
   const rows = Object.entries(accessMap);
   const allRoles: UserRole[] = ["member", "admin"];
-
-  // Wir zeigen ggf. Rückmeldungen der letzten Aktion (progressiv)
-  // (Server Actions liefern ein Objekt; ohne Client State zeigen wir nur statisch nach Reload)
-  // Für maximale Einfachheit verzichten wir auf useFormStatus o.ä.
 
   return (
     <RoleGate routeKey="settings">
