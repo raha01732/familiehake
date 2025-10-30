@@ -4,16 +4,23 @@ import { createClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Monitoring | Private Tools" };
 
+import { headers } from "next/headers";
+
 async function getHealth() {
-  // absolute URL über Request-Header wäre ideal; als Server-Komponente nutzen wir hier die relative Route
   try {
-    const res = await fetch("/api/health", { cache: "no-store" });
-    if (!res.ok) return null;
-    return res.json();
+    const h = headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host");
+    const proto = h.get("x-forwarded-proto") ?? "https";
+    if (!host) return null;
+    const base = `${proto}://${host}`;
+    const res = await fetch(`${base}/api/health`, { cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    return data; // { status: "ok" | "warn" | "degraded", checks: {...} }
   } catch {
     return null;
   }
 }
+
 
 
 async function getLatestEvents() {

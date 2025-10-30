@@ -14,30 +14,26 @@ export async function GET() {
       supabase_service: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
       sentry_dsn: !!process.env.SENTRY_DSN,
     },
-    db: { ok: false, now: null as null | string },
+    db: { ok: false, info: null as null | string },
   };
 
-  // DB-Check (Service Role -> bypass RLS)
+  let status: "ok" | "warn" | "degraded" = "ok";
   try {
     const sb = createAdminClient();
-    const { data, error } = await sb.rpc("now"); // versucht Postgres now(); existiert evtl. nicht
-    if (error) {
-      // fallback: einfache Query
-      const { data: ping, error: e2 } = await sb.from("tools_access").select("route").limit(1);
-      if (e2) throw e2;
-      checks.db.ok = true;
-      checks.db.now = new Date().toISOString();
-    } else {
-      checks.db.ok = true;
-      checks.db.now = String(data);
-    }
+    // einfache, harmlose Abfrage als Connectivity-Proof
+    const { error } = await sb.from("tools_access").select("route").limit(1);
+    if (error) throw error;
+    checks.db.ok = true;
+    checks.db.info = "select ok";
   } catch (e: any) {
-    return NextResponse.json({ status: "degraded", checks, error: e?.message ?? "db error" }, { status: 503 });
+    checks.db.ok = false;
+    checks.db.info = e?.message ?? "db error";
+    status = "degraded";
   }
 
   const allEnvOk = Object.values(checks.env).every(Boolean);
-  return NextResponse.json(
-    { status: allEnvOk ? "ok" : "warn", checks },
-    { status: 200 }
-  );
+  if (!allEnvOk && status === "ok") status = "warn";
+
+  // immer 200, Zustand im Payload
+  return NextResponse.json({ status, checks });
 }
