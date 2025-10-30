@@ -10,7 +10,7 @@ export default function AdminHomePage() {
         <div>
           <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">Admin</h1>
           <p className="text-zinc-400 text-sm mt-1">
-            Verwaltung und Systemfunktionen.
+            Verwaltung, Module und Systemfunktionen.
           </p>
         </div>
 
@@ -26,7 +26,7 @@ export default function AdminHomePage() {
             </div>
           </Link>
 
-          {/* Einstellungen (ehem. /settings) */}
+          {/* Einstellungen (vormals /settings) */}
           <Link
             href="/admin/settings"
             className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
@@ -37,7 +37,7 @@ export default function AdminHomePage() {
             </div>
           </Link>
 
-          {/* Monitoring (Route bleibt /monitoring) */}
+          {/* Monitoring */}
           <Link
             href="/monitoring"
             className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
@@ -45,6 +45,39 @@ export default function AdminHomePage() {
             <div className="text-zinc-100 font-medium">Monitoring</div>
             <div className="text-zinc-500 text-sm mt-1">
               Health-Check, Systemstatus & Audit-Logs.
+            </div>
+          </Link>
+
+          {/* Journal (Tagebuch) */}
+          <Link
+            href="/tools/journal"
+            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
+          >
+            <div className="text-zinc-100 font-medium">Journal</div>
+            <div className="text-zinc-500 text-sm mt-1">
+              Private Einträge mit Titel & Inhalt.
+            </div>
+          </Link>
+
+          {/* Dateien (File-Manager / Uploader) */}
+          <Link
+            href="/tools/files"
+            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
+          >
+            <div className="text-zinc-100 font-medium">Dateien</div>
+            <div className="text-zinc-500 text-sm mt-1">
+              Upload, Download & Löschen (privat).
+            </div>
+          </Link>
+
+          {/* Activity (Live-Feed) */}
+          <Link
+            href="/activity"
+            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
+          >
+            <div className="text-zinc-100 font-medium">Activity (live)</div>
+            <div className="text-zinc-500 text-sm mt-1">
+              Echtzeit-Feed aus Audit-Logs.
             </div>
           </Link>
         </div>
