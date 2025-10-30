@@ -1,31 +1,51 @@
 import Link from "next/link";
 import { RoleGate } from "@/components/RoleGate";
 
-export const metadata = { title: "Admin | Private Tools" };
+export const metadata = { title: "Admin" };
 
-export default async function AdminPage() {
+export default function AdminHomePage() {
   return (
     <RoleGate routeKey="admin">
-      <section className="card p-6 flex flex-col gap-4">
-        <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Admin Bereich</h2>
-        <p className="text-zinc-400 text-sm leading-relaxed">
-          Nur Nutzer mit <code className="text-[11px] bg-zinc-800 px-1 py-0.5 rounded">role = "admin"</code>.
-        </p>
+      <section className="card p-6 flex flex-col gap-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">Admin</h1>
+          <p className="text-zinc-400 text-sm mt-1">
+            Verwaltung und Systemfunktionen.
+          </p>
+        </div>
 
-        <div className="grid sm:grid-cols-3 gap-4">
-          <Link href="/admin/users" className="rounded-xl border border-zinc-800 p-4 bg-zinc-900/40 hover:bg-zinc-900/60">
-            <div className="text-zinc-100 font-semibold">Benutzer &amp; Rollen</div>
-            <div className="text-zinc-500 text-sm">Rollen vergeben (admin/member)</div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Benutzerverwaltung */}
+          <Link
+            href="/admin/users"
+            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
+          >
+            <div className="text-zinc-100 font-medium">Benutzerverwaltung</div>
+            <div className="text-zinc-500 text-sm mt-1">
+              Nutzer suchen, bearbeiten, Rollen setzen, E-Mails verwalten.
+            </div>
           </Link>
 
-          <Link href="/admin/invites" className="rounded-xl border border-zinc-800 p-4 bg-zinc-900/40 hover:bg-zinc-900/60">
-            <div className="text-zinc-100 font-semibold">Einladungen</div>
-            <div className="text-zinc-500 text-sm">Invite senden, verwalten</div>
+          {/* Einstellungen (ehem. /settings) */}
+          <Link
+            href="/admin/settings"
+            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
+          >
+            <div className="text-zinc-100 font-medium">Einstellungen</div>
+            <div className="text-zinc-500 text-sm mt-1">
+              Module & Berechtigungen konfigurieren (aus DB).
+            </div>
           </Link>
 
-          <Link href="/monitoring" className="rounded-xl border border-zinc-800 p-4 bg-zinc-900/40 hover:bg-zinc-900/60">
-            <div className="text-zinc-100 font-semibold">Monitoring</div>
-            <div className="text-zinc-500 text-sm">Systemstatus &amp; Logs</div>
+          {/* Monitoring (Route bleibt /monitoring) */}
+          <Link
+            href="/monitoring"
+            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
+          >
+            <div className="text-zinc-100 font-medium">Monitoring</div>
+            <div className="text-zinc-500 text-sm mt-1">
+              Health-Check, Systemstatus & Audit-Logs.
+            </div>
           </Link>
         </div>
       </section>

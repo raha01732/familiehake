@@ -1,70 +1,28 @@
 "use client";
 
-import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
-import { Menu } from "lucide-react";
-import { useState } from "react";
+import { usePathname } from "next/navigation";
 
 export function Header() {
-  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const isActive = (href: string) =>
+    pathname === href ? "text-white font-semibold" : "text-zinc-400 hover:text-white";
 
   return (
-    <header className="flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-900/40 backdrop-blur sticky top-0 z-50">
-      <div className="flex items-center gap-2">
-        <button
-          className="md:hidden p-2 rounded-xl bg-zinc-800/60 border border-zinc-700"
-          onClick={() => setOpen(o => !o)}
-        >
-          <Menu className="w-5 h-5 text-zinc-300" />
-        </button>
-        <Link
-          href="/"
-          className="font-semibold text-zinc-100 text-lg tracking-tight"
-        >
-          private.tools
+    <header className="w-full border-b border-zinc-800 bg-zinc-950/70 backdrop-blur-sm">
+      <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+        <Link href="/" className="text-zinc-100 font-semibold text-lg">
+          Private Tools
         </Link>
-      </div>
 
-      <nav
-        className={`${
-          open ? "flex" : "hidden md:flex"
-        } flex-col md:flex-row absolute md:static top-16 left-0 right-0 md:top-auto md:left-auto md:right-auto bg-zinc-900/80 md:bg-transparent p-4 md:p-0 gap-4 border-b border-zinc-800 md:border-0`}
-      >
-        <Link
-          href="/dashboard"
-          className="text-zinc-300 hover:text-zinc-100 text-sm"
-        >
-          Dashboard
-        </Link>
-        <Link
-          href="/settings"
-          className="text-zinc-300 hover:text-zinc-100 text-sm"
-        >
-          Settings
-        </Link>
-        <Link
-          href="/admin"
-          className="text-zinc-300 hover:text-zinc-100 text-sm"
-        >
-          Admin
-        </Link>
-        <Link
-          href="/monitoring"
-          className="text-zinc-300 hover:text-zinc-100 text-sm"
-        >
-          Monitoring
-        </Link>
-      </nav>
-
-      <div className="flex items-center gap-3">
-        <UserButton
-          appearance={{
-            elements: {
-              avatarBox: "w-8 h-8 rounded-xl border border-zinc-700"
-            }
-          }}
-          afterSignOutUrl="/"
-        />
+        <nav className="flex items-center gap-6 text-sm">
+          <Link href="/dashboard" className={isActive("/dashboard")}>
+            Dashboard
+          </Link>
+          <Link href="/admin" className={pathname.startsWith("/admin") || pathname === "/monitoring" ? "text-white font-semibold" : "text-zinc-400 hover:text-white"}>
+            Admin
+          </Link>
+        </nav>
       </div>
     </header>
   );
