@@ -5,11 +5,16 @@ import { createClient } from "@/lib/supabase/server";
 export const metadata = { title: "Monitoring | Private Tools" };
 
 async function getHealth() {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ""}/api/health`, { cache: "no-store" })
-    .catch(() => null);
-  if (!res || !res.ok) return null;
-  return res.json();
+  // absolute URL über Request-Header wäre ideal; als Server-Komponente nutzen wir hier die relative Route
+  try {
+    const res = await fetch("/api/health", { cache: "no-store" });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
 }
+
 
 async function getLatestEvents() {
   const sb = createClient();
