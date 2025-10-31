@@ -79,6 +79,11 @@ export default async function MonitoringPage() {
     ["supabase_service", "Supabase Service Key"],
     ["sentry_dsn", "Sentry DSN (optional)"],
   ].filter(([k]) => k in env) as any;
+  const envChecks = envOrder.map(([key, label]) => ({
+    key: String(key),
+    label,
+    ok: !!env[key],
+  }));
 
   return (
     <RoleGate routeKey="monitoring">
@@ -132,21 +137,10 @@ export default async function MonitoringPage() {
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
               <div className="text-sm text-zinc-200 mb-2">Environment</div>
               <div className="grid gap-2">
-                {envOrder.map(([key, label]) => (
-                  <div key={String(key)} className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-300">{label}</span>
-                    <span
-                      className={`rounded-md border px-2 py-0.5 ${
-                        env[key]
-                          ? "border-green-700 text-green-300 bg-green-900/20"
-                          : "border-amber-600 text-amber-300 bg-amber-900/20"
-                      }`}
-                    >
-                      {env[key] ? "gesetzt" : "fehlt"}
-                    </span>
-                  </div>
+                {envChecks.map(({ key, label, ok }) => (
+                  <BoolPill key={key} ok={ok} label={label} />
                 ))}
-                {envOrder.length === 0 && (
+                {envChecks.length === 0 && (
                   <div className="text-[11px] text-zinc-500">Keine ENV-Daten.</div>
                 )}
               </div>

@@ -10,6 +10,8 @@ import Link from "next/link";
 
 export const metadata = { title: "Dateien" };
 
+type AdminClient = ReturnType<typeof createAdminClient>;
+
 type FileRow = {
   id: string;
   storage_path: string;
@@ -51,9 +53,9 @@ function fmtSize(bytes: number) {
 
 /* ======================== Data helpers ======================== */
 
-async function getFolder(userId: string, folderId: string) {
-  const sb = createAdminClient();
-  const { data } = await sb
+async function getFolder(userId: string, folderId: string, sb?: AdminClient) {
+  const client = sb ?? createAdminClient();
+  const { data } = await client
     .from("folders")
     .select("id,user_id,name,parent_id,deleted_at,created_at")
     .eq("user_id", userId)
@@ -65,13 +67,13 @@ async function getFolder(userId: string, folderId: string) {
 
 async function getBreadcrumb(userId: string, folderId: string | null) {
   if (!folderId) return [];
-  const sb = createAdminClient();
   const trail: FolderRow[] = [];
-  let current = await getFolder(userId, folderId);
+  const sb = createAdminClient();
+  let current = await getFolder(userId, folderId, sb);
   while (current) {
     trail.unshift(current);
     if (!current.parent_id) break;
-    current = await getFolder(userId, current.parent_id);
+    current = await getFolder(userId, current.parent_id, sb);
   }
   return trail;
 }
@@ -254,13 +256,15 @@ async function softDeleteFileAction(formData: FormData) {
   revalidatePath("/tools/files");
 }
 
-/** (Bestehende harte Löschung bleibt optional bestehen – nun im Trash nutzbar) */
+/** Endgültige Löschung direkt aus der Dateiliste (überspringt Papierkorb) */
 async function hardDeleteFileAction(formData: FormData) {
   "use server";
   const { userId } = auth();
   if (!userId) return;
 
   const id = formData.get("id") as string;
+  if (!id) return;
+
   const sb = createAdminClient();
 
   const { data: row } = await sb
@@ -565,6 +569,15 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                         <input type="hidden" name="id" value={f.id} />
                         <button className="rounded-lg border border-amber-700 text-amber-300 text-xs px-2 py-1 hover:bg-amber-900/30">
                           In Papierkorb
+                        </button>
+                      </form>
+                      <form action={hardDeleteFileAction}>
+                        <input type="hidden" name="id" value={f.id} />
+                        <button
+                          className="rounded-lg border border-red-700 text-red-300 text-xs px-2 py-1 hover:bg-red-900/30"
+                          title="Endgültig löschen (überspringt den Papierkorb)"
+                        >
+                          Endgültig löschen
                         </button>
                       </form>
                     </div>
