@@ -1,17 +1,11 @@
 import { RoleGate } from "@/components/RoleGate";
-import { clerkClient } from "@clerk/nextjs/server";
+import { clerkClient, auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import { logAudit } from "@/lib/audit";
-import {
-  clerkAddEmailAddress,
-  clerkPrepareEmailVerification,
-  clerkSetPrimaryEmail,
-  clerkDeleteEmailAddress,
-} from "@/lib/clerk-rest";
 
-type UserRole = "admin" | "member";
-type SearchParams = { q?: string; role?: "all" | UserRole; edit?: string };
+type UserRole = "member" | "admin" | "superadmin";
+type SearchParams = { q?: string; role?: "all" | Exclude<UserRole, "superadmin"> | "superadmin"; edit?: string };
 
 type EmailInfo = {
   id: string;
@@ -56,6 +50,49 @@ async function getOneUser(userId: string) {
   };
 }
 
+/** Nur Superadmins dürfen Rollen ändern; Superadmins dürfen nicht auf eine niedrigere Rolle gesetzt werden. */
+async function assertRoleChangeAllowed(targetUserId: string, nextRole: UserRole) {
+  const { userId: actorId } = auth();
+  if (!actorId) throw new Error("Forbidden: not authenticated");
+
+  const client = await clerkClient();
+  const [actor, target] = await Promise.all([
+    client.users.getUser(actorId),
+    client.users.getUser(targetUserId),
+  ]);
+
+  const actorRole = (actor.publicMetadata?.role as UserRole) ?? "member";
+  const targetRole = (target.publicMetadata?.role as UserRole) ?? "member";
+  const actorIsSuper = actorRole === "superadmin";
+  const targetIsSuper = targetRole === "superadmin";
+
+  // Nur Superadmins dürfen Rollen anpassen – egal bei wem
+  if (!actorIsSuper) {
+    await logAudit({
+      action: "access_denied",
+      actorUserId: actor.id,
+      actorEmail: actor.primaryEmailAddress?.emailAddress ?? null,
+      target: targetUserId,
+      detail: { reason: "role_change_requires_superadmin", attempt_to: nextRole, target_role: targetRole },
+    });
+    throw new Error("Forbidden: only superadmin may change roles");
+  }
+
+  // Superadmin darf nicht „degradiert“ werden (Schutzschicht)
+  if (targetIsSuper && nextRole !== "superadmin") {
+    await logAudit({
+      action: "access_denied",
+      actorUserId: actor.id,
+      actorEmail: actor.primaryEmailAddress?.emailAddress ?? null,
+      target: targetUserId,
+      detail: { reason: "cannot_demote_superadmin", attempt_to: nextRole },
+    });
+    throw new Error("Forbidden: cannot demote superadmin");
+  }
+
+  return { actor, target, actorRole, targetRole };
+}
+
 /** Server Action: Profil & Rolle speichern */
 async function saveUserAction(formData: FormData): Promise<void> {
   "use server";
@@ -63,24 +100,30 @@ async function saveUserAction(formData: FormData): Promise<void> {
   const firstName = (formData.get("firstName") as string)?.trim() || "";
   const lastName = (formData.get("lastName") as string)?.trim() || "";
   const username = (formData.get("username") as string)?.trim() || "";
-  const role = (formData.get("role") as UserRole) ?? "member";
+  const role = ((formData.get("role") as string) ?? "member") as UserRole;
   if (!userId) return;
 
   const client = await clerkClient();
+  // Prüfe Rollenteil separat (nur wenn sich Rolle ändert oder gesetzt ist)
   const before = await client.users.getUser(userId);
   const prevRole = (before.publicMetadata?.role as UserRole | undefined) ?? "member";
+
+  // Wenn Rolle geändert werden soll, zuerst Autorisierung prüfen
+  if (prevRole !== role) {
+    await assertRoleChangeAllowed(userId, role);
+  }
 
   await client.users.updateUser(userId, {
     firstName: firstName || undefined,
     lastName: lastName || undefined,
     username: username || undefined,
-    publicMetadata: { role },
+    publicMetadata: { role }, // bleibt gleich, wenn unverändert
   });
 
   if (prevRole !== role) {
     await logAudit({
       action: "role_change",
-      actorUserId: null,
+      actorUserId: (await auth()).userId ?? null,
       actorEmail: null,
       target: userId,
       detail: { from: prevRole, to: role, email: before.emailAddresses?.[0]?.emailAddress },
@@ -93,17 +136,22 @@ async function saveUserAction(formData: FormData): Promise<void> {
 async function updateRole(formData: FormData) {
   "use server";
   const userId = formData.get("userId") as string;
-  const role = formData.get("role") as UserRole;
+  const role = (formData.get("role") as string) as UserRole;
+  if (!userId || !role) return;
+
   const client = await clerkClient();
   const before = await client.users.getUser(userId);
   const prevRole = (before.publicMetadata?.role as UserRole | undefined) ?? "member";
+
+  // Autorisierung + Superadmin-Schutz
+  await assertRoleChangeAllowed(userId, role);
 
   await client.users.updateUser(userId, { publicMetadata: { role } });
 
   if (prevRole !== role) {
     await logAudit({
       action: "role_change",
-      actorUserId: null,
+      actorUserId: (await auth()).userId ?? null,
       actorEmail: null,
       target: userId,
       detail: { from: prevRole, to: role, email: before.emailAddresses?.[0]?.emailAddress },
@@ -115,16 +163,19 @@ async function updateRole(formData: FormData) {
 /** Server Action: Neue E-Mail hinzufügen + Verifizierung anstoßen */
 async function addEmailAction(formData: FormData): Promise<void> {
   "use server";
+  // bestehende REST-Wrapper bleiben – kein Superadmin-Zwang für E-Mails
   const userId = (formData.get("userId") as string) ?? "";
   const newEmail = (formData.get("newEmail") as string)?.trim().toLowerCase() ?? "";
   if (!userId || !newEmail) return;
 
   try {
+    // Eigene REST-Wrapper – unverändert weiterverwenden
+    const { clerkAddEmailAddress, clerkPrepareEmailVerification } = await import("@/lib/clerk-rest");
     const created = await clerkAddEmailAddress(userId, newEmail);
     await clerkPrepareEmailVerification(created.id); // Verifizierungslink senden
     await logAudit({
       action: "role_change",
-      actorUserId: null,
+      actorUserId: (await auth()).userId ?? null,
       actorEmail: null,
       target: userId,
       detail: { email_add: newEmail, step: "verification_sent" },
@@ -144,10 +195,11 @@ async function makePrimaryEmailAction(formData: FormData): Promise<void> {
   if (!userId || !emailId) return;
 
   try {
+    const { clerkSetPrimaryEmail } = await import("@/lib/clerk-rest");
     await clerkSetPrimaryEmail(userId, emailId);
     await logAudit({
       action: "role_change",
-      actorUserId: null,
+      actorUserId: (await auth()).userId ?? null,
       actorEmail: null,
       target: userId,
       detail: { primary_email_set: emailId },
@@ -167,10 +219,11 @@ async function deleteEmailAction(formData: FormData): Promise<void> {
   if (!userId || !emailId) return;
 
   try {
+    const { clerkDeleteEmailAddress } = await import("@/lib/clerk-rest");
     await clerkDeleteEmailAddress(emailId);
     await logAudit({
       action: "role_change",
-      actorUserId: null,
+      actorUserId: (await auth()).userId ?? null,
       actorEmail: null,
       target: userId,
       detail: { email_deleted: emailId },
@@ -188,13 +241,20 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
   const users = await getUsers();
 
   const q = (searchParams?.q ?? "").trim().toLowerCase();
-  const roleFilter = (searchParams?.role ?? "all") as "all" | UserRole;
+  const roleFilterRaw = (searchParams?.role ?? "all") as SearchParams["role"];
+  const roleFilter = roleFilterRaw === "superadmin" || roleFilterRaw === "admin" || roleFilterRaw === "member" ? roleFilterRaw : "all";
   const editId = searchParams?.edit;
+
+  // Actor (für UI-Disable)
+  const { userId: actorId } = auth();
+  const actor = actorId ? await (await clerkClient()).users.getUser(actorId) : null;
+  const actorRole: UserRole = (actor?.publicMetadata?.role as UserRole) ?? "member";
+  const actorIsSuper = actorRole === "superadmin";
 
   const filtered = users.filter((u) => {
     const hay = `${u.email} ${u.username} ${u.firstName} ${u.lastName}`.toLowerCase();
     const matchesQuery = q === "" ? true : hay.includes(q);
-    const matchesRole = roleFilter === "all" ? true : u.role === roleFilter;
+    const matchesRole = roleFilter === "all" ? true : u.role === (roleFilter as UserRole);
     return matchesQuery && matchesRole;
   });
 
@@ -204,11 +264,13 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
       acc[u.role]++;
       return acc;
     },
-    { total: 0, admin: 0, member: 0 } as { total: number; admin: number; member: number }
+    { total: 0, admin: 0, member: 0, superadmin: 0 } as { total: number; admin: number; member: number; superadmin: number }
   );
 
   const editUser = editId ? await getOneUser(editId) : null;
-  const allRoles: UserRole[] = ["member", "admin"];
+
+  // Rollenliste für Select – „superadmin“ nur wählbar, wenn Actor Superadmin ist
+  const allRoles: UserRole[] = actorIsSuper ? ["member", "admin", "superadmin"] : ["member", "admin"];
 
   return (
     <RoleGate routeKey="admin/users">
@@ -217,11 +279,12 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
           <div>
             <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Benutzer & Rollen</h2>
             <p className="text-zinc-400 text-sm leading-relaxed">
-              Suche, bearbeite Profil, verwalte E-Mails (Verifizierung/Primär).
+              Suche, bearbeite Profil, verwalte E-Mails (Verifizierung/Primär). Rollenänderungen sind nur Superadmins erlaubt.
             </p>
           </div>
           <div className="text-[11px] text-zinc-500">
             <div>Gesamt: {counts.total}</div>
+            <div>superadmin: {counts.superadmin}</div>
             <div>admin: {counts.admin}</div>
             <div>member: {counts.member}</div>
           </div>
@@ -248,6 +311,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
               <option value="all">alle</option>
               <option value="member">member</option>
               <option value="admin">admin</option>
+              <option value="superadmin">superadmin</option>
             </select>
           </div>
           <div className="sm:col-span-3 flex gap-2">
@@ -276,41 +340,56 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800">
-              {filtered.map((u) => (
-                <tr key={u.id}>
-                  <td className="px-3 py-2 text-zinc-300 text-xs">{u.email || "—"}</td>
-                  <td className="px-3 py-2 text-zinc-300 text-xs">
-                    {(u.firstName || u.lastName) ? `${u.firstName} ${u.lastName}`.trim() : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-zinc-300 text-xs">{u.username || "—"}</td>
-                  <td className="px-3 py-2 text-zinc-300 text-xs">{u.role}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <form action={updateRole} className="flex items-center gap-2">
-                        <input type="hidden" name="userId" value={u.id} />
-                        <select
-                          name="role"
-                          defaultValue={u.role}
-                          className="rounded-lg bg-zinc-900 border border-zinc-700 text-xs px-2 py-1 text-zinc-100"
-                        >
-                          <option value="member">member</option>
-                          <option value="admin">admin</option>
-                        </select>
-                        <button className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-1 hover:bg-zinc-800/60">
-                          Speichern
-                        </button>
-                      </form>
+              {filtered.map((u) => {
+                const isProtectedSuper = u.role === "superadmin" && !actorIsSuper;
+                return (
+                  <tr key={u.id}>
+                    <td className="px-3 py-2 text-zinc-300 text-xs">{u.email || "—"}</td>
+                    <td className="px-3 py-2 text-zinc-300 text-xs">
+                      {(u.firstName || u.lastName) ? `${u.firstName} ${u.lastName}`.trim() : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-zinc-300 text-xs">{u.username || "—"}</td>
+                    <td className="px-3 py-2 text-zinc-300 text-xs">
+                      {u.role}
+                      {u.role === "superadmin" && (
+                        <span className="ml-2 rounded border border-amber-600 text-amber-300 px-2 py-0.5 text-[10px]">
+                          geschützt
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <form action={updateRole} className="flex items-center gap-2">
+                          <input type="hidden" name="userId" value={u.id} />
+                          <select
+                            name="role"
+                            defaultValue={u.role}
+                            disabled={!actorIsSuper || isProtectedSuper}
+                            className="rounded-lg bg-zinc-900 border border-zinc-700 text-xs px-2 py-1 text-zinc-100 disabled:opacity-50"
+                          >
+                            {allRoles.map((r) => (
+                              <option key={r} value={r}>{r}</option>
+                            ))}
+                          </select>
+                          <button
+                            disabled={!actorIsSuper || isProtectedSuper}
+                            className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-1 hover:bg-zinc-800/60 disabled:opacity-50"
+                          >
+                            Speichern
+                          </button>
+                        </form>
 
-                      <Link
-                        href={`/admin/users?${new URLSearchParams({ q, role: roleFilter, edit: u.id }).toString()}`}
-                        className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-1 hover:bg-zinc-800/60"
-                      >
-                        Bearbeiten
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        <Link
+                          href={`/admin/users?${new URLSearchParams({ q, role: roleFilter, edit: u.id }).toString()}`}
+                          className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-1 hover:bg-zinc-800/60"
+                        >
+                          Bearbeiten
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
 
               {filtered.length === 0 && (
                 <tr>
@@ -331,7 +410,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
           <div className="relative mx-auto mt-24 w-full max-w-lg card p-0 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
               <div className="text-sm font-semibold text-zinc-100">Benutzer bearbeiten</div>
-              {/* Schließen per Link (kein onClick nötig) */}
+              {/* Schließen per Link */}
               <a
                 href={`/admin/users?${new URLSearchParams(
                   Object.fromEntries(
@@ -382,11 +461,16 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                   <select
                     name="role"
                     defaultValue={editUser.role}
-                    className="mt-1 rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+                    disabled={!actorIsSuper || (editUser.role === "superadmin" && !actorIsSuper)}
+                    className="mt-1 rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 disabled:opacity-50"
                   >
-                    <option value="member">member</option>
-                    <option value="admin">admin</option>
+                    {allRoles.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
                   </select>
+                  {editUser.role === "superadmin" && !actorIsSuper && (
+                    <div className="text-[11px] text-amber-400 mt-1">Superadmin ist geschützt.</div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-2">
@@ -406,7 +490,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                 </div>
               </form>
 
-              {/* E-Mail-Adressen verwalten */}
+              {/* E-Mail-Adressen verwalten (unverändert) */}
               <div className="border-t border-zinc-800 pt-4">
                 <div className="text-sm font-semibold text-zinc-100 mb-2">E-Mail-Adressen</div>
 
@@ -442,6 +526,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                               "use server";
                               const emailId = fd.get("emailId") as string;
                               if (!emailId) return;
+                              const { clerkPrepareEmailVerification } = await import("@/lib/clerk-rest");
                               await clerkPrepareEmailVerification(emailId);
                               revalidatePath("/admin/users");
                             }}>
@@ -466,7 +551,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                             <form action={deleteEmailAction}>
                               <input type="hidden" name="userId" value={editUser.id} />
                               <input type="hidden" name="emailId" value={e.id} />
-                              <button className="rounded-lg border border-red-700 text-red-300 text-xs font-medium px-3 py-1 hover:bg-red-900/30">
+                              <button className="rounded-lg border border-red-700 text-red-300 text-xs font-medium px-2 py-1 hover:bg-red-900/30">
                                 Entfernen
                               </button>
                             </form>
