@@ -19,7 +19,12 @@ export const AUDIT_ACTIONS = [
   // Files
   "file_upload",
   "file_delete",
-  "file_download", // optional, rein informativ
+  "file_download",
+  "file_share_create",
+  "file_share_revoke",
+  "file_share_access",
+  "file_share_access_denied",
+
 
   // Journal
   "journal_create",
