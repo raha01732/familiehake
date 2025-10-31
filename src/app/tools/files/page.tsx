@@ -447,11 +447,10 @@ async function revokeShareAction(formData: FormData) {
 export default async function FilesPage({ searchParams }: { searchParams?: { folder?: string } }) {
   const { userId } = auth();
   if (!userId) {
-    return (
-      <RoleGate routeKey="tools/files">
-        <div className="card p-6">Bitte anmelden.</div>
-      </RoleGate>
-    );
+    return RoleGate({
+      routeKey: "tools/files",
+      children: <div className="card p-6">Bitte anmelden.</div>,
+    });
   }
 
   const currentFolderId = (searchParams?.folder as string) || null;
@@ -804,7 +803,8 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
             )}
           </div>
         </div>
-      </section>
-    </RoleGate>
+    </section>
   );
+
+  return RoleGate({ routeKey: "tools/files", children: content });
 }
