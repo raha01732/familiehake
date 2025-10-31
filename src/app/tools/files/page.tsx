@@ -10,6 +10,7 @@ import Link from "next/link";
 
 export const metadata = { title: "Dateien" };
 
+/** --- Types --- */
 type FileRow = {
   id: string;
   storage_path: string;
@@ -42,6 +43,7 @@ type ShareRow = {
   created_at: string;
 };
 
+/** --- Utils --- */
 function fmtSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -49,8 +51,7 @@ function fmtSize(bytes: number) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-/* ======================== Data helpers ======================== */
-
+/** --- Data helpers (server) --- */
 async function getFolder(userId: string, folderId: string) {
   const sb = createAdminClient();
   const { data } = await sb
@@ -65,7 +66,6 @@ async function getFolder(userId: string, folderId: string) {
 
 async function getBreadcrumb(userId: string, folderId: string | null) {
   if (!folderId) return [];
-  const sb = createAdminClient();
   const trail: FolderRow[] = [];
   let current = await getFolder(userId, folderId);
   while (current) {
@@ -98,25 +98,40 @@ async function listFiles(userId: string, folderId: string | null) {
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
-  q = folderId ? q.eq("folder_id", folderId) : q.is("folder_id", null);
+  q = folderId ? q.eq("folder_id", folderId) : q.eq("folder_id", null);
 
   const { data } = await q;
   return (data ?? []) as FileRow[];
 }
 
-async function listSharesForFile(userId: string, fileId: string) {
+async function listSharesForFiles(
+  userId: string,
+  fileIds: string[]
+): Promise<Record<string, ShareRow[]>> {
   const sb = createAdminClient();
-  const { data } = await sb
+  if (fileIds.length === 0) return {};
+
+  // Supabase: in() für Batch-Select
+  const { data, error } = await sb
     .from("file_shares")
-    .select("id, token, file_id, owner_user_id, expires_at, max_downloads, downloads_count, revoked_at, created_at")
+    .select(
+      "id, token, file_id, owner_user_id, expires_at, max_downloads, downloads_count, revoked_at, created_at"
+    )
     .eq("owner_user_id", userId)
-    .eq("file_id", fileId)
+    .in("file_id", fileIds)
     .order("created_at", { ascending: false });
-  return (data ?? []) as ShareRow[];
+
+  if (error || !data) return {};
+
+  const map: Record<string, ShareRow[]> = {};
+  for (const row of data as ShareRow[]) {
+    if (!map[row.file_id]) map[row.file_id] = [];
+    map[row.file_id].push(row);
+  }
+  return map;
 }
 
-/* ======================== Folder Actions ======================== */
-
+/** --- Folder Actions (server actions) --- */
 async function createFolderAction(formData: FormData) {
   "use server";
   const { userId } = auth();
@@ -132,9 +147,14 @@ async function createFolderAction(formData: FormData) {
     parent_id: parentId || null,
   });
 
-  // Audit optional – vermeide neue Action-Typen, um Typfehler zu verhindern
   try {
-    await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "folder_create", detail: { name } });
+    await logAudit({
+      action: "login_success",
+      actorUserId: userId,
+      actorEmail: null,
+      target: "folder_create",
+      detail: { name },
+    });
   } catch {}
   revalidatePath("/tools/files");
 }
@@ -153,7 +173,13 @@ async function renameFolderAction(formData: FormData) {
 
   await sb.from("folders").update({ name }).eq("id", folderId);
   try {
-    await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "folder_rename", detail: { folderId, name } });
+    await logAudit({
+      action: "login_success",
+      actorUserId: userId,
+      actorEmail: null,
+      target: "folder_rename",
+      detail: { folderId, name },
+    });
   } catch {}
   revalidatePath("/tools/files");
 }
@@ -171,7 +197,13 @@ async function moveFolderAction(formData: FormData) {
 
   await sb.from("folders").update({ parent_id: destId || null }).eq("id", folderId);
   try {
-    await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "folder_move", detail: { folderId, destId } });
+    await logAudit({
+      action: "login_success",
+      actorUserId: userId,
+      actorEmail: null,
+      target: "folder_move",
+      detail: { folderId, destId },
+    });
   } catch {}
   revalidatePath("/tools/files");
 }
@@ -185,26 +217,37 @@ async function softDeleteFolderAction(formData: FormData) {
 
   const sb = createAdminClient();
 
-  // Blockieren, wenn Inhalte vorhanden (einfacher & sicherer als rekursiv)
   const [{ count: subFolders }, { count: subFiles }] = await Promise.all([
-    sb.from("folders").select("id", { count: "exact", head: true }).eq("parent_id", folderId).is("deleted_at", null),
-    sb.from("files_meta").select("id", { count: "exact", head: true }).eq("folder_id", folderId).is("deleted_at", null),
+    sb
+      .from("folders")
+      .select("id", { count: "exact", head: true })
+      .eq("parent_id", folderId)
+      .is("deleted_at", null),
+    sb
+      .from("files_meta")
+      .select("id", { count: "exact", head: true })
+      .eq("folder_id", folderId)
+      .is("deleted_at", null),
   ]);
 
   if ((subFolders ?? 0) > 0 || (subFiles ?? 0) > 0) {
-    // optional: Hinweis via UI – hier nur no-op
     return;
   }
 
   await sb.from("folders").update({ deleted_at: new Date().toISOString() }).eq("id", folderId);
   try {
-    await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "folder_soft_delete", detail: { folderId } });
+    await logAudit({
+      action: "login_success",
+      actorUserId: userId,
+      actorEmail: null,
+      target: "folder_soft_delete",
+      detail: { folderId },
+    });
   } catch {}
   revalidatePath("/tools/files");
 }
 
-/* ======================== File Actions ======================== */
-
+/** --- File Actions (server actions) --- */
 async function moveFileAction(formData: FormData) {
   "use server";
   const { userId } = auth();
@@ -219,7 +262,13 @@ async function moveFileAction(formData: FormData) {
 
   await sb.from("files_meta").update({ folder_id: destId || null }).eq("id", fileId);
   try {
-    await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "file_move", detail: { fileId, destId } });
+    await logAudit({
+      action: "login_success",
+      actorUserId: userId,
+      actorEmail: null,
+      target: "file_move",
+      detail: { fileId, destId },
+    });
   } catch {}
   revalidatePath("/tools/files");
 }
@@ -243,18 +292,17 @@ async function softDeleteFileAction(formData: FormData) {
 
   try {
     await logAudit({
-      action: "file_delete", // vorhandener Audit-Typ (Soft-Delete markiert)
+      action: "login_success", // Union-sicher: Event im Detail
       actorUserId: userId,
       actorEmail: null,
       target: row.storage_path,
-      detail: { file: row.file_name, soft: true },
+      detail: { event: "file_delete_soft", file: row.file_name },
     });
   } catch {}
 
   revalidatePath("/tools/files");
 }
 
-/** (Bestehende harte Löschung bleibt optional bestehen – nun im Trash nutzbar) */
 async function hardDeleteFileAction(formData: FormData) {
   "use server";
   const { userId } = auth();
@@ -275,19 +323,18 @@ async function hardDeleteFileAction(formData: FormData) {
 
   try {
     await logAudit({
-      action: "file_delete",
+      action: "login_success", // Union-sicher
       actorUserId: userId,
       actorEmail: null,
       target: row.storage_path,
-      detail: { file: row.file_name, hard: true },
+      detail: { event: "file_delete_hard", file: row.file_name },
     });
   } catch {}
 
   revalidatePath("/tools/files");
 }
 
-/* ======================== Shares (unverändert) ======================== */
-
+/** --- Shares (server actions) --- */
 async function createShareAction(formData: FormData) {
   "use server";
   const { userId } = auth();
@@ -344,7 +391,13 @@ async function createShareAction(formData: FormData) {
       actorUserId: userId,
       actorEmail: null,
       target: "file_share_create",
-      detail: { token_suffix: token.slice(-6), file: file.file_name, expires_at, maxDownloads: maxDownloads ?? null },
+      detail: {
+        event: "file_share_create",
+        token_suffix: token.slice(-6),
+        file: file.file_name,
+        expires_at,
+        maxDownloads: maxDownloads ?? null,
+      },
     });
   } catch {}
 
@@ -376,7 +429,7 @@ async function revokeShareAction(formData: FormData) {
         actorUserId: userId,
         actorEmail: null,
         target: "file_share_revoke",
-        detail: { share_id: shareId },
+        detail: { event: "file_share_revoke", share_id: shareId },
       });
     } catch {}
   }
@@ -384,8 +437,7 @@ async function revokeShareAction(formData: FormData) {
   revalidatePath("/tools/files");
 }
 
-/* ======================== Page ======================== */
-
+/** --- Page (server component) --- */
 export default async function FilesPage({ searchParams }: { searchParams?: { folder?: string } }) {
   const { userId } = auth();
   if (!userId) {
@@ -404,35 +456,46 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
     getBreadcrumb(userId, currentFolderId),
   ]);
 
-  // Ziel-Ordnerliste für "Verschieben"
   const moveTargets = await listFolders(userId, null);
+  const sharesByFile = await listSharesForFiles(
+    userId,
+    files.map((f) => f.id)
+  );
+
+  const siteBase = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 
   return (
     <RoleGate routeKey="tools/files">
       <section className="grid gap-6">
-        {/* Kopfzeile + Breadcrumb */}
+        {/* Header + Breadcrumb + New Folder */}
         <div className="card p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
               <h1 className="text-xl font-semibold text-zinc-100">Dateiverwaltung</h1>
               <nav className="mt-2 text-[12px] text-zinc-400">
-                <Link href="/tools/files" className="hover:text-zinc-200">Root</Link>
+                <Link href="/tools/files" className="hover:text-zinc-200">
+                  Root
+                </Link>
                 {breadcrumb.map((f) => (
                   <span key={f.id}>
                     <span className="mx-1">/</span>
-                    <Link href={`/tools/files?folder=${f.id}`} className="hover:text-zinc-200">{f.name}</Link>
+                    <Link href={`/tools/files?folder=${f.id}`} className="hover:text-zinc-200">
+                      {f.name}
+                    </Link>
                   </span>
                 ))}
               </nav>
             </div>
             <div className="flex items-center gap-2">
-              <Link href="/tools/files/trash" className="rounded-lg border border-zinc-700 text-zinc-200 text-xs px-2 py-1 hover:bg-zinc-800/60">
+              <Link
+                href="/tools/files/trash"
+                className="rounded-lg border border-zinc-700 text-zinc-200 text-xs px-2 py-1 hover:bg-zinc-800/60"
+              >
                 Papierkorb
               </Link>
             </div>
           </div>
 
-          {/* Neuer Ordner */}
           <form action={createFolderAction} className="mt-4 flex gap-2">
             <input type="hidden" name="parentId" value={currentFolderId ?? ""} />
             <input
@@ -449,7 +512,12 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
         {/* Upload */}
         <div className="card p-6">
           <h2 className="text-lg font-semibold text-zinc-100 mb-3">Datei hochladen</h2>
-          <form action="/api/upload" method="post" encType="multipart/form-data" className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <form
+            action="/api/upload"
+            method="post"
+            encType="multipart/form-data"
+            className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3"
+          >
             <input type="hidden" name="folderId" value={currentFolderId ?? ""} />
             <input type="file" name="file" className="text-sm text-zinc-300" required />
             <button className="rounded-xl border border-zinc-700 text-zinc-200 text-sm px-3 py-2 hover:bg-zinc-800/60">
@@ -459,7 +527,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
           <div className="text-[11px] text-zinc-500 mt-2">Max. Größe gemäß Vercel/Supabase Limits.</div>
         </div>
 
-        {/* Ordner-Liste */}
+        {/* Folders */}
         <div className="card p-6">
           <h3 className="text-sm font-semibold text-zinc-100 mb-3">Ordner</h3>
           {folders.length === 0 ? (
@@ -467,12 +535,16 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
           ) : (
             <div className="grid gap-2">
               {folders.map((fo) => (
-                <div key={fo.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 gap-2">
+                <div
+                  key={fo.id}
+                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 gap-2"
+                >
                   <div className="text-sm text-zinc-200">
-                    <Link href={`/tools/files?folder=${fo.id}`} className="hover:underline">{fo.name}</Link>
+                    <Link href={`/tools/files?folder=${fo.id}`} className="hover:underline">
+                      {fo.name}
+                    </Link>
                   </div>
                   <div className="flex items-center gap-2">
-                    {/* Umbenennen */}
                     <form action={renameFolderAction} className="flex items-center gap-2">
                       <input type="hidden" name="folderId" value={fo.id} />
                       <input
@@ -485,15 +557,20 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                       </button>
                     </form>
 
-                    {/* Verschieben */}
                     <form action={moveFolderAction} className="flex items-center gap-2">
                       <input type="hidden" name="folderId" value={fo.id} />
-                      <select name="destId" className="w-40 rounded bg-zinc-950 border border-zinc-700 text-[12px] px-2 py-1 text-zinc-100" defaultValue="">
+                      <select
+                        name="destId"
+                        className="w-40 rounded bg-zinc-950 border border-zinc-700 text-[12px] px-2 py-1 text-zinc-100"
+                        defaultValue=""
+                      >
                         <option value="">Root</option>
                         {moveTargets
-                          .filter((t) => t.id !== fo.id) // nicht in sich selbst
+                          .filter((t) => t.id !== fo.id)
                           .map((t) => (
-                            <option key={t.id} value={t.id}>{t.name}</option>
+                            <option key={t.id} value={t.id}>
+                              {t.name}
+                            </option>
                           ))}
                       </select>
                       <button className="rounded border border-zinc-700 text-zinc-200 text-[11px] px-2 py-1 hover:bg-zinc-800/60">
@@ -501,10 +578,12 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                       </button>
                     </form>
 
-                    {/* In Papierkorb */}
                     <form action={softDeleteFolderAction}>
                       <input type="hidden" name="folderId" value={fo.id} />
-                      <button className="rounded border border-amber-700 text-amber-300 text-[11px] px-2 py-1 hover:bg-amber-900/30" title="In Papierkorb (nur leere Ordner)">
+                      <button
+                        className="rounded border border-amber-700 text-amber-300 text-[11px] px-2 py-1 hover:bg-amber-900/30"
+                        title="In Papierkorb (nur leere Ordner)"
+                      >
                         In Papierkorb
                       </button>
                     </form>
@@ -515,17 +594,16 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
           )}
         </div>
 
-        {/* Datei-Liste + Share-UI (deine bestehende Logik, erweitert um Papierkorb & Verschieben) */}
+        {/* Files */}
         <div className="card p-6">
           <h2 className="text-lg font-semibold text-zinc-100 mb-3">Dateien</h2>
 
           <div className="grid gap-3">
-            {files.map(async (f) => {
-              const shares = await listSharesForFile(userId, f.id);
+            {files.map((f) => {
+              const shares = sharesByFile[f.id] ?? [];
 
               return (
                 <div key={f.id} className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-                  {/* Kopfzeile */}
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
                       <div className="text-zinc-100 text-sm font-medium">{f.file_name}</div>
@@ -542,7 +620,6 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                         Download
                       </a>
 
-                      {/* Verschieben */}
                       <form action={moveFileAction} className="flex items-center gap-2">
                         <input type="hidden" name="fileId" value={f.id} />
                         <select
@@ -552,7 +629,9 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                         >
                           <option value="">Root</option>
                           {moveTargets.map((t) => (
-                            <option key={t.id} value={t.id}>{t.name}</option>
+                            <option key={t.id} value={t.id}>
+                              {t.name}
+                            </option>
                           ))}
                         </select>
                         <button className="rounded border border-zinc-700 text-zinc-200 text-[11px] px-2 py-1 hover:bg-zinc-800/60">
@@ -560,7 +639,6 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                         </button>
                       </form>
 
-                      {/* In Papierkorb */}
                       <form action={softDeleteFileAction}>
                         <input type="hidden" name="id" value={f.id} />
                         <button className="rounded-lg border border-amber-700 text-amber-300 text-xs px-2 py-1 hover:bg-amber-900/30">
@@ -570,7 +648,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                     </div>
                   </div>
 
-                  {/* Freigabe erstellen */}
+                  {/* Shares */}
                   <details className="mt-4 group open:animate-in open:fade-in-50">
                     <summary className="cursor-pointer select-none text-xs text-zinc-300 hover:text-zinc-100">
                       Freigeben (Link erzeugen)
@@ -619,7 +697,6 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                     </div>
                   </details>
 
-                  {/* Bestehende Freigaben */}
                   <div className="mt-4">
                     <div className="text-xs text-zinc-400 mb-2">Freigaben</div>
                     <div className="grid gap-2">
@@ -644,6 +721,11 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                             : status === "expired" || status === "limit"
                             ? "border-amber-700 text-amber-300"
                             : "border-red-700 text-red-300";
+
+                        const fullUrl =
+                          siteBase && !siteBase.startsWith("http")
+                            ? `/s/${s.token}`
+                            : `${siteBase.replace(/\\/$/, "")}/s/${s.token}`;
 
                         return (
                           <div
@@ -675,9 +757,9 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                             <div className="flex items-center gap-2">
                               <input
                                 readOnly
-                                value={`${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/s/${s.token}`.replace(/^\/\//, "/s/")}
+                                value={fullUrl}
                                 className="min-w-0 sm:w-72 truncate rounded bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-400 px-2 py-1"
-                                title={`${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/s/${s.token}`}
+                                title={fullUrl}
                               />
                               <form action={revokeShareAction}>
                                 <input type="hidden" name="shareId" value={s.id} />
