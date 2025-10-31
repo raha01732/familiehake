@@ -76,7 +76,13 @@ export async function POST(req: Request) {
     actorUserId: userId,
     actorEmail: null,
     target: file.id,
-    detail: { share_id: data.id, token_suffix: token.slice(-6), expires_at, maxDownloads: maxDownloads ?? null },
+    detail: {
+      share_id: data.id,
+      token_suffix: token.slice(-6),
+      expires_at,
+      maxDownloads: maxDownloads ?? null,
+      actor_role: role,
+    },
   });
 
   // Public-URL zum Teilen

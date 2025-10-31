@@ -8,5 +8,10 @@ export const ACCESS_MAP: Record<string, Array<UserRole>> = {
   admin: ["admin"],
   "admin/users": ["admin"],
   settings: ["admin"],
-  monitoring: ["admin"]
+  monitoring: ["admin"],
+  tools: ["member", "admin"],
+  "tools/files": ["member", "admin"],
+  "tools/journal": ["member", "admin"],
+  "tools/storage": ["admin"],
+  "tools/system": ["admin"],
 };
