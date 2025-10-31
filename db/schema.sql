@@ -10,5 +10,10 @@ insert into tools_access (route, roles) values
   ('admin', array['admin']),
   ('admin/users', array['admin']),
   ('settings', array['admin']),
-  ('monitoring', array['admin'])
+  ('monitoring', array['admin']),
+  ('tools', array['member','admin']),
+  ('tools/files', array['member','admin']),
+  ('tools/journal', array['member','admin']),
+  ('tools/storage', array['admin']),
+  ('tools/system', array['admin'])
 on conflict do nothing;
