@@ -51,7 +51,8 @@ function fmtSize(bytes: number) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-/** --- Data helpers (server) --- */
+/* ======================== Data helpers ======================== */
+
 async function getFolder(userId: string, folderId: string, sb?: AdminClient) {
   const client = sb ?? createAdminClient();
   const { data } = await client
@@ -738,7 +739,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                         const fullUrl =
                           siteBase && !siteBase.startsWith("http")
                             ? `/s/${s.token}`
-                            : `${siteBase.replace(/\\/$/, "")}/s/${s.token}`;
+                            : `${siteBase.replace(/\/$/, "")}/s/${s.token}`;
 
                         return (
                           <div
@@ -796,6 +797,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                 </div>
               );
             })}
+
             {files.length === 0 && (
               <div className="text-[12px] text-zinc-500">Keine Dateien im aktuellen Ordner.</div>
             )}
