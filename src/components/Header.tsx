@@ -14,6 +14,7 @@ export function Header() {
     pathname === "/admin" ||
     pathname.startsWith("/admin/") ||
     pathname === "/monitoring";
+  const toolsActive = pathname === "/tools" || pathname.startsWith("/tools/");
 
   return (
     <header className="w-full border-b border-zinc-800 bg-zinc-950/70 backdrop-blur-sm">
@@ -27,6 +28,12 @@ export function Header() {
         <nav className="flex items-center gap-6 text-sm">
           <Link href="/dashboard" className={isActive("/dashboard")}>
             Dashboard
+          </Link>
+          <Link
+            href="/tools"
+            className={toolsActive ? "text-white font-semibold" : "text-zinc-400 hover:text-white"}
+          >
+            Tools
           </Link>
           <Link
             href="/admin"
