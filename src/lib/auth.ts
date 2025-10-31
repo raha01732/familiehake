@@ -1,9 +1,9 @@
+// src/lib/auth.ts
 import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export type AppRole = "member" | "admin" | "superadmin";
 
-// klare Rangfolge
 export const ROLE_ORDER: AppRole[] = ["member", "admin", "superadmin"];
 export const ROLE_RANK: Record<AppRole, number> = {
   member: 0,
@@ -11,9 +11,18 @@ export const ROLE_RANK: Record<AppRole, number> = {
   superadmin: 2,
 };
 
-export async function getSessionInfo() {
+export type SessionInfo = {
+  signedIn: boolean;
+  userId: string | null;
+  email: string | null;
+  role: AppRole;
+  isSuperAdmin: boolean;
+};
+
+/** Session + Rolle aus Clerk holen */
+export async function getSessionInfo(): Promise<SessionInfo> {
   const user = await currentUser();
-  const role = (user?.publicMetadata?.role as AppRole) ?? "member";
+  const role = ((user?.publicMetadata?.role as string) ?? "member") as AppRole;
   return {
     signedIn: !!user,
     userId: user?.id ?? null,
@@ -23,16 +32,49 @@ export async function getSessionInfo() {
   };
 }
 
-// Zugriff aus DB (tools_access), aber Superadmin immer erlauben
+/**
+ * Prüft Zugriff auf einen Route-Key über DB (tools_access.roles).
+ * Superadmin hat immer Zugriff.
+ */
 export async function canAccess(routeKey: string): Promise<boolean> {
-  const { signedIn, role } = await getSessionInfo();
+  const { signedIn, role, isSuperAdmin } = await getSessionInfo();
   if (!signedIn) return false;
-  if (role === "superadmin") return true;
+  if (isSuperAdmin) return true; // Bypass
 
   const sb = createAdminClient();
-  const { data } = await sb.from("tools_access").select("roles").eq("route", routeKey).single();
-  if (!data?.roles) return false;
+  const { data, error } = await sb
+    .from("tools_access")
+    .select("roles")
+    .eq("route", routeKey)
+    .single();
 
-  // roles ist string[] aus DB
-  return (data.roles as string[]).includes(role);
+  if (error || !data) return false;
+
+  // Rollenfeld robust parsen: erlaubt text[] ODER kommagetrennten String
+  const dbRoles: string[] = Array.isArray((data as any).roles)
+    ? ((data as any).roles as string[])
+    : typeof (data as any).roles === "string"
+    ? String((data as any).roles)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  return dbRoles.includes(role);
+}
+
+/**
+ * Wirft klar definierte Fehler-Codes, die dein RoleGate bereits behandelt:
+ *  - "UNAUTHORIZED_NOT_LOGGED_IN"
+ *  - "FORBIDDEN_ROLE"
+ */
+export async function assertAccessOrThrow(routeKey: string): Promise<void> {
+  const { signedIn } = await getSessionInfo();
+  if (!signedIn) {
+    throw new Error("UNAUTHORIZED_NOT_LOGGED_IN");
+  }
+  const allowed = await canAccess(routeKey);
+  if (!allowed) {
+    throw new Error("FORBIDDEN_ROLE");
+  }
 }
