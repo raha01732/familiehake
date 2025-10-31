@@ -1,5 +1,3 @@
-/**src/app/tools/files/page.tsx**/
-
 import { RoleGate } from "@/components/RoleGate";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
@@ -10,8 +8,9 @@ import Link from "next/link";
 
 export const metadata = { title: "Dateien" };
 
+/** --- Types --- */
 type AdminClient = ReturnType<typeof createAdminClient>;
-                              
+
 type FileRow = {
   id: string;
   storage_path: string;
@@ -52,8 +51,7 @@ function fmtSize(bytes: number) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-/* ======================== Data helpers ======================== */
-
+/** --- Data helpers (server) --- */
 async function getFolder(userId: string, folderId: string, sb?: AdminClient) {
   const client = sb ?? createAdminClient();
   const { data } = await client
@@ -447,10 +445,11 @@ async function revokeShareAction(formData: FormData) {
 export default async function FilesPage({ searchParams }: { searchParams?: { folder?: string } }) {
   const { userId } = auth();
   if (!userId) {
-    return RoleGate({
-      routeKey: "tools/files",
-      children: <div className="card p-6">Bitte anmelden.</div>,
-    });
+    return (
+      <RoleGate routeKey="tools/files">
+        <div className="card p-6">Bitte anmelden.</div>
+      </RoleGate>
+    );
   }
 
   const currentFolderId = (searchParams?.folder as string) || null;
@@ -797,14 +796,12 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                 </div>
               );
             })}
-
             {files.length === 0 && (
               <div className="text-[12px] text-zinc-500">Keine Dateien im aktuellen Ordner.</div>
             )}
           </div>
         </div>
-    </section>
+      </section>
+    </RoleGate>
   );
-
-  return RoleGate({ routeKey: "tools/files", children: content });
 }
