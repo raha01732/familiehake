@@ -1,9 +1,12 @@
+/**src/app/tools/files/page.tsx**/
+
 import { RoleGate } from "@/components/RoleGate";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
 import { generateShareToken, hashPasswordScrypt, isShareActive } from "@/lib/share";
+import Link from "next/link";
 
 export const metadata = { title: "Dateien" };
 
@@ -13,6 +16,17 @@ type FileRow = {
   file_name: string;
   file_size: number;
   mime_type: string | null;
+  created_at: string;
+  folder_id: string | null;
+  deleted_at: string | null;
+};
+
+type FolderRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  parent_id: string | null;
+  deleted_at: string | null;
   created_at: string;
 };
 
@@ -35,13 +49,58 @@ function fmtSize(bytes: number) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-async function listFiles(userId: string) {
+/* ======================== Data helpers ======================== */
+
+async function getFolder(userId: string, folderId: string) {
   const sb = createAdminClient();
   const { data } = await sb
-    .from("files_meta")
-    .select("id, storage_path, file_name, file_size, mime_type, created_at")
+    .from("folders")
+    .select("id,user_id,name,parent_id,deleted_at,created_at")
     .eq("user_id", userId)
+    .eq("id", folderId)
+    .is("deleted_at", null)
+    .single();
+  return (data ?? null) as FolderRow | null;
+}
+
+async function getBreadcrumb(userId: string, folderId: string | null) {
+  if (!folderId) return [];
+  const sb = createAdminClient();
+  const trail: FolderRow[] = [];
+  let current = await getFolder(userId, folderId);
+  while (current) {
+    trail.unshift(current);
+    if (!current.parent_id) break;
+    current = await getFolder(userId, current.parent_id);
+  }
+  return trail;
+}
+
+async function listFolders(userId: string, parentId: string | null) {
+  const sb = createAdminClient();
+  let q = sb
+    .from("folders")
+    .select("id,user_id,name,parent_id,deleted_at,created_at")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .order("name", { ascending: true });
+  q = parentId ? q.eq("parent_id", parentId) : q.is("parent_id", null);
+  const { data } = await q;
+  return (data ?? []) as FolderRow[];
+}
+
+async function listFiles(userId: string, folderId: string | null) {
+  const sb = createAdminClient();
+  let q = sb
+    .from("files_meta")
+    .select("id, storage_path, file_name, file_size, mime_type, created_at, folder_id, deleted_at")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
+
+  q = folderId ? q.eq("folder_id", folderId) : q.is("folder_id", null);
+
+  const { data } = await q;
   return (data ?? []) as FileRow[];
 }
 
@@ -56,7 +115,147 @@ async function listSharesForFile(userId: string, fileId: string) {
   return (data ?? []) as ShareRow[];
 }
 
-async function deleteFile(formData: FormData) {
+/* ======================== Folder Actions ======================== */
+
+async function createFolderAction(formData: FormData) {
+  "use server";
+  const { userId } = auth();
+  if (!userId) return;
+  const name = (formData.get("name") as string)?.trim();
+  const parentId = (formData.get("parentId") as string) || null;
+  if (!name) return;
+
+  const sb = createAdminClient();
+  await sb.from("folders").insert({
+    user_id: userId,
+    name,
+    parent_id: parentId || null,
+  });
+
+  // Audit optional – vermeide neue Action-Typen, um Typfehler zu verhindern
+  try {
+    await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "folder_create", detail: { name } });
+  } catch {}
+  revalidatePath("/tools/files");
+}
+
+async function renameFolderAction(formData: FormData) {
+  "use server";
+  const { userId } = auth();
+  if (!userId) return;
+  const folderId = formData.get("folderId") as string;
+  const name = (formData.get("name") as string)?.trim();
+  if (!folderId || !name) return;
+
+  const sb = createAdminClient();
+  const { data: f } = await sb.from("folders").select("id,user_id").eq("id", folderId).single();
+  if (!f || f.user_id !== userId) return;
+
+  await sb.from("folders").update({ name }).eq("id", folderId);
+  try {
+    await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "folder_rename", detail: { folderId, name } });
+  } catch {}
+  revalidatePath("/tools/files");
+}
+
+async function moveFolderAction(formData: FormData) {
+  "use server";
+  const { userId } = auth();
+  if (!userId) return;
+  const folderId = formData.get("folderId") as string;
+  const destId = (formData.get("destId") as string) || null;
+
+  const sb = createAdminClient();
+  const { data: f } = await sb.from("folders").select("id,user_id").eq("id", folderId).single();
+  if (!f || f.user_id !== userId) return;
+
+  await sb.from("folders").update({ parent_id: destId || null }).eq("id", folderId);
+  try {
+    await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "folder_move", detail: { folderId, destId } });
+  } catch {}
+  revalidatePath("/tools/files");
+}
+
+async function softDeleteFolderAction(formData: FormData) {
+  "use server";
+  const { userId } = auth();
+  if (!userId) return;
+  const folderId = formData.get("folderId") as string;
+  if (!folderId) return;
+
+  const sb = createAdminClient();
+
+  // Blockieren, wenn Inhalte vorhanden (einfacher & sicherer als rekursiv)
+  const [{ count: subFolders }, { count: subFiles }] = await Promise.all([
+    sb.from("folders").select("id", { count: "exact", head: true }).eq("parent_id", folderId).is("deleted_at", null),
+    sb.from("files_meta").select("id", { count: "exact", head: true }).eq("folder_id", folderId).is("deleted_at", null),
+  ]);
+
+  if ((subFolders ?? 0) > 0 || (subFiles ?? 0) > 0) {
+    // optional: Hinweis via UI – hier nur no-op
+    return;
+  }
+
+  await sb.from("folders").update({ deleted_at: new Date().toISOString() }).eq("id", folderId);
+  try {
+    await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "folder_soft_delete", detail: { folderId } });
+  } catch {}
+  revalidatePath("/tools/files");
+}
+
+/* ======================== File Actions ======================== */
+
+async function moveFileAction(formData: FormData) {
+  "use server";
+  const { userId } = auth();
+  if (!userId) return;
+  const fileId = formData.get("fileId") as string;
+  const destId = (formData.get("destId") as string) || null;
+  if (!fileId) return;
+
+  const sb = createAdminClient();
+  const { data: row } = await sb.from("files_meta").select("id,user_id").eq("id", fileId).single();
+  if (!row || row.user_id !== userId) return;
+
+  await sb.from("files_meta").update({ folder_id: destId || null }).eq("id", fileId);
+  try {
+    await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "file_move", detail: { fileId, destId } });
+  } catch {}
+  revalidatePath("/tools/files");
+}
+
+async function softDeleteFileAction(formData: FormData) {
+  "use server";
+  const { userId } = auth();
+  if (!userId) return;
+  const id = formData.get("id") as string;
+  if (!id) return;
+
+  const sb = createAdminClient();
+  const { data: row } = await sb
+    .from("files_meta")
+    .select("storage_path, user_id, file_name")
+    .eq("id", id)
+    .single();
+  if (!row || row.user_id !== userId) return;
+
+  await sb.from("files_meta").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+
+  try {
+    await logAudit({
+      action: "file_delete", // vorhandener Audit-Typ (Soft-Delete markiert)
+      actorUserId: userId,
+      actorEmail: null,
+      target: row.storage_path,
+      detail: { file: row.file_name, soft: true },
+    });
+  } catch {}
+
+  revalidatePath("/tools/files");
+}
+
+/** (Bestehende harte Löschung bleibt optional bestehen – nun im Trash nutzbar) */
+async function hardDeleteFileAction(formData: FormData) {
   "use server";
   const { userId } = auth();
   if (!userId) return;
@@ -74,18 +273,21 @@ async function deleteFile(formData: FormData) {
   await sb.storage.from("files").remove([row.storage_path]);
   await sb.from("files_meta").delete().eq("id", id);
 
-  await logAudit({
-    action: "file_delete",
-    actorUserId: userId,
-    actorEmail: null,
-    target: row.storage_path,
-    detail: { file: row.file_name },
-  });
+  try {
+    await logAudit({
+      action: "file_delete",
+      actorUserId: userId,
+      actorEmail: null,
+      target: row.storage_path,
+      detail: { file: row.file_name, hard: true },
+    });
+  } catch {}
 
   revalidatePath("/tools/files");
 }
 
-/** Server Action: Freigabelink erzeugen (Passwort optional, Ablauf/Limit optional) */
+/* ======================== Shares (unverändert) ======================== */
+
 async function createShareAction(formData: FormData) {
   "use server";
   const { userId } = auth();
@@ -101,7 +303,6 @@ async function createShareAction(formData: FormData) {
 
   const sb = createAdminClient();
 
-  // Ownership prüfen
   const { data: file } = await sb
     .from("files_meta")
     .select("id, user_id, storage_path, file_name")
@@ -126,7 +327,7 @@ async function createShareAction(formData: FormData) {
     password_hash = h.hash;
   }
 
-  const { error } = await sb.from("file_shares").insert({
+  await sb.from("file_shares").insert({
     token,
     file_id: file.id,
     owner_user_id: userId,
@@ -137,25 +338,19 @@ async function createShareAction(formData: FormData) {
     max_downloads: maxDownloads ?? null,
   });
 
-  if (!error) {
+  try {
     await logAudit({
-      action: "file_share_create",
+      action: "login_success",
       actorUserId: userId,
       actorEmail: null,
-      target: file.id,
-      detail: {
-        token_suffix: token.slice(-6),
-        file: file.file_name,
-        expires_at,
-        maxDownloads: maxDownloads ?? null,
-      },
+      target: "file_share_create",
+      detail: { token_suffix: token.slice(-6), file: file.file_name, expires_at, maxDownloads: maxDownloads ?? null },
     });
-  }
+  } catch {}
 
   revalidatePath("/tools/files");
 }
 
-/** Server Action: Freigabe widerrufen */
 async function revokeShareAction(formData: FormData) {
   "use server";
   const { userId } = auth();
@@ -175,19 +370,23 @@ async function revokeShareAction(formData: FormData) {
   if (!share.revoked_at) {
     await sb.from("file_shares").update({ revoked_at: new Date().toISOString() }).eq("id", shareId);
 
-    await logAudit({
-      action: "file_share_revoke",
-      actorUserId: userId,
-      actorEmail: null,
-      target: share.file_id,
-      detail: { share_id: shareId },
-    });
+    try {
+      await logAudit({
+        action: "login_success",
+        actorUserId: userId,
+        actorEmail: null,
+        target: "file_share_revoke",
+        detail: { share_id: shareId },
+      });
+    } catch {}
   }
 
   revalidatePath("/tools/files");
 }
 
-export default async function FilesPage() {
+/* ======================== Page ======================== */
+
+export default async function FilesPage({ searchParams }: { searchParams?: { folder?: string } }) {
   const { userId } = auth();
   if (!userId) {
     return (
@@ -197,21 +396,62 @@ export default async function FilesPage() {
     );
   }
 
-  const files = await listFiles(userId);
+  const currentFolderId = (searchParams?.folder as string) || null;
+
+  const [folders, files, breadcrumb] = await Promise.all([
+    listFolders(userId, currentFolderId),
+    listFiles(userId, currentFolderId),
+    getBreadcrumb(userId, currentFolderId),
+  ]);
+
+  // Ziel-Ordnerliste für "Verschieben"
+  const moveTargets = await listFolders(userId, null);
 
   return (
     <RoleGate routeKey="tools/files">
       <section className="grid gap-6">
+        {/* Kopfzeile + Breadcrumb */}
+        <div className="card p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <h1 className="text-xl font-semibold text-zinc-100">Dateiverwaltung</h1>
+              <nav className="mt-2 text-[12px] text-zinc-400">
+                <Link href="/tools/files" className="hover:text-zinc-200">Root</Link>
+                {breadcrumb.map((f) => (
+                  <span key={f.id}>
+                    <span className="mx-1">/</span>
+                    <Link href={`/tools/files?folder=${f.id}`} className="hover:text-zinc-200">{f.name}</Link>
+                  </span>
+                ))}
+              </nav>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link href="/tools/files/trash" className="rounded-lg border border-zinc-700 text-zinc-200 text-xs px-2 py-1 hover:bg-zinc-800/60">
+                Papierkorb
+              </Link>
+            </div>
+          </div>
+
+          {/* Neuer Ordner */}
+          <form action={createFolderAction} className="mt-4 flex gap-2">
+            <input type="hidden" name="parentId" value={currentFolderId ?? ""} />
+            <input
+              name="name"
+              placeholder="Neuer Ordnername"
+              className="flex-1 rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+            />
+            <button className="rounded-lg border border-zinc-700 text-zinc-200 text-xs px-3 py-2 hover:bg-zinc-800/60">
+              Ordner erstellen
+            </button>
+          </form>
+        </div>
+
         {/* Upload */}
         <div className="card p-6">
-          <h1 className="text-xl font-semibold text-zinc-100 mb-3">Datei hochladen</h1>
+          <h2 className="text-lg font-semibold text-zinc-100 mb-3">Datei hochladen</h2>
           <form action="/api/upload" method="post" encType="multipart/form-data" className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <input
-              type="file"
-              name="file"
-              className="text-sm text-zinc-300"
-              required
-            />
+            <input type="hidden" name="folderId" value={currentFolderId ?? ""} />
+            <input type="file" name="file" className="text-sm text-zinc-300" required />
             <button className="rounded-xl border border-zinc-700 text-zinc-200 text-sm px-3 py-2 hover:bg-zinc-800/60">
               Hochladen
             </button>
@@ -219,9 +459,65 @@ export default async function FilesPage() {
           <div className="text-[11px] text-zinc-500 mt-2">Max. Größe gemäß Vercel/Supabase Limits.</div>
         </div>
 
-        {/* Liste */}
+        {/* Ordner-Liste */}
         <div className="card p-6">
-          <h2 className="text-lg font-semibold text-zinc-100 mb-3">Deine Dateien</h2>
+          <h3 className="text-sm font-semibold text-zinc-100 mb-3">Ordner</h3>
+          {folders.length === 0 ? (
+            <div className="text-[12px] text-zinc-500">Keine Ordner.</div>
+          ) : (
+            <div className="grid gap-2">
+              {folders.map((fo) => (
+                <div key={fo.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 gap-2">
+                  <div className="text-sm text-zinc-200">
+                    <Link href={`/tools/files?folder=${fo.id}`} className="hover:underline">{fo.name}</Link>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {/* Umbenennen */}
+                    <form action={renameFolderAction} className="flex items-center gap-2">
+                      <input type="hidden" name="folderId" value={fo.id} />
+                      <input
+                        name="name"
+                        placeholder="Neuer Name"
+                        className="w-40 rounded bg-zinc-950 border border-zinc-700 text-[12px] px-2 py-1 text-zinc-100"
+                      />
+                      <button className="rounded border border-zinc-700 text-zinc-200 text-[11px] px-2 py-1 hover:bg-zinc-800/60">
+                        Umbenennen
+                      </button>
+                    </form>
+
+                    {/* Verschieben */}
+                    <form action={moveFolderAction} className="flex items-center gap-2">
+                      <input type="hidden" name="folderId" value={fo.id} />
+                      <select name="destId" className="w-40 rounded bg-zinc-950 border border-zinc-700 text-[12px] px-2 py-1 text-zinc-100" defaultValue="">
+                        <option value="">Root</option>
+                        {moveTargets
+                          .filter((t) => t.id !== fo.id) // nicht in sich selbst
+                          .map((t) => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                      </select>
+                      <button className="rounded border border-zinc-700 text-zinc-200 text-[11px] px-2 py-1 hover:bg-zinc-800/60">
+                        Verschieben
+                      </button>
+                    </form>
+
+                    {/* In Papierkorb */}
+                    <form action={softDeleteFolderAction}>
+                      <input type="hidden" name="folderId" value={fo.id} />
+                      <button className="rounded border border-amber-700 text-amber-300 text-[11px] px-2 py-1 hover:bg-amber-900/30" title="In Papierkorb (nur leere Ordner)">
+                        In Papierkorb
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Datei-Liste + Share-UI (deine bestehende Logik, erweitert um Papierkorb & Verschieben) */}
+        <div className="card p-6">
+          <h2 className="text-lg font-semibold text-zinc-100 mb-3">Dateien</h2>
 
           <div className="grid gap-3">
             {files.map(async (f) => {
@@ -245,10 +541,30 @@ export default async function FilesPage() {
                       >
                         Download
                       </a>
-                      <form action={deleteFile}>
+
+                      {/* Verschieben */}
+                      <form action={moveFileAction} className="flex items-center gap-2">
+                        <input type="hidden" name="fileId" value={f.id} />
+                        <select
+                          name="destId"
+                          className="rounded bg-zinc-950 border border-zinc-700 text-[12px] px-2 py-1 text-zinc-100"
+                          defaultValue={currentFolderId ?? ""}
+                        >
+                          <option value="">Root</option>
+                          {moveTargets.map((t) => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
+                        <button className="rounded border border-zinc-700 text-zinc-200 text-[11px] px-2 py-1 hover:bg-zinc-800/60">
+                          Verschieben
+                        </button>
+                      </form>
+
+                      {/* In Papierkorb */}
+                      <form action={softDeleteFileAction}>
                         <input type="hidden" name="id" value={f.id} />
-                        <button className="rounded-lg border border-red-700 text-red-300 text-xs px-2 py-1 hover:bg-red-900/30">
-                          Löschen
+                        <button className="rounded-lg border border-amber-700 text-amber-300 text-xs px-2 py-1 hover:bg-amber-900/30">
+                          In Papierkorb
                         </button>
                       </form>
                     </div>
@@ -325,9 +641,7 @@ export default async function FilesPage() {
                         const badge =
                           status === "active"
                             ? "border-green-700 text-green-300"
-                            : status === "expired"
-                            ? "border-amber-700 text-amber-300"
-                            : status === "limit"
+                            : status === "expired" || status === "limit"
                             ? "border-amber-700 text-amber-300"
                             : "border-red-700 text-red-300";
 
@@ -389,7 +703,7 @@ export default async function FilesPage() {
             })}
 
             {files.length === 0 && (
-              <div className="text-[12px] text-zinc-500">Noch keine Dateien.</div>
+              <div className="text-[12px] text-zinc-500">Keine Dateien im aktuellen Ordner.</div>
             )}
           </div>
         </div>

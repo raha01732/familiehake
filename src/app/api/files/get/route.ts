@@ -1,3 +1,5 @@
+/**src/app/api/files/get/route.ts */
+
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
