@@ -10,12 +10,8 @@ import Link from "next/link";
 
 export const metadata = { title: "Dateien" };
 
-<<<<<<< HEAD
-/** --- Types --- */
-=======
 type AdminClient = ReturnType<typeof createAdminClient>;
-
->>>>>>> 710a00b6789cf8a9b1adfb7d3099a6fba25f9183
+                              
 type FileRow = {
   id: string;
   storage_path: string;
@@ -56,18 +52,11 @@ function fmtSize(bytes: number) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-<<<<<<< HEAD
-/** --- Data helpers (server) --- */
-async function getFolder(userId: string, folderId: string) {
-  const sb = createAdminClient();
-  const { data } = await sb
-=======
 /* ======================== Data helpers ======================== */
 
 async function getFolder(userId: string, folderId: string, sb?: AdminClient) {
   const client = sb ?? createAdminClient();
   const { data } = await client
->>>>>>> 710a00b6789cf8a9b1adfb7d3099a6fba25f9183
     .from("folders")
     .select("id,user_id,name,parent_id,deleted_at,created_at")
     .eq("user_id", userId)
@@ -317,10 +306,7 @@ async function softDeleteFileAction(formData: FormData) {
   revalidatePath("/tools/files");
 }
 
-<<<<<<< HEAD
-=======
 /** Endgültige Löschung direkt aus der Dateiliste (überspringt Papierkorb) */
->>>>>>> 710a00b6789cf8a9b1adfb7d3099a6fba25f9183
 async function hardDeleteFileAction(formData: FormData) {
   "use server";
   const { userId } = auth();

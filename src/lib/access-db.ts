@@ -7,7 +7,12 @@ const FALLBACK: Record<string, UserRole[]> = {
   admin: ["admin"],
   "admin/users": ["admin"],
   settings: ["admin"],
-  monitoring: ["admin"]
+  monitoring: ["admin"],
+  tools: ["member", "admin"],
+  "tools/files": ["member", "admin"],
+  "tools/journal": ["member", "admin"],
+  "tools/storage": ["admin"],
+  "tools/system": ["admin"],
 };
 
 export async function getAccessMapFromDb(): Promise<Record<string, UserRole[]>> {
