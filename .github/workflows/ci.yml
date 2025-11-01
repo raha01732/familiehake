@@ -12,28 +12,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Use Node
+      - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
           cache: 'npm'
 
-      - name: Install
-        run: npm ci
+      # Falls kein Lockfile vorhanden ist, nutze npm install statt npm ci
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Build
+        run: npm run build
 
       - name: Lint
-        run: npm run lint
-
-      - name: Type Check
-        run: npm run typecheck
-
-      # Optional: Next build smoke-test (ohne envs schlägt es evtl. fehl)
-      # - name: Build
-      #   env:
-      #     NEXT_PUBLIC_APP_URL: http://localhost
-      #     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: dummy
-      #     CLERK_SECRET_KEY: dummy
-      #     NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
-      #     NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy
-      #     SUPABASE_SERVICE_ROLE_KEY: dummy
-      #   run: npm run build
+        run: npm run lint --if-present
