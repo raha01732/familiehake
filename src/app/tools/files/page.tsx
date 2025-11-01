@@ -1,4 +1,4 @@
-/**tools/files/page.tsx */
+/**src/app/tools/files/page.tsx**/
 
 import { RoleGate } from "@/components/RoleGate";
 import { auth } from "@clerk/nextjs/server";
@@ -10,8 +10,12 @@ import Link from "next/link";
 
 export const metadata = { title: "Dateien" };
 
+<<<<<<< HEAD
+/** --- Types --- */
+=======
 type AdminClient = ReturnType<typeof createAdminClient>;
 
+>>>>>>> 710a00b6789cf8a9b1adfb7d3099a6fba25f9183
 type FileRow = {
   id: string;
   storage_path: string;
@@ -52,11 +56,18 @@ function fmtSize(bytes: number) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+<<<<<<< HEAD
+/** --- Data helpers (server) --- */
+async function getFolder(userId: string, folderId: string) {
+  const sb = createAdminClient();
+  const { data } = await sb
+=======
 /* ======================== Data helpers ======================== */
 
 async function getFolder(userId: string, folderId: string, sb?: AdminClient) {
   const client = sb ?? createAdminClient();
   const { data } = await client
+>>>>>>> 710a00b6789cf8a9b1adfb7d3099a6fba25f9183
     .from("folders")
     .select("id,user_id,name,parent_id,deleted_at,created_at")
     .eq("user_id", userId)
@@ -124,14 +135,7 @@ async function listSharesForFiles(
     .in("file_id", fileIds)
     .order("created_at", { ascending: false });
 
-async function listSharesByFile(userId: string, files: FileRow[]) {
-  const shareEntries = await Promise.all(
-    files.map(async (file) => [file.id, await listSharesForFile(userId, file.id)] as const)
-  );
-  return new Map<string, ShareRow[]>(shareEntries);
-}
-
-/* ======================== Folder Actions ======================== */
+  if (error || !data) return {};
 
   const map: Record<string, ShareRow[]> = {};
   for (const row of data as ShareRow[]) {
@@ -313,7 +317,10 @@ async function softDeleteFileAction(formData: FormData) {
   revalidatePath("/tools/files");
 }
 
+<<<<<<< HEAD
+=======
 /** Endgültige Löschung direkt aus der Dateiliste (überspringt Papierkorb) */
+>>>>>>> 710a00b6789cf8a9b1adfb7d3099a6fba25f9183
 async function hardDeleteFileAction(formData: FormData) {
   "use server";
   const { userId } = auth();
@@ -454,10 +461,11 @@ async function revokeShareAction(formData: FormData) {
 export default async function FilesPage({ searchParams }: { searchParams?: { folder?: string } }) {
   const { userId } = auth();
   if (!userId) {
-    return RoleGate({
-      routeKey: "tools/files",
-      children: <div className="card p-6">Bitte anmelden.</div>,
-    });
+    return (
+      <RoleGate routeKey="tools/files">
+        <div className="card p-6">Bitte anmelden.</div>
+      </RoleGate>
+    );
   }
 
   const currentFolderId = (searchParams?.folder as string) || null;
@@ -476,15 +484,10 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
 
   const siteBase = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 
-  
-  const siteBase = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
-
-  const sharesByFile = await listSharesByFile(userId, files);
-  const siteBaseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
-
-  const content = (
-    <section className="grid gap-6">
-        {/* Kopfzeile + Breadcrumb */}
+  return (
+    <RoleGate routeKey="tools/files">
+      <section className="grid gap-6">
+        {/* Header + Breadcrumb + New Folder */}
         <div className="card p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
@@ -617,7 +620,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
 
           <div className="grid gap-3">
             {files.map((f) => {
-              const shares = sharesByFile.get(f.id) ?? [];
+              const shares = sharesByFile[f.id] ?? [];
 
               return (
                 <div key={f.id} className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
@@ -748,7 +751,10 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                             ? "border-amber-700 text-amber-300"
                             : "border-red-700 text-red-300";
 
-                        const shareUrl = siteBaseUrl ? `${siteBaseUrl}/s/${s.token}` : `/s/${s.token}`;
+                        const fullUrl =
+                          siteBase && !siteBase.startsWith("http")
+                            ? `/s/${s.token}`
+                            : `${siteBase.replace(/\\/$/, "")}/s/${s.token}`;
 
                         return (
                           <div
@@ -780,9 +786,9 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                             <div className="flex items-center gap-2">
                               <input
                                 readOnly
-                                value={shareUrl}
+                                value={fullUrl}
                                 className="min-w-0 sm:w-72 truncate rounded bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-400 px-2 py-1"
-                                title={shareUrl}
+                                title={fullUrl}
                               />
                               <form action={revokeShareAction}>
                                 <input type="hidden" name="shareId" value={s.id} />
@@ -812,8 +818,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
             )}
           </div>
         </div>
-    </section>
+      </section>
+    </RoleGate>
   );
-
-  return RoleGate({ routeKey: "tools/files", children: content });
 }
