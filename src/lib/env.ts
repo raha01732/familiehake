@@ -12,6 +12,9 @@ const schema = z.object({
   SENTRY_ENVIRONMENT: z.string().optional(),
   PREVIEW_USER: z.string().optional(),
   PREVIEW_PASS: z.string().optional(),
+  SENTRY_API_TOKEN: z.string().optional(),
+  SENTRY_ORG_SLUG: z.string().optional(),
+  SENTRY_PROJECT_SLUG: z.string().optional(),
 });
 
 type Env = z.infer<typeof schema>;

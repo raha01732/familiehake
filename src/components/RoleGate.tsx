@@ -1,61 +1,58 @@
-import { assertAccessOrThrow } from "@/lib/auth";
-import { currentUser } from "@clerk/nextjs/server";
+import { getSessionInfo } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
+import { describeLevel, PERMISSION_LEVELS, type PermissionLevel } from "@/lib/rbac";
 
 export async function RoleGate({
   routeKey,
+  minimumLevel = PERMISSION_LEVELS.READ,
   children
 }: {
   routeKey: string;
+  minimumLevel?: PermissionLevel;
   children: React.ReactNode;
 }) {
-  // 1) User & Rolle holen (Serverkomponente – safe)
-  const user = await currentUser();
-  const role = (user?.publicMetadata?.role as string) ?? "member";
-  const isSuperAdmin = role === "superadmin";
+  const session = await getSessionInfo();
 
-  // 2) Superadmin darf immer – ohne DB-Check
-  if (user && isSuperAdmin) {
-    return <>{children}</>;
-  }
-
-  // 3) Normale Prüfung (wirft bei Verstoß)
-  try {
-    await assertAccessOrThrow(routeKey);
-    return <>{children}</>;
-  } catch (err: any) {
-    // Explizit verbotene Rolle
-    if (err?.message === "FORBIDDEN_ROLE") {
-      // Audit: access_denied (nur bei eingeloggten Nutzern sinnvoll)
-      await logAudit({
-        action: "access_denied",
-        actorUserId: user?.id ?? null,
-        actorEmail: user?.emailAddresses?.[0]?.emailAddress ?? null,
-        target: routeKey,
-        detail: { reason: "FORBIDDEN_ROLE" }
-      });
-      return (
-        <div className="card p-6 text-sm text-yellow-400">
-          Angemeldet, aber deine Rolle erlaubt keinen Zugriff.
-        </div>
-      );
-    }
-
-    // Nicht eingeloggt
-    if (err?.message === "UNAUTHORIZED_NOT_LOGGED_IN") {
-      return (
-        <div className="card p-6 text-sm text-red-400">
-          Nicht angemeldet. Bitte einloggen.
-        </div>
-      );
-    }
-
-    // Unerwartet
+  if (!session.signedIn) {
     return (
       <div className="card p-6 text-sm text-red-400">
-        Unerwarteter Fehler beim Zugriffscheck.
+        Nicht angemeldet. Bitte einloggen.
       </div>
     );
   }
+
+  if (session.isSuperAdmin) {
+    return <>{children}</>;
+  }
+
+  const level = session.permissions[routeKey] ?? PERMISSION_LEVELS.NONE;
+  const allowed = level >= minimumLevel;
+
+  if (allowed) {
+    return <>{children}</>;
+  }
+
+  try {
+    await logAudit({
+      action: "access_denied",
+      actorUserId: session.userId,
+      actorEmail: session.email,
+      target: routeKey,
+      detail: {
+        reason: "FORBIDDEN_ROLE",
+        required_level: describeLevel(minimumLevel),
+        actual_level: describeLevel(level),
+        roles: session.roles.map((r) => r.name),
+      },
+    });
+  } catch {
+    // Audit-Fehler schlucken – Zugriff soll trotzdem verweigert werden
+  }
+
+  return (
+    <div className="card p-6 text-sm text-yellow-400">
+      Angemeldet, aber deine Rolle erlaubt keinen Zugriff.
+    </div>
+  );
 }
 

@@ -21,7 +21,7 @@ export async function GET() {
   try {
     const sb = createAdminClient();
     // einfache, harmlose Abfrage als Connectivity-Proof
-    const { error } = await sb.from("tools_access").select("route").limit(1);
+    const { error } = await sb.from("role_permissions").select("route").limit(1);
     if (error) throw error;
     checks.db.ok = true;
     checks.db.info = "select ok";

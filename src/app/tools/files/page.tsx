@@ -10,6 +10,8 @@ import Link from "next/link";
 
 export const metadata = { title: "Dateien" };
 
+type AdminClient = ReturnType<typeof createAdminClient>;
+
 type FileRow = {
   id: string;
   storage_path: string;
@@ -51,9 +53,9 @@ function fmtSize(bytes: number) {
 
 /* ======================== Data helpers ======================== */
 
-async function getFolder(userId: string, folderId: string) {
-  const sb = createAdminClient();
-  const { data } = await sb
+async function getFolder(userId: string, folderId: string, sb?: AdminClient) {
+  const client = sb ?? createAdminClient();
+  const { data } = await client
     .from("folders")
     .select("id,user_id,name,parent_id,deleted_at,created_at")
     .eq("user_id", userId)
@@ -65,13 +67,13 @@ async function getFolder(userId: string, folderId: string) {
 
 async function getBreadcrumb(userId: string, folderId: string | null) {
   if (!folderId) return [];
-  const sb = createAdminClient();
   const trail: FolderRow[] = [];
-  let current = await getFolder(userId, folderId);
+  const sb = createAdminClient();
+  let current = await getFolder(userId, folderId, sb);
   while (current) {
     trail.unshift(current);
     if (!current.parent_id) break;
-    current = await getFolder(userId, current.parent_id);
+    current = await getFolder(userId, current.parent_id, sb);
   }
   return trail;
 }
@@ -254,13 +256,15 @@ async function softDeleteFileAction(formData: FormData) {
   revalidatePath("/tools/files");
 }
 
-/** (Bestehende harte Löschung bleibt optional bestehen – nun im Trash nutzbar) */
+/** Endgültige Löschung direkt aus der Dateiliste (überspringt Papierkorb) */
 async function hardDeleteFileAction(formData: FormData) {
   "use server";
   const { userId } = auth();
   if (!userId) return;
 
   const id = formData.get("id") as string;
+  if (!id) return;
+
   const sb = createAdminClient();
 
   const { data: row } = await sb
@@ -389,11 +393,10 @@ async function revokeShareAction(formData: FormData) {
 export default async function FilesPage({ searchParams }: { searchParams?: { folder?: string } }) {
   const { userId } = auth();
   if (!userId) {
-    return (
-      <RoleGate routeKey="tools/files">
-        <div className="card p-6">Bitte anmelden.</div>
-      </RoleGate>
-    );
+    return RoleGate({
+      routeKey: "tools/files",
+      children: <div className="card p-6">Bitte anmelden.</div>,
+    });
   }
 
   const currentFolderId = (searchParams?.folder as string) || null;
@@ -407,9 +410,14 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
   // Ziel-Ordnerliste für "Verschieben"
   const moveTargets = await listFolders(userId, null);
 
-  return (
-    <RoleGate routeKey="tools/files">
-      <section className="grid gap-6">
+  const shareEntries = await Promise.all(
+    files.map(async (file) => [file.id, await listSharesForFile(userId, file.id)] as const)
+  );
+  const sharesByFile = new Map<string, ShareRow[]>(shareEntries);
+  const siteBaseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
+
+  const content = (
+    <section className="grid gap-6">
         {/* Kopfzeile + Breadcrumb */}
         <div className="card p-6">
           <div className="flex items-start justify-between gap-4">
@@ -520,8 +528,8 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
           <h2 className="text-lg font-semibold text-zinc-100 mb-3">Dateien</h2>
 
           <div className="grid gap-3">
-            {files.map(async (f) => {
-              const shares = await listSharesForFile(userId, f.id);
+            {files.map((f) => {
+              const shares = sharesByFile.get(f.id) ?? [];
 
               return (
                 <div key={f.id} className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
@@ -565,6 +573,15 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                         <input type="hidden" name="id" value={f.id} />
                         <button className="rounded-lg border border-amber-700 text-amber-300 text-xs px-2 py-1 hover:bg-amber-900/30">
                           In Papierkorb
+                        </button>
+                      </form>
+                      <form action={hardDeleteFileAction}>
+                        <input type="hidden" name="id" value={f.id} />
+                        <button
+                          className="rounded-lg border border-red-700 text-red-300 text-xs px-2 py-1 hover:bg-red-900/30"
+                          title="Endgültig löschen (überspringt den Papierkorb)"
+                        >
+                          Endgültig löschen
                         </button>
                       </form>
                     </div>
@@ -645,6 +662,8 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                             ? "border-amber-700 text-amber-300"
                             : "border-red-700 text-red-300";
 
+                        const shareUrl = siteBaseUrl ? `${siteBaseUrl}/s/${s.token}` : `/s/${s.token}`;
+
                         return (
                           <div
                             key={s.id}
@@ -675,9 +694,9 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                             <div className="flex items-center gap-2">
                               <input
                                 readOnly
-                                value={`${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/s/${s.token}`.replace(/^\/\//, "/s/")}
+                                value={shareUrl}
                                 className="min-w-0 sm:w-72 truncate rounded bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-400 px-2 py-1"
-                                title={`${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/s/${s.token}`}
+                                title={shareUrl}
                               />
                               <form action={revokeShareAction}>
                                 <input type="hidden" name="shareId" value={s.id} />
@@ -707,7 +726,8 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
             )}
           </div>
         </div>
-      </section>
-    </RoleGate>
+    </section>
   );
+
+  return RoleGate({ routeKey: "tools/files", children: content });
 }
