@@ -163,6 +163,9 @@ export default async function TrashPage() {
       .order("deleted_at", { ascending: false }),
   ]);
 
+  const folderRows = (folders ?? []) as FolderRow[];
+  const fileRows = (files ?? []) as FileRow[];
+
   return (
     <RoleGate routeKey="tools/files">
       <section className="grid gap-6">
@@ -180,11 +183,11 @@ export default async function TrashPage() {
 
         <div className="card p-6">
           <h2 className="text-lg font-semibold text-zinc-100 mb-3">Ordner</h2>
-          {(!folders || folders.length === 0) ? (
+          {folderRows.length === 0 ? (
             <div className="text-[12px] text-zinc-500">Keine gelöschten Ordner.</div>
           ) : (
             <div className="grid gap-2">
-              {folders!.map((fo) => (
+              {folderRows.map((fo) => (
                 <div key={fo.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 gap-2">
                   <div className="text-sm text-zinc-200">{fo.name}</div>
                   <div className="flex items-center gap-2">
@@ -209,11 +212,11 @@ export default async function TrashPage() {
 
         <div className="card p-6">
           <h2 className="text-lg font-semibold text-zinc-100 mb-3">Dateien</h2>
-          {(!files || files.length === 0) ? (
+          {fileRows.length === 0 ? (
             <div className="text-[12px] text-zinc-500">Keine gelöschten Dateien.</div>
           ) : (
             <div className="grid gap-2">
-              {files!.map((f) => (
+              {fileRows.map((f) => (
                 <div key={f.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 gap-2">
                   <div className="text-sm text-zinc-200">
                     {f.file_name} <span className="text-[11px] text-zinc-500">({fmtSize(f.file_size)})</span>

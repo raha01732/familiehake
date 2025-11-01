@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   const { userId } = auth();
   if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
-  const { role } = await getSessionInfo(); // falls du später Admin-only-Regeln willst
+  const session = await getSessionInfo();
   const body = await req.json().catch(() => ({}));
   const { fileId, expiresInMinutes, password, maxDownloads } = body as {
     fileId: string;
@@ -76,7 +76,14 @@ export async function POST(req: Request) {
     actorUserId: userId,
     actorEmail: null,
     target: file.id,
-    detail: { share_id: data.id, token_suffix: token.slice(-6), expires_at, maxDownloads: maxDownloads ?? null },
+    detail: {
+      share_id: data.id,
+      token_suffix: token.slice(-6),
+      expires_at,
+      maxDownloads: maxDownloads ?? null,
+      actor_roles: session.roles.map((r) => r.name),
+      primary_role: session.primaryRole?.name ?? null,
+    },
   });
 
   // Public-URL zum Teilen
