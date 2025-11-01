@@ -42,6 +42,33 @@ function getServerInfo() {
   };
 }
 
+function formatBytes(bytes: number) {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const idx = Math.floor(Math.log(bytes) / Math.log(1024));
+  const value = bytes / Math.pow(1024, idx);
+  return `${value.toFixed(value >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString();
+}
+
+function getServerInfo() {
+  const memory = typeof process.memoryUsage === "function" ? process.memoryUsage() : null;
+  return {
+    node: process.version,
+    platform: process.platform,
+    release: process.release?.name ?? "node",
+    uptimeSeconds: typeof process.uptime === "function" ? Math.round(process.uptime()) : null,
+    rss: memory?.rss ?? null,
+    heapUsed: memory?.heapUsed ?? null,
+    environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown",
+    region: process.env.VERCEL_REGION ?? null,
+  };
+}
+
 /** Kleine UI-Helper */
 function StatusPill({ s }: { s: "ok" | "warn" | "degraded" | "unreachable" }) {
   const cls =

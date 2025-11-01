@@ -122,7 +122,14 @@ async function listSharesForFiles(
     .in("file_id", fileIds)
     .order("created_at", { ascending: false });
 
-  if (error || !data) return {};
+async function listSharesByFile(userId: string, files: FileRow[]) {
+  const shareEntries = await Promise.all(
+    files.map(async (file) => [file.id, await listSharesForFile(userId, file.id)] as const)
+  );
+  return new Map<string, ShareRow[]>(shareEntries);
+}
+
+/* ======================== Folder Actions ======================== */
 
   const map: Record<string, ShareRow[]> = {};
   for (const row of data as ShareRow[]) {
@@ -473,6 +480,9 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
   const sharesByFile = new Map<string, ShareRow[]>(shareEntries);
   const siteBase = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
 
+  const sharesByFile = await listSharesByFile(userId, files);
+  const siteBaseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
+
   const content = (
     <section className="grid gap-6">
         {/* Kopfzeile + Breadcrumb */}
@@ -739,7 +749,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                             ? "border-amber-700 text-amber-300"
                             : "border-red-700 text-red-300";
 
-                        const shareUrl = siteBase ? `${siteBase}/s/${s.token}` : `/s/${s.token}`;
+                        const shareUrl = siteBaseUrl ? `${siteBaseUrl}/s/${s.token}` : `/s/${s.token}`;
 
                         return (
                           <div
