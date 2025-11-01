@@ -1,38 +1,19 @@
+/**src/app/monitoring/page.tsx**/
+
 import { RoleGate } from "@/components/RoleGate";
 import { getPermissionOverview } from "@/lib/access-db";
 import { PERMISSION_LABELS, PERMISSION_LEVELS } from "@/lib/rbac";
 import { fetchSentryStats } from "@/lib/sentry-metrics";
 import { getStorageUsageSummary } from "@/lib/stats";
 import { createClient } from "@/lib/supabase/server";
-import { headers } from "next/headers";
+import { currentUser } from "@clerk/nextjs/server";
+import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata = { title: "Monitoring | Private Tools" };
+export const metadata = { title: "System Monitoring" };
 
-/** Health sauber via absolute URL (funktioniert auf Vercel & lokal) */
-async function getHealth() {
-  try {
-    const h = headers();
-    const host = h.get("x-forwarded-host") ?? h.get("host");
-    const proto = h.get("x-forwarded-proto") ?? "https";
-    if (!host) return null;
-    const base = `${proto}://${host}`;
-    const res = await fetch(`${base}/api/health`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
-    return null;
-  }
-}
-
-async function getLatestEvents() {
+export default async function MonitoringPage() {
   const sb = createClient();
-  const { data } = await sb
-    .from("audit_events")
-    .select("ts, action, actor_email, target, detail")
-    .order("ts", { ascending: false })
-    .limit(50);
-  return data ?? [];
-}
+  const user = await currentUser();
 
 function formatBytes(bytes: number) {
   if (bytes === 0) return "0 B";
@@ -119,50 +100,31 @@ export default async function MonitoringPage() {
   }));
 
   return (
-    <RoleGate routeKey="monitoring">
-      <section className="grid gap-6">
-        {/* Systemstatus (schön) */}
-        <div className="card p-6 flex flex-col gap-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Systemstatus</h2>
-              <p className="text-zinc-400 text-sm leading-relaxed">
-                Gesamter Zustand der Plattform inkl. Environment & Datenbank.
-              </p>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-zinc-500 mb-1">Gesamt</div>
-              <StatusPill s={status} />
-            </div>
-          </div>
+    <RoleGate routeKey="admin/monitoring">
+      <section className="p-6 flex flex-col gap-6">
+        <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">
+          System Monitoring
+        </h1>
 
-          {/* Kacheln: Uptime, DB, ENV */}
-          <div className="grid gap-4 md:grid-cols-3">
-            {/* Uptime */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-              <div className="text-sm text-zinc-200 mb-2">Uptime</div>
-              <div className="text-2xl font-semibold text-zinc-100">
-                {uptime !== null ? `${uptime}s` : "—"}
-              </div>
-              <div className="text-[11px] text-zinc-500 mt-1">Seit App-Start</div>
-            </div>
-
-            {/* DB */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-zinc-200">Datenbank</div>
-                <span
-                  className={`rounded-lg border px-2 py-0.5 text-[11px] ${
-                    db.ok
-                      ? "border-green-700 text-green-300 bg-green-900/20"
-                      : "border-red-700 text-red-300 bg-red-900/20"
+        <Card className="bg-zinc-900/60 border border-zinc-800">
+          <CardContent className="p-5 space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-zinc-400">Status</div>
+                <div
+                  className={`text-lg font-medium ${
+                    status === "healthy"
+                      ? "text-green-400"
+                      : status === "warn"
+                      ? "text-amber-400"
+                      : "text-red-400"
                   }`}
                 >
-                  {db.ok ? "OK" : "Fehler"}
-                </span>
+                  {status}
+                </div>
               </div>
-              <div className="text-[11px] text-zinc-500 mt-2 break-all">
-                {db.info ?? "—"}
+              <div className="text-xs text-zinc-500">
+                Laufzeit: {Math.floor(checks.uptime_s)} s
               </div>
             </div>
 
@@ -177,8 +139,6 @@ export default async function MonitoringPage() {
                   <div className="text-[11px] text-zinc-500">Keine ENV-Daten.</div>
                 )}
               </div>
-            </div>
-          </div>
 
           {/* Optional: Vollständige JSON-Rohdaten ein/ausblendbar */}
           <details className="mt-2">
@@ -402,49 +362,33 @@ export default async function MonitoringPage() {
                       .join(" • ")}
                   </div>
                 </div>
-                <div className="text-[11px] text-zinc-400">Status: aktiv</div>
+                <BoolPill ok={checks.db.ok} label={checks.db.info} />
               </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Audit-Events */}
-        <div className="card p-6 flex flex-col gap-4">
-          <div>
-            <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Letzte Ereignisse</h2>
-            <p className="text-zinc-400 text-sm leading-relaxed">Echte Audit-Logs (neueste 50).</p>
-          </div>
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
-                <tr>
-                  <th className="px-3 py-2 font-medium">Zeit</th>
-                  <th className="px-3 py-2 font-medium">Aktion</th>
-                  <th className="px-3 py-2 font-medium">User</th>
-                  <th className="px-3 py-2 font-medium">Ziel</th>
-                  <th className="px-3 py-2 font-medium">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-800">
-                {events.map((e: any, idx: number) => (
-                  <tr key={idx}>
-                    <td className="px-3 py-2 text-zinc-300 text-xs whitespace-nowrap">
-                      {new Date(e.ts).toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2 text-zinc-300 text-xs">{e.action}</td>
-                    <td className="px-3 py-2 text-zinc-400 text-xs">{e.actor_email ?? "—"}</td>
-                    <td className="px-3 py-2 text-zinc-400 text-xs">{e.target ?? "—"}</td>
-                    <td className="px-3 py-2 text-zinc-500 text-[11px]">
-                      {e.detail ? JSON.stringify(e.detail) : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="text-[11px] text-zinc-600">Quelle: Supabase audit_events</div>
-        </div>
+              <div className="flex flex-col gap-1">
+                <div className="text-xs text-zinc-400 uppercase tracking-wide">
+                  Benutzer
+                </div>
+                <BoolPill ok={!!user} label={user ? "angemeldet" : "nicht angemeldet"} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </section>
     </RoleGate>
+  );
+}
+
+/** Kleine Status-Pille (grün = ok, orange = warn) */
+function BoolPill({ ok, label }: { ok: boolean; label: string }) {
+  const cls = ok
+    ? "border-green-700 text-green-300 bg-green-900/20"
+    : "border-amber-600 text-amber-300 bg-amber-900/20";
+  return (
+    <span
+      className={`px-2 py-0.5 border rounded-lg text-xs font-medium ${cls}`}
+    >
+      {label}
+    </span>
   );
 }
