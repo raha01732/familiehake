@@ -374,7 +374,7 @@ export default async function MonitoringPage() {
           <div className="grid gap-3 text-sm">
             {Object.entries(matrix)
               .sort(([a], [b]) => a.localeCompare(b))
-              .map(([route, roleLevels]) => (
+              .map([route, roleLevels]) => (
               <div
                 key={route}
                 className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between"
