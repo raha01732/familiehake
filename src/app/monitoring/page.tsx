@@ -1,5 +1,8 @@
 import { RoleGate } from "@/components/RoleGate";
-import { getAccessMapFromDb } from "@/lib/access-db";
+import { getPermissionOverview } from "@/lib/access-db";
+import { PERMISSION_LABELS, PERMISSION_LEVELS } from "@/lib/rbac";
+import { fetchSentryStats } from "@/lib/sentry-metrics";
+import { getStorageUsageSummary } from "@/lib/stats";
 import { createClient } from "@/lib/supabase/server";
 import { headers } from "next/headers";
 
@@ -31,6 +34,33 @@ async function getLatestEvents() {
   return data ?? [];
 }
 
+function formatBytes(bytes: number) {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const idx = Math.floor(Math.log(bytes) / Math.log(1024));
+  const value = bytes / Math.pow(1024, idx);
+  return `${value.toFixed(value >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString();
+}
+
+function getServerInfo() {
+  const memory = typeof process.memoryUsage === "function" ? process.memoryUsage() : null;
+  return {
+    node: process.version,
+    platform: process.platform,
+    release: process.release?.name ?? "node",
+    uptimeSeconds: typeof process.uptime === "function" ? Math.round(process.uptime()) : null,
+    rss: memory?.rss ?? null,
+    heapUsed: memory?.heapUsed ?? null,
+    environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown",
+    region: process.env.VERCEL_REGION ?? null,
+  };
+}
+
 /** Kleine UI-Helper */
 function StatusPill({ s }: { s: "ok" | "warn" | "degraded" | "unreachable" }) {
   const cls =
@@ -59,16 +89,19 @@ function BoolPill({ ok, label }: { ok: boolean; label: string }) {
 }
 
 export default async function MonitoringPage() {
-  const [accessMap, events, health] = await Promise.all([
-    getAccessMapFromDb(),
+  const [{ roles, matrix }, events, health, storageSummary, sentryStats] = await Promise.all([
+    getPermissionOverview(),
     getLatestEvents(),
     getHealth(),
+    getStorageUsageSummary(),
+    fetchSentryStats(),
   ]);
 
   const status: "ok" | "warn" | "degraded" | "unreachable" = (health?.status as any) ?? "unreachable";
   const uptime = health?.checks?.uptime_s ?? null;
   const env = (health?.checks?.env as Record<string, boolean>) ?? {};
   const db = (health?.checks?.db as { ok: boolean; info?: string }) ?? { ok: false, info: "no data" };
+  const serverInfo = getServerInfo();
 
   // Reihenfolge & Labels der ENV-Checks hübsch definieren
   const envOrder: Array<[keyof typeof env, string]> = [
@@ -79,6 +112,11 @@ export default async function MonitoringPage() {
     ["supabase_service", "Supabase Service Key"],
     ["sentry_dsn", "Sentry DSN (optional)"],
   ].filter(([k]) => k in env) as any;
+  const envChecks = envOrder.map(([key, label]) => ({
+    key: String(key),
+    label,
+    ok: !!env[key],
+  }));
 
   return (
     <RoleGate routeKey="monitoring">
@@ -132,21 +170,10 @@ export default async function MonitoringPage() {
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
               <div className="text-sm text-zinc-200 mb-2">Environment</div>
               <div className="grid gap-2">
-                {envOrder.map(([key, label]) => (
-                  <div key={String(key)} className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-300">{label}</span>
-                    <span
-                      className={`rounded-md border px-2 py-0.5 ${
-                        env[key]
-                          ? "border-green-700 text-green-300 bg-green-900/20"
-                          : "border-amber-600 text-amber-300 bg-amber-900/20"
-                      }`}
-                    >
-                      {env[key] ? "gesetzt" : "fehlt"}
-                    </span>
-                  </div>
+                {envChecks.map(({ key, label, ok }) => (
+                  <BoolPill key={key} ok={ok} label={label} />
                 ))}
-                {envOrder.length === 0 && (
+                {envChecks.length === 0 && (
                   <div className="text-[11px] text-zinc-500">Keine ENV-Daten.</div>
                 )}
               </div>
@@ -162,6 +189,194 @@ export default async function MonitoringPage() {
           </details>
         </div>
 
+        {/* Observability */}
+        <div className="card p-6 flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Observability &amp; Alerts</h2>
+              <p className="text-zinc-400 text-sm leading-relaxed">
+                Direkte Telemetrie aus Sentry – ähnlich dem Nextcloud-"Überwachung"-Panel.
+              </p>
+            </div>
+            <div className="text-right text-xs text-zinc-500">
+              {sentryStats.available ? "online" : "keine API"}
+            </div>
+          </div>
+
+          {sentryStats.available ? (
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+                <div className="text-xs uppercase tracking-wide text-zinc-500">Events (24h)</div>
+                <div className="text-2xl font-semibold text-zinc-100">
+                  {sentryStats.events24h?.toLocaleString() ?? "0"}
+                </div>
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+                <div className="text-xs uppercase tracking-wide text-zinc-500">Rejected</div>
+                <div className="text-2xl font-semibold text-zinc-100">
+                  {sentryStats.rejected24h?.toLocaleString() ?? "0"}
+                </div>
+                <div className="text-[11px] text-zinc-500 mt-1">Rate-Limits / DSN-Fehler</div>
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+                <div className="text-xs uppercase tracking-wide text-zinc-500">Offene Issues</div>
+                <div className="text-2xl font-semibold text-zinc-100">
+                  {sentryStats.unresolvedIssues?.toLocaleString() ?? "0"}
+                </div>
+                <div className="text-[11px] text-zinc-500 mt-1">
+                  {sentryStats.latestIssueTitle ? `Neu: ${sentryStats.latestIssueTitle}` : "Keine neuen Fehler"}
+                </div>
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+                <div className="text-xs uppercase tracking-wide text-zinc-500">Letztes Release</div>
+                <div className="text-2xl font-semibold text-zinc-100">
+                  {sentryStats.latestRelease ?? "–"}
+                </div>
+                <div className="text-[11px] text-zinc-500 mt-1">Sentry Release Feed</div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-700 bg-amber-900/20 p-4 text-sm text-amber-100">
+              Keine Sentry-API-Konfiguration hinterlegt. Hinterlege <code>SENTRY_API_TOKEN</code>,{" "}
+              <code>SENTRY_ORG_SLUG</code>{" "}und{" "}
+              <code>SENTRY_PROJECT_SLUG</code>, um Live-Metriken zu sehen.
+            </div>
+          )}
+        </div>
+
+        {/* Serverinformationen */}
+        <div className="card p-6 flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Server &amp; Runtime</h2>
+              <p className="text-zinc-400 text-sm leading-relaxed">
+                Technische Details der laufenden Instanz – entspricht dem Nextcloud-Systembericht.
+              </p>
+            </div>
+            <div className="text-right text-xs text-zinc-500">{serverInfo.environment}</div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Node</div>
+              <div className="text-2xl font-semibold text-zinc-100">{serverInfo.node}</div>
+              <div className="text-[11px] text-zinc-500 mt-1">{serverInfo.release}</div>
+            </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Platform</div>
+              <div className="text-2xl font-semibold text-zinc-100">{serverInfo.platform}</div>
+              <div className="text-[11px] text-zinc-500 mt-1">
+                Region: {serverInfo.region ?? "n/a"}
+              </div>
+            </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Uptime</div>
+              <div className="text-2xl font-semibold text-zinc-100">
+                {serverInfo.uptimeSeconds != null ? `${serverInfo.uptimeSeconds}s` : "–"}
+              </div>
+              <div className="text-[11px] text-zinc-500 mt-1">lokaler Prozess</div>
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">RSS</div>
+              <div className="text-2xl font-semibold text-zinc-100">
+                {serverInfo.rss != null ? formatBytes(serverInfo.rss) : "–"}
+              </div>
+              <div className="text-[11px] text-zinc-500 mt-1">Belegter Arbeitsspeicher</div>
+            </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Heap Used</div>
+              <div className="text-2xl font-semibold text-zinc-100">
+                {serverInfo.heapUsed != null ? formatBytes(serverInfo.heapUsed) : "–"}
+              </div>
+              <div className="text-[11px] text-zinc-500 mt-1">V8 Heap</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Storage */}
+        <div className="card p-6 flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Dateispeicher &amp; Freigaben</h2>
+              <p className="text-zinc-400 text-sm leading-relaxed">
+                Aggregierte Statistiken aus dem Files-Modul – damit du die Nextcloud-Auslastung im Blick behältst.
+              </p>
+            </div>
+            <div className="text-right text-xs text-zinc-500">
+              {storageSummary.totalFiles.toLocaleString()} Dateien
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-4">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Aktiver Speicher</div>
+              <div className="text-2xl font-semibold text-zinc-100">
+                {formatBytes(storageSummary.totalBytes)}
+              </div>
+              <div className="text-[11px] text-zinc-500 mt-1">{storageSummary.totalFiles} Dateien</div>
+            </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Papierkorb</div>
+              <div className="text-2xl font-semibold text-zinc-100">
+                {formatBytes(storageSummary.trashedBytes)}
+              </div>
+              <div className="text-[11px] text-zinc-500 mt-1">{storageSummary.trashedFiles} Elemente</div>
+            </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Freigaben aktiv</div>
+              <div className="text-2xl font-semibold text-zinc-100">{storageSummary.activeShares}</div>
+              <div className="text-[11px] text-zinc-500 mt-1">
+                {storageSummary.expiringSoon} laufen in &lt;48h ab
+              </div>
+            </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Freigaben beendet</div>
+              <div className="text-2xl font-semibold text-zinc-100">{storageSummary.revokedShares + storageSummary.expiredShares}</div>
+              <div className="text-[11px] text-zinc-500 mt-1">
+                {storageSummary.revokedShares} widerrufen · {storageSummary.expiredShares} abgelaufen
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Freigabe</th>
+                  <th className="px-3 py-2 font-medium">Datei</th>
+                  <th className="px-3 py-2 font-medium">Erstellt</th>
+                  <th className="px-3 py-2 font-medium">Ablauf</th>
+                  <th className="px-3 py-2 font-medium">Downloads</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800">
+                {storageSummary.recentShares.slice(0, 8).map((share) => (
+                  <tr key={share.id}>
+                    <td className="px-3 py-2 text-zinc-400 text-xs">{share.id.slice(0, 8)}…</td>
+                    <td className="px-3 py-2 text-zinc-300 text-xs">{share.fileName ?? "—"}</td>
+                    <td className="px-3 py-2 text-zinc-500 text-[11px]">{formatDate(share.createdAt)}</td>
+                    <td className="px-3 py-2 text-zinc-500 text-[11px]">{formatDate(share.expiresAt)}</td>
+                    <td className="px-3 py-2 text-zinc-400 text-xs">
+                      {share.downloads}
+                      {share.maxDownloads ? ` / ${share.maxDownloads}` : ""}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-zinc-300 capitalize">{share.state}</td>
+                  </tr>
+                ))}
+                {storageSummary.recentShares.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-4 text-center text-xs text-zinc-500">
+                      Keine Freigaben vorhanden.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {/* Module & Berechtigungen (aus DB) */}
         <div className="card p-6 flex flex-col gap-4">
           <div>
@@ -169,14 +384,23 @@ export default async function MonitoringPage() {
             <p className="text-zinc-400 text-sm leading-relaxed">Wer darf wohin? (live aus DB)</p>
           </div>
           <div className="grid gap-3 text-sm">
-            {Object.entries(accessMap).map(([route, roles]) => (
+            {Object.entries(matrix)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([route, roleLevels]) => (
               <div
                 key={route}
                 className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="mb-2 sm:mb-0">
                   <div className="text-zinc-100 font-medium text-sm">/{route}</div>
-                  <div className="text-zinc-500 text-xs">Sichtbar für: {roles.join(", ")}</div>
+                  <div className="text-zinc-500 text-xs">
+                    {roles
+                      .map((role) => {
+                        const level = roleLevels[role.name] ?? PERMISSION_LEVELS.NONE;
+                        return `${role.label}: ${PERMISSION_LABELS[level]}`;
+                      })
+                      .join(" • ")}
+                  </div>
                 </div>
                 <div className="text-[11px] text-zinc-400">Status: aktiv</div>
               </div>

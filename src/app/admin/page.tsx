@@ -48,25 +48,14 @@ export default function AdminHomePage() {
             </div>
           </Link>
 
-          {/* Journal (Tagebuch) */}
+          {/* Tools-Hub */}
           <Link
-            href="/tools/journal"
+            href="/tools"
             className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
           >
-            <div className="text-zinc-100 font-medium">Journal</div>
+            <div className="text-zinc-100 font-medium">Tools</div>
             <div className="text-zinc-500 text-sm mt-1">
-              Private Einträge mit Titel & Inhalt.
-            </div>
-          </Link>
-
-          {/* Dateien (File-Manager / Uploader) */}
-          <Link
-            href="/tools/files"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
-          >
-            <div className="text-zinc-100 font-medium">Dateien</div>
-            <div className="text-zinc-500 text-sm mt-1">
-              Upload, Download & Löschen (privat).
+              Journal, Dateien, Storage-Insights &amp; Systemübersicht.
             </div>
           </Link>
 
