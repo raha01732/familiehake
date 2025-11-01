@@ -96,15 +96,6 @@ function BoolPill({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
-export default async function MonitoringPage() {
-  const [{ roles, matrix }, events, health, storageSummary, sentryStats] = await Promise.all([
-    getPermissionOverview(),
-    getLatestEvents(),
-    getHealth(),
-    getStorageUsageSummary(),
-    fetchSentryStats(),
-  ]);
-
   const status: "ok" | "warn" | "degraded" | "unreachable" = (health?.status as any) ?? "unreachable";
   const uptime = health?.checks?.uptime_s ?? null;
   const env = (health?.checks?.env as Record<string, boolean>) ?? {};
