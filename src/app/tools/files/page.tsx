@@ -1,3 +1,5 @@
+/**tools/files/page.tsx */
+
 import { RoleGate } from "@/components/RoleGate";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
@@ -467,17 +469,10 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
   ]);
 
   const moveTargets = await listFolders(userId, null);
-  const sharesByFile = await listSharesForFiles(
-    userId,
-    files.map((f) => f.id)
-  );
-
-  const siteBase = process.env.NEXT_PUBLIC_SITE_URL ?? "";
-
-  
-  const siteBase = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
 
   const sharesByFile = await listSharesByFile(userId, files);
+const siteBaseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
+
   const siteBaseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
 
   const content = (

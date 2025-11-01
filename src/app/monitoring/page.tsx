@@ -14,6 +14,7 @@ export const metadata = { title: "System Monitoring" };
 export default async function MonitoringPage() {
   const sb = createClient();
   const user = await currentUser();
+}
 
 function formatBytes(bytes: number) {
   if (bytes === 0) return "0 B";
