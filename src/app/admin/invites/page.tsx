@@ -1,11 +1,30 @@
 import { RoleGate } from "@/components/RoleGate";
 import { clerkClient } from "@clerk/nextjs/server";
+import type { DbRole } from "@/lib/access-db";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 
-type InviteRole = "member" | "admin";
+type InviteRole = string;
 type InviteStatus = "pending" | "accepted" | "revoked" | "expired" | "failed" | "canceled";
 
 // ---- Datenzugriff ----
+async function getRoleCatalog(): Promise<DbRole[]> {
+  const sb = createAdminClient();
+  const { data } = await sb
+    .from("roles")
+    .select("id, name, label, rank, is_superadmin")
+    .order("rank", { ascending: true });
+  return (
+    data?.map((row) => ({
+      id: row.id,
+      name: row.name,
+      label: row.label ?? row.name,
+      rank: typeof row.rank === "number" ? row.rank : 0,
+      isSuperAdmin: !!row.is_superadmin,
+    })) ?? []
+  );
+}
+
 async function listInvites() {
   const client = await clerkClient();
   const list = await client.invitations.getInvitationList({ limit: 100 });
@@ -22,11 +41,14 @@ async function listInvites() {
 async function createInviteAction(formData: FormData): Promise<void> {
   "use server";
   const email = (formData.get("email") as string)?.trim().toLowerCase();
-  const role = (formData.get("role") as InviteRole) || "member";
+  const requestedRole = (formData.get("role") as string) ?? "member";
 
   if (!email || !email.includes("@")) return;
 
   try {
+    const roles = await getRoleCatalog();
+    const roleExists = roles.some((r) => r.name === requestedRole);
+    const role = roleExists ? requestedRole : "member";
     const client = await clerkClient();
     await client.invitations.createInvitation({
       emailAddress: email,
@@ -71,11 +93,11 @@ function StatusBadge({ status }: { status: InviteStatus }) {
   );
 }
 
-function RoleBadge({ role }: { role: InviteRole }) {
-  const cls = role === "admin"
+function RoleBadge({ name, label }: { name: InviteRole; label: string }) {
+  const cls = name === "admin"
     ? "border-purple-700 text-purple-300 bg-purple-900/20"
     : "border-zinc-700 text-zinc-300 bg-zinc-800/30";
-  return <span className={`rounded-lg border px-2 py-0.5 text-[11px] ${cls}`}>{role}</span>;
+  return <span className={`rounded-lg border px-2 py-0.5 text-[11px] ${cls}`}>{label}</span>;
 }
 
 function Tabs({
@@ -119,7 +141,7 @@ export default async function AdminInvitesPage({
 }: {
   searchParams?: { status?: InviteStatus };
 }) {
-  const invites = await listInvites();
+  const [invites, roles] = await Promise.all([listInvites(), getRoleCatalog()]);
 
   // Filter nach Status (optional)
   const activeStatus = searchParams?.status ?? "all";
@@ -133,7 +155,7 @@ export default async function AdminInvitesPage({
     acc[i.status] = (acc[i.status] ?? 0) + 1;
     return acc;
   }, {});
-  const roles: InviteRole[] = ["member", "admin"];
+  const roleOptions = roles.map((r) => r.name);
 
   return (
     <RoleGate routeKey="admin">
@@ -176,8 +198,10 @@ export default async function AdminInvitesPage({
                 className="mt-1 rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
                 defaultValue="member"
               >
-                {roles.map((r) => (
-                  <option key={r} value={r}>{r}</option>
+                {roleOptions.map((r) => (
+                  <option key={r} value={r}>
+                    {roles.find((role) => role.name === r)?.label ?? r}
+                  </option>
                 ))}
               </select>
             </div>
@@ -204,7 +228,9 @@ export default async function AdminInvitesPage({
             </thead>
             <tbody className="divide-y divide-zinc-800">
               {filtered.map((i) => {
-                const role = (i.publicMetadata?.role as InviteRole | undefined) ?? "member";
+                const roleName = (i.publicMetadata?.role as InviteRole | undefined) ?? "member";
+                const role = roles.find((r) => r.name === roleName);
+                const roleLabel = role?.label ?? roleName;
                 return (
                   <tr key={i.id}>
                     <td className="px-3 py-2 text-zinc-300 text-xs">{i.email}</td>
@@ -212,7 +238,7 @@ export default async function AdminInvitesPage({
                       <StatusBadge status={i.status} />
                     </td>
                     <td className="px-3 py-2 text-zinc-300 text-xs">
-                      <RoleBadge role={role} />
+                      <RoleBadge name={role?.name ?? roleLabel} label={roleLabel} />
                     </td>
                     <td className="px-3 py-2 text-zinc-500 text-xs">
                       {i.createdAt ? new Date(i.createdAt).toLocaleString() : "—"}

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { RoleGate } from "@/components/RoleGate";
 import { getJournalSummary, getStorageUsageSummary } from "@/lib/stats";
+import { getSessionInfo } from "@/lib/auth";
+import { PERMISSION_LEVELS } from "@/lib/rbac";
 
 export const metadata = { title: "Tools" };
 
@@ -18,10 +20,17 @@ function formatDate(value: string | null) {
 }
 
 export default async function ToolsIndexPage() {
+  const session = await getSessionInfo();
   const [storage, journal] = await Promise.all([
     getStorageUsageSummary(),
     getJournalSummary(),
   ]);
+
+  const canSee = (route: string, minimum = PERMISSION_LEVELS.READ) => {
+    if (!session.signedIn) return false;
+    if (session.isSuperAdmin) return true;
+    return (session.permissions[route] ?? PERMISSION_LEVELS.NONE) >= minimum;
+  };
 
   return (
     <RoleGate routeKey="tools">
@@ -34,7 +43,8 @@ export default async function ToolsIndexPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <Link
+          {canSee("tools/files", PERMISSION_LEVELS.READ) && (
+            <Link
             href="/tools/files"
             className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition flex flex-col gap-2"
           >
@@ -44,8 +54,10 @@ export default async function ToolsIndexPage() {
               Browserbasierter Speicher inklusive Freigaben &amp; Papierkorb – dein privates Nextcloud-Drive.
             </p>
           </Link>
+          )}
 
-          <Link
+          {canSee("tools/journal", PERMISSION_LEVELS.READ) && (
+            <Link
             href="/tools/journal"
             className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition flex flex-col gap-2"
           >
@@ -53,8 +65,10 @@ export default async function ToolsIndexPage() {
             <div className="text-xs text-zinc-500">{journal.totalEntries.toLocaleString()} Einträge</div>
             <p className="text-[11px] text-zinc-500">Letzte Aktualisierung: {formatDate(journal.lastUpdatedAt)}</p>
           </Link>
+          )}
 
-          <Link
+          {canSee("tools/storage", PERMISSION_LEVELS.READ) && (
+            <Link
             href="/tools/storage"
             className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition flex flex-col gap-2"
           >
@@ -64,8 +78,10 @@ export default async function ToolsIndexPage() {
               Ausführliche Statistiken zu Speicher, Freigaben und Auslastung – wie der Nextcloud Admin-Report.
             </p>
           </Link>
+          )}
 
-          <Link
+          {canSee("tools/system", PERMISSION_LEVELS.READ) && (
+            <Link
             href="/tools/system"
             className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition flex flex-col gap-2"
           >
@@ -75,8 +91,10 @@ export default async function ToolsIndexPage() {
               Konsolidierte Serverdaten, damit du Deployments und Infrastruktur im Blick behältst.
             </p>
           </Link>
+          )}
 
-          <Link
+          {canSee("monitoring", PERMISSION_LEVELS.READ) && (
+            <Link
             href="/monitoring"
             className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition flex flex-col gap-2"
           >
@@ -86,6 +104,7 @@ export default async function ToolsIndexPage() {
               Für schnelle Fehleranalysen direkt aus den Tools erreichbar.
             </p>
           </Link>
+          )}
         </div>
       </section>
     </RoleGate>

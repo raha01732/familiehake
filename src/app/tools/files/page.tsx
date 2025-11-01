@@ -8,7 +8,6 @@ import Link from "next/link";
 
 export const metadata = { title: "Dateien" };
 
-/** --- Types --- */
 type AdminClient = ReturnType<typeof createAdminClient>;
 
 type FileRow = {
@@ -446,11 +445,10 @@ async function revokeShareAction(formData: FormData) {
 export default async function FilesPage({ searchParams }: { searchParams?: { folder?: string } }) {
   const { userId } = auth();
   if (!userId) {
-    return (
-      <RoleGate routeKey="tools/files">
-        <div className="card p-6">Bitte anmelden.</div>
-      </RoleGate>
-    );
+    return RoleGate({
+      routeKey: "tools/files",
+      children: <div className="card p-6">Bitte anmelden.</div>,
+    });
   }
 
   const currentFolderId = (searchParams?.folder as string) || null;
@@ -469,10 +467,15 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
 
   const siteBase = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 
-  return (
-    <RoleGate routeKey="tools/files">
-      <section className="grid gap-6">
-        {/* Header + Breadcrumb + New Folder */}
+  const shareEntries = await Promise.all(
+    files.map(async (file) => [file.id, await listSharesForFile(userId, file.id)] as const)
+  );
+  const sharesByFile = new Map<string, ShareRow[]>(shareEntries);
+  const siteBase = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
+
+  const content = (
+    <section className="grid gap-6">
+        {/* Kopfzeile + Breadcrumb */}
         <div className="card p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
@@ -605,7 +608,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
 
           <div className="grid gap-3">
             {files.map((f) => {
-              const shares = sharesByFile[f.id] ?? [];
+              const shares = sharesByFile.get(f.id) ?? [];
 
               return (
                 <div key={f.id} className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
@@ -736,10 +739,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                             ? "border-amber-700 text-amber-300"
                             : "border-red-700 text-red-300";
 
-                        const fullUrl =
-                          siteBase && !siteBase.startsWith("http")
-                            ? `/s/${s.token}`
-                            : `${siteBase.replace(/\/$/, "")}/s/${s.token}`;
+                        const shareUrl = siteBase ? `${siteBase}/s/${s.token}` : `/s/${s.token}`;
 
                         return (
                           <div
@@ -771,9 +771,9 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                             <div className="flex items-center gap-2">
                               <input
                                 readOnly
-                                value={fullUrl}
+                                value={shareUrl}
                                 className="min-w-0 sm:w-72 truncate rounded bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-400 px-2 py-1"
-                                title={fullUrl}
+                                title={shareUrl}
                               />
                               <form action={revokeShareAction}>
                                 <input type="hidden" name="shareId" value={s.id} />
@@ -803,7 +803,8 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
             )}
           </div>
         </div>
-      </section>
-    </RoleGate>
+    </section>
   );
+
+  return RoleGate({ routeKey: "tools/files", children: content });
 }

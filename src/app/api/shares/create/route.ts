@@ -14,11 +14,15 @@ export async function POST(req: Request) {
   if (!userId)
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
-  const data = await req.json().catch(() => null);
-  if (!data)
-    return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
-
-  const { fileId, expiresInMinutes, password, maxDownloads } = data;
+  const session = await getSessionInfo();
+  const body = await req.json().catch(() => ({}));
+  const { fileId, expiresInMinutes, password, maxDownloads } = body as {
+    fileId: string;
+    expiresInMinutes?: number;
+    password?: string;
+    maxDownloads?: number;
+  };
+  if (!fileId) return NextResponse.json({ ok: false, error: "missing fileId" }, { status: 400 });
 
   const sb = createAdminClient();
 
@@ -69,10 +73,12 @@ export async function POST(req: Request) {
     actorEmail: null,
     target: file.id,
     detail: {
+      share_id: data.id,
       token_suffix: token.slice(-6),
-      file: file.file_name,
       expires_at,
       maxDownloads: maxDownloads ?? null,
+      actor_roles: session.roles.map((r) => r.name),
+      primary_role: session.primaryRole?.name ?? null,
     },
   });
 
