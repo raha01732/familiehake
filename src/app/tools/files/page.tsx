@@ -474,10 +474,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
 
   const siteBase = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 
-  const shareEntries = await Promise.all(
-    files.map(async (file) => [file.id, await listSharesForFile(userId, file.id)] as const)
-  );
-  const sharesByFile = new Map<string, ShareRow[]>(shareEntries);
+  
   const siteBase = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
 
   const sharesByFile = await listSharesByFile(userId, files);
