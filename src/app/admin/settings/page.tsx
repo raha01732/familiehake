@@ -54,19 +54,15 @@ async function upsertAccessAction(formData: FormData): Promise<void> {
 
   const sb = createAdminClient();
 
-  // Sicherstellen, dass die Rolle existiert
+  // Rolle sicherstellen (per UPSERT, da .insert().onConflict() nicht verfügbar ist)
   await sb
     .from("roles")
-    .insert({ name: role, label: role, rank: 0 })
-    .onConflict("name")
-    .ignore();
+    .upsert({ name: role, label: role, rank: 0 }, { onConflict: "name" });
 
   // Upsert access rule
   await sb
     .from("access_rules")
-    .insert({ route, role, level })
-    .onConflict("route,role")
-    .update({ level });
+    .upsert({ route, role, level }, { onConflict: "route,role" });
 
   revalidatePath("/admin/settings");
 }
@@ -82,7 +78,6 @@ async function addRouteAction(formData: FormData): Promise<void> {
   // Für alle bekannten Rollen einen Default-Eintrag (NONE)
   const { data: roles } = await sb.from("roles").select("name");
   const roleNames = (roles ?? []).map((r: any) => r.name as string);
-
   if (roleNames.length === 0) return;
 
   const payload = roleNames.map((name) => ({
@@ -91,7 +86,7 @@ async function addRouteAction(formData: FormData): Promise<void> {
     level: PERMISSION_LEVELS.NONE,
   }));
 
-  await sb.from("access_rules").upsert(payload, { onConflict: "route,role", ignoreDuplicates: false });
+  await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
 
   revalidatePath("/admin/settings");
 }
