@@ -33,16 +33,6 @@ async function getHealth(): Promise<HealthPayload | null> {
   }
 }
 
-async function getLatestEvents() {
-  const sb = createClient();
-  const { data } = await sb
-    .from("audit_events")
-    .select("ts, action, actor_email, target, detail")
-    .order("ts", { ascending: false })
-    .limit(50);
-  return data ?? [];
-}
-
 function formatBytes(bytes: number | null) {
   if (!bytes) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -69,9 +59,8 @@ function serverInfo() {
 }
 
 export default async function MonitoringPage() {
-  const [{ roles, matrix }, events, health, storage, sentry] = await Promise.all([
-    getPermissionOverview(),
-    getLatestEvents(),
+  // Nur das laden, was in dieser Komponente direkt genutzt wird
+  const [health, storage, sentry] = await Promise.all([
     getHealth(),
     getStorageUsageSummary(),
     fetchSentryStats(),
@@ -164,17 +153,16 @@ export default async function MonitoringPage() {
           </div>
         </div>
 
-        {/* Berechtigungen */}
+        {/* Berechtigungen – lädt sich selbst */}
         <div className="card p-6 flex flex-col gap-4">
           <div>
             <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Module &amp; Rechte</h2>
             <p className="text-zinc-400 text-sm leading-relaxed">Wer darf was? (live aus DB)</p>
           </div>
-
           <Permissions />
         </div>
 
-        {/* Storage-Übersicht */}
+        {/* Storage */}
         <div className="card p-6 flex flex-col gap-4">
           <div>
             <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Speicher</h2>
@@ -191,7 +179,7 @@ export default async function MonitoringPage() {
           </div>
         </div>
 
-        {/* Audit-Events */}
+        {/* Audit-Events – lädt sich selbst */}
         <AuditTable />
       </section>
     </RoleGate>
