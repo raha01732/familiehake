@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { RoleGate } from "@/components/RoleGate";
+import RoleGate from "@/components/RoleGate";
 
 export const metadata = { title: "Admin" };
 

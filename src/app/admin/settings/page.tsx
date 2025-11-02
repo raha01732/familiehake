@@ -1,4 +1,4 @@
-import { RoleGate } from "@/components/RoleGate";
+import   RoleGate  from "@/components/RoleGate";
 import { ROUTE_DESCRIPTORS, getRouteDescriptor } from "@/lib/access-map";
 import { getPermissionOverview, type DbRole, type RoutePermissionMatrix } from "@/lib/access-db";
 import { PERMISSION_LEVELS, type PermissionLevel, PERMISSION_LABELS } from "@/lib/rbac";
