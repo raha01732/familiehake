@@ -23,7 +23,8 @@ export default async function ActivityPage() {
           Die letzten Systemereignisse aus der Datenbank.
         </p>
 
-        <ActivityFeed events={events ?? []} />
+        {/* ActivityFeed erwartet 'initial', nicht 'events' */}
+        <ActivityFeed initial={(events ?? []) as any} />
       </section>
     </RoleGate>
   );
