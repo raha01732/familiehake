@@ -1,29 +1,29 @@
-import { RoleGate } from "@/components/RoleGate";
+import RoleGate from "@/components/RoleGate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import ActivityFeed from "@/components/ActivityFeed";
 
-export const metadata = { title: "Activity" };
+export const metadata = { title: "Aktivitäten" };
 
-async function getInitial() {
+export default async function ActivityPage() {
   const sb = createAdminClient();
-  const { data } = await sb
+
+  const { data: events } = await sb
     .from("audit_events")
     .select("ts, action, actor_email, target, detail")
     .order("ts", { ascending: false })
     .limit(50);
-  return (data ?? []) as any[];
-}
 
-export default async function ActivityPage() {
-  const initial = await getInitial();
   return (
-    <RoleGate routeKey="monitoring">
-      <section className="card p-6 flex flex-col gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-zinc-100">Aktivitäten (live)</h1>
-          <p className="text-zinc-400 text-sm">Echtzeit-Feed aus audit_events</p>
-        </div>
-        <ActivityFeed initial={initial} />
+    <RoleGate routeKey="activity">
+      <section className="p-6 flex flex-col gap-6">
+        <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">
+          Aktivitäten
+        </h1>
+        <p className="text-sm text-zinc-400">
+          Die letzten Systemereignisse aus der Datenbank.
+        </p>
+
+        <ActivityFeed events={events ?? []} />
       </section>
     </RoleGate>
   );
