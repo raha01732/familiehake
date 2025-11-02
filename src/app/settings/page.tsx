@@ -8,7 +8,7 @@ export default async function SettingsPage() {
   const { roles, matrix } = await getPermissionOverview();
 
   return (
-    <RoleGate routeKey="settings" minimumLevel={PERMISSION_LEVELS.READ}>
+    <RoleGate routeKey="settings" minLevel={PERMISSION_LEVELS.READ}>
       <section className="card p-6 flex flex-col gap-6">
         <header className="flex flex-col gap-2">
           <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">Zugriffsübersicht</h1>
