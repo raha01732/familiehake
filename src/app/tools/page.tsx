@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { RoleGate } from "@/components/RoleGate";
+import RoleGate from "@/components/RoleGate";
 import { getJournalSummary, getStorageUsageSummary } from "@/lib/stats";
 import { getSessionInfo } from "@/lib/auth";
 import { PERMISSION_LEVELS } from "@/lib/rbac";

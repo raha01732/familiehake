@@ -1,4 +1,4 @@
-import { RoleGate } from "@/components/RoleGate";
+import RoleGate from "@/components/RoleGate";
 import { getPermissionOverview } from "@/lib/access-db";
 import { PERMISSION_LABELS, PERMISSION_LEVELS } from "@/lib/rbac";
 import { fetchSentryStats } from "@/lib/sentry-metrics";

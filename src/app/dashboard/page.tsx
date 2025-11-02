@@ -1,4 +1,4 @@
-import { RoleGate } from "@/components/RoleGate";
+import  RoleGate from "@/components/RoleGate";
 import { currentUser } from "@clerk/nextjs/server";
 import { logAudit } from "@/lib/audit";
 

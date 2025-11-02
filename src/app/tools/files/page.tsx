@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
-import { RoleGate } from "@/components/RoleGate";
+import RoleGate from "@/components/RoleGate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
 import { generateShareToken, hashPasswordScrypt, isShareActive } from "@/lib/share";

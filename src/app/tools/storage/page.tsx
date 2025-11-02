@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { RoleGate } from "@/components/RoleGate";
+import RoleGate from "@/components/RoleGate";
 import { getStorageUsageSummary } from "@/lib/stats";
 
 export const metadata = { title: "Storage-Insights" };

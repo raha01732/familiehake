@@ -1,6 +1,6 @@
 /**src/app/tools/files/trash/page.tsx**/
 
-import { RoleGate } from "@/components/RoleGate";
+import  RoleGate from "@/components/RoleGate";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";

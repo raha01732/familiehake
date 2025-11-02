@@ -1,4 +1,4 @@
-import { RoleGate } from "@/components/RoleGate";
+import RoleGate from "@/components/RoleGate";
 import { env } from "@/lib/env";
 import { fetchSentryStats } from "@/lib/sentry-metrics";
 import { headers } from "next/headers";
