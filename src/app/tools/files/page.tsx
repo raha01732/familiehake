@@ -1,37 +1,32 @@
-/**src/app/tools/files/page.tsx**/
-
-import { RoleGate } from "@/components/RoleGate";
+import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { RoleGate } from "@/components/RoleGate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
 import { generateShareToken, hashPasswordScrypt, isShareActive } from "@/lib/share";
-import Link from "next/link";
 
 export const metadata = { title: "Dateien" };
 
-<<<<<<< HEAD
 /** --- Types --- */
-=======
-type AdminClient = ReturnType<typeof createAdminClient>;
-
->>>>>>> 710a00b6789cf8a9b1adfb7d3099a6fba25f9183
 type FileRow = {
   id: string;
+  user_id: string;
+  folder_id: string | null;
+  name?: string; // falls du später umbenennst
   storage_path: string;
   file_name: string;
   file_size: number;
   mime_type: string | null;
-  created_at: string;
-  folder_id: string | null;
   deleted_at: string | null;
+  created_at: string;
 };
 
 type FolderRow = {
   id: string;
   user_id: string;
-  name: string;
   parent_id: string | null;
+  name: string;
   deleted_at: string | null;
   created_at: string;
 };
@@ -41,6 +36,9 @@ type ShareRow = {
   token: string;
   file_id: string;
   owner_user_id: string;
+  password_algo: string | null;
+  password_salt: string | null;
+  password_hash: string | null;
   expires_at: string | null;
   max_downloads: number | null;
   downloads_count: number;
@@ -48,26 +46,19 @@ type ShareRow = {
   created_at: string;
 };
 
-/** --- Utils --- */
-function fmtSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+function fmtSize(n: number) {
+  if (!n) return "0 B";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-<<<<<<< HEAD
-/** --- Data helpers (server) --- */
+/* ======================== Data helpers ======================== */
+
 async function getFolder(userId: string, folderId: string) {
   const sb = createAdminClient();
   const { data } = await sb
-=======
-/* ======================== Data helpers ======================== */
-
-async function getFolder(userId: string, folderId: string, sb?: AdminClient) {
-  const client = sb ?? createAdminClient();
-  const { data } = await client
->>>>>>> 710a00b6789cf8a9b1adfb7d3099a6fba25f9183
     .from("folders")
     .select("id,user_id,name,parent_id,deleted_at,created_at")
     .eq("user_id", userId)
@@ -81,11 +72,18 @@ async function getBreadcrumb(userId: string, folderId: string | null) {
   if (!folderId) return [];
   const trail: FolderRow[] = [];
   const sb = createAdminClient();
-  let current = await getFolder(userId, folderId, sb);
+  let current = await getFolder(userId, folderId);
   while (current) {
     trail.unshift(current);
     if (!current.parent_id) break;
-    current = await getFolder(userId, current.parent_id, sb);
+    const next = await sb
+      .from("folders")
+      .select("id,user_id,name,parent_id,deleted_at,created_at")
+      .eq("user_id", userId)
+      .eq("id", current.parent_id)
+      .is("deleted_at", null)
+      .single();
+    current = (next.data as FolderRow | null) ?? null;
   }
   return trail;
 }
@@ -107,45 +105,36 @@ async function listFiles(userId: string, folderId: string | null) {
   const sb = createAdminClient();
   let q = sb
     .from("files_meta")
-    .select("id, storage_path, file_name, file_size, mime_type, created_at, folder_id, deleted_at")
+    .select("id,user_id,folder_id,storage_path,file_name,file_size,mime_type,deleted_at,created_at")
     .eq("user_id", userId)
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
-
-  q = folderId ? q.eq("folder_id", folderId) : q.eq("folder_id", null);
-
+  q = folderId ? q.eq("folder_id", folderId) : q.is("folder_id", null);
   const { data } = await q;
   return (data ?? []) as FileRow[];
 }
 
-async function listSharesForFiles(
-  userId: string,
-  fileIds: string[]
-): Promise<Record<string, ShareRow[]>> {
+async function listSharesForFiles(userId: string, fileIds: string[]) {
   const sb = createAdminClient();
-  if (fileIds.length === 0) return {};
-
-  // Supabase: in() für Batch-Select
-  const { data, error } = await sb
+  if (fileIds.length === 0) return {} as Record<string, ShareRow[]>;
+  const { data } = await sb
     .from("file_shares")
     .select(
-      "id, token, file_id, owner_user_id, expires_at, max_downloads, downloads_count, revoked_at, created_at"
+      "id,token,file_id,owner_user_id,password_algo,password_salt,password_hash,expires_at,max_downloads,downloads_count,revoked_at,created_at"
     )
     .eq("owner_user_id", userId)
     .in("file_id", fileIds)
     .order("created_at", { ascending: false });
-
-  if (error || !data) return {};
-
   const map: Record<string, ShareRow[]> = {};
-  for (const row of data as ShareRow[]) {
+  for (const row of (data ?? []) as ShareRow[]) {
     if (!map[row.file_id]) map[row.file_id] = [];
     map[row.file_id].push(row);
   }
   return map;
 }
 
-/** --- Folder Actions (server actions) --- */
+/* ======================== Server Actions ======================== */
+
 async function createFolderAction(formData: FormData) {
   "use server";
   const { userId } = auth();
@@ -155,11 +144,7 @@ async function createFolderAction(formData: FormData) {
   if (!name) return;
 
   const sb = createAdminClient();
-  await sb.from("folders").insert({
-    user_id: userId,
-    name,
-    parent_id: parentId || null,
-  });
+  await sb.from("folders").insert({ user_id: userId, name, parent_id: parentId });
 
   try {
     await logAudit({
@@ -177,7 +162,7 @@ async function renameFolderAction(formData: FormData) {
   "use server";
   const { userId } = auth();
   if (!userId) return;
-  const folderId = formData.get("folderId") as string;
+  const folderId = String(formData.get("folderId") || "");
   const name = (formData.get("name") as string)?.trim();
   if (!folderId || !name) return;
 
@@ -202,14 +187,14 @@ async function moveFolderAction(formData: FormData) {
   "use server";
   const { userId } = auth();
   if (!userId) return;
-  const folderId = formData.get("folderId") as string;
-  const destId = (formData.get("destId") as string) || null;
+  const folderId = String(formData.get("folderId") || "");
+  const destId = (String(formData.get("destId") || "") || null) as string | null;
 
   const sb = createAdminClient();
   const { data: f } = await sb.from("folders").select("id,user_id").eq("id", folderId).single();
   if (!f || f.user_id !== userId) return;
 
-  await sb.from("folders").update({ parent_id: destId || null }).eq("id", folderId);
+  await sb.from("folders").update({ parent_id: destId }).eq("id", folderId);
   try {
     await logAudit({
       action: "login_success",
@@ -226,27 +211,16 @@ async function softDeleteFolderAction(formData: FormData) {
   "use server";
   const { userId } = auth();
   if (!userId) return;
-  const folderId = formData.get("folderId") as string;
+  const folderId = String(formData.get("folderId") || "");
   if (!folderId) return;
 
   const sb = createAdminClient();
-
   const [{ count: subFolders }, { count: subFiles }] = await Promise.all([
-    sb
-      .from("folders")
-      .select("id", { count: "exact", head: true })
-      .eq("parent_id", folderId)
-      .is("deleted_at", null),
-    sb
-      .from("files_meta")
-      .select("id", { count: "exact", head: true })
-      .eq("folder_id", folderId)
-      .is("deleted_at", null),
+    sb.from("folders").select("id", { count: "exact", head: true }).eq("parent_id", folderId).is("deleted_at", null),
+    sb.from("files_meta").select("id", { count: "exact", head: true }).eq("folder_id", folderId).is("deleted_at", null),
   ]);
 
-  if ((subFolders ?? 0) > 0 || (subFiles ?? 0) > 0) {
-    return;
-  }
+  if ((subFolders ?? 0) > 0 || (subFiles ?? 0) > 0) return;
 
   await sb.from("folders").update({ deleted_at: new Date().toISOString() }).eq("id", folderId);
   try {
@@ -261,20 +235,19 @@ async function softDeleteFolderAction(formData: FormData) {
   revalidatePath("/tools/files");
 }
 
-/** --- File Actions (server actions) --- */
 async function moveFileAction(formData: FormData) {
   "use server";
   const { userId } = auth();
   if (!userId) return;
-  const fileId = formData.get("fileId") as string;
-  const destId = (formData.get("destId") as string) || null;
+  const fileId = String(formData.get("fileId") || "");
+  const destId = (String(formData.get("destId") || "") || null) as string | null;
   if (!fileId) return;
 
   const sb = createAdminClient();
   const { data: row } = await sb.from("files_meta").select("id,user_id").eq("id", fileId).single();
   if (!row || row.user_id !== userId) return;
 
-  await sb.from("files_meta").update({ folder_id: destId || null }).eq("id", fileId);
+  await sb.from("files_meta").update({ folder_id: destId }).eq("id", fileId);
   try {
     await logAudit({
       action: "login_success",
@@ -291,13 +264,13 @@ async function softDeleteFileAction(formData: FormData) {
   "use server";
   const { userId } = auth();
   if (!userId) return;
-  const id = formData.get("id") as string;
+  const id = String(formData.get("id") || "");
   if (!id) return;
 
   const sb = createAdminClient();
   const { data: row } = await sb
     .from("files_meta")
-    .select("storage_path, user_id, file_name")
+    .select("storage_path,user_id,file_name")
     .eq("id", id)
     .single();
   if (!row || row.user_id !== userId) return;
@@ -306,7 +279,7 @@ async function softDeleteFileAction(formData: FormData) {
 
   try {
     await logAudit({
-      action: "login_success", // Union-sicher: Event im Detail
+      action: "login_success",
       actorUserId: userId,
       actorEmail: null,
       target: row.storage_path,
@@ -317,23 +290,19 @@ async function softDeleteFileAction(formData: FormData) {
   revalidatePath("/tools/files");
 }
 
-<<<<<<< HEAD
-=======
-/** Endgültige Löschung direkt aus der Dateiliste (überspringt Papierkorb) */
->>>>>>> 710a00b6789cf8a9b1adfb7d3099a6fba25f9183
 async function hardDeleteFileAction(formData: FormData) {
   "use server";
   const { userId } = auth();
   if (!userId) return;
 
-  const id = formData.get("id") as string;
+  const id = String(formData.get("id") || "");
   if (!id) return;
 
   const sb = createAdminClient();
 
   const { data: row } = await sb
     .from("files_meta")
-    .select("storage_path, user_id, file_name")
+    .select("storage_path,user_id,file_name")
     .eq("id", id)
     .single();
   if (!row || row.user_id !== userId) return;
@@ -343,7 +312,7 @@ async function hardDeleteFileAction(formData: FormData) {
 
   try {
     await logAudit({
-      action: "login_success", // Union-sicher
+      action: "login_success",
       actorUserId: userId,
       actorEmail: null,
       target: row.storage_path,
@@ -354,7 +323,6 @@ async function hardDeleteFileAction(formData: FormData) {
   revalidatePath("/tools/files");
 }
 
-/** --- Shares (server actions) --- */
 async function createShareAction(formData: FormData) {
   "use server";
   const { userId } = auth();
@@ -362,8 +330,8 @@ async function createShareAction(formData: FormData) {
 
   const fileId = String(formData.get("fileId") || "");
   const expiresInMinutesRaw = String(formData.get("expiresInMinutes") || "").trim();
-  const password = (String(formData.get("password") || "") || "").trim();
   const maxDownloadsRaw = String(formData.get("maxDownloads") || "").trim();
+  const password = String(formData.get("password") || "").trim();
 
   const expiresInMinutes = expiresInMinutesRaw ? Math.max(1, Number(expiresInMinutesRaw)) : undefined;
   const maxDownloads = maxDownloadsRaw ? Math.max(1, Number(maxDownloadsRaw)) : undefined;
@@ -372,7 +340,7 @@ async function createShareAction(formData: FormData) {
 
   const { data: file } = await sb
     .from("files_meta")
-    .select("id, user_id, storage_path, file_name")
+    .select("id,user_id,storage_path,file_name")
     .eq("id", fileId)
     .single();
   if (!file || file.user_id !== userId) return;
@@ -434,11 +402,10 @@ async function revokeShareAction(formData: FormData) {
 
   const { data: share } = await sb
     .from("file_shares")
-    .select("id, owner_user_id, file_id, revoked_at")
+    .select("id,owner_user_id,file_id,revoked_at")
     .eq("id", shareId)
     .single();
-  if (!share) return;
-  if (share.owner_user_id !== userId) return;
+  if (!share || share.owner_user_id !== userId) return;
 
   if (!share.revoked_at) {
     await sb.from("file_shares").update({ revoked_at: new Date().toISOString() }).eq("id", shareId);
@@ -457,37 +424,38 @@ async function revokeShareAction(formData: FormData) {
   revalidatePath("/tools/files");
 }
 
-/** --- Page (server component) --- */
+/* ======================== Page ======================== */
+
 export default async function FilesPage({ searchParams }: { searchParams?: { folder?: string } }) {
   const { userId } = auth();
   if (!userId) {
     return (
       <RoleGate routeKey="tools/files">
-        <div className="card p-6">Bitte anmelden.</div>
+        <section className="p-6">
+          <div className="card p-6">Bitte anmelden.</div>
+        </section>
       </RoleGate>
     );
   }
 
   const currentFolderId = (searchParams?.folder as string) || null;
-
   const [folders, files, breadcrumb] = await Promise.all([
     listFolders(userId, currentFolderId),
     listFiles(userId, currentFolderId),
     getBreadcrumb(userId, currentFolderId),
   ]);
-
   const moveTargets = await listFolders(userId, null);
   const sharesByFile = await listSharesForFiles(
     userId,
     files.map((f) => f.id)
   );
 
-  const siteBase = process.env.NEXT_PUBLIC_SITE_URL ?? "";
+  const siteBaseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
 
   return (
     <RoleGate routeKey="tools/files">
       <section className="grid gap-6">
-        {/* Header + Breadcrumb + New Folder */}
+        {/* Header + Breadcrumb + Neuer Ordner */}
         <div className="card p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
@@ -508,7 +476,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
             </div>
             <div className="flex items-center gap-2">
               <Link
-                href="/tools/files/trash"
+                href="/tools/files?view=trash"
                 className="rounded-lg border border-zinc-700 text-zinc-200 text-xs px-2 py-1 hover:bg-zinc-800/60"
               >
                 Papierkorb
@@ -529,25 +497,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
           </form>
         </div>
 
-        {/* Upload */}
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-zinc-100 mb-3">Datei hochladen</h2>
-          <form
-            action="/api/upload"
-            method="post"
-            encType="multipart/form-data"
-            className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3"
-          >
-            <input type="hidden" name="folderId" value={currentFolderId ?? ""} />
-            <input type="file" name="file" className="text-sm text-zinc-300" required />
-            <button className="rounded-xl border border-zinc-700 text-zinc-200 text-sm px-3 py-2 hover:bg-zinc-800/60">
-              Hochladen
-            </button>
-          </form>
-          <div className="text-[11px] text-zinc-500 mt-2">Max. Größe gemäß Vercel/Supabase Limits.</div>
-        </div>
-
-        {/* Folders */}
+        {/* Dateien & Ordner */}
         <div className="card p-6">
           <h3 className="text-sm font-semibold text-zinc-100 mb-3">Ordner</h3>
           {folders.length === 0 ? (
@@ -614,7 +564,6 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
           )}
         </div>
 
-        {/* Files */}
         <div className="card p-6">
           <h2 className="text-lg font-semibold text-zinc-100 mb-3">Dateien</h2>
 
@@ -628,7 +577,8 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                     <div>
                       <div className="text-zinc-100 text-sm font-medium">{f.file_name}</div>
                       <div className="text-[11px] text-zinc-500">
-                        {fmtSize(f.file_size)} • {f.mime_type || "—"} • {new Date(f.created_at).toLocaleString()}
+                        {fmtSize(f.file_size)} • {f.mime_type || "—"} •{" "}
+                        {new Date(f.created_at).toLocaleString()}
                       </div>
                     </div>
 
@@ -648,7 +598,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                           defaultValue={currentFolderId ?? ""}
                         >
                           <option value="">Root</option>
-                          {moveTargets.map((t) => (
+                          {folders.map((t) => (
                             <option key={t.id} value={t.id}>
                               {t.name}
                             </option>
@@ -665,6 +615,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                           In Papierkorb
                         </button>
                       </form>
+
                       <form action={hardDeleteFileAction}>
                         <input type="hidden" name="id" value={f.id} />
                         <button
@@ -729,7 +680,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                   <div className="mt-4">
                     <div className="text-xs text-zinc-400 mb-2">Freigaben</div>
                     <div className="grid gap-2">
-                      {shares.map((s) => {
+                      {(shares ?? []).map((s) => {
                         const active = isShareActive({
                           revoked_at: s.revoked_at,
                           expires_at: s.expires_at,
@@ -751,10 +702,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                             ? "border-amber-700 text-amber-300"
                             : "border-red-700 text-red-300";
 
-                        const fullUrl =
-                          siteBase && !siteBase.startsWith("http")
-                            ? `/s/${s.token}`
-                            : `${siteBase.replace(/\\/$/, "")}/s/${s.token}`;
+                        const shareUrl = siteBaseUrl ? `${siteBaseUrl}/s/${s.token}` : `/s/${s.token}`;
 
                         return (
                           <div
@@ -786,9 +734,9 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                             <div className="flex items-center gap-2">
                               <input
                                 readOnly
-                                value={fullUrl}
+                                value={shareUrl}
                                 className="min-w-0 sm:w-72 truncate rounded bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-400 px-2 py-1"
-                                title={fullUrl}
+                                title={shareUrl}
                               />
                               <form action={revokeShareAction}>
                                 <input type="hidden" name="shareId" value={s.id} />
@@ -804,7 +752,7 @@ export default async function FilesPage({ searchParams }: { searchParams?: { fol
                           </div>
                         );
                       })}
-                      {shares.length === 0 && (
+                      {(shares ?? []).length === 0 && (
                         <div className="text-[11px] text-zinc-500">Keine Freigaben für diese Datei.</div>
                       )}
                     </div>
