@@ -1,112 +1,151 @@
+import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
-import RoleGate from "@/components/RoleGate";
-import { getJournalSummary, getStorageUsageSummary } from "@/lib/stats";
-import { getSessionInfo } from "@/lib/auth";
-import { PERMISSION_LEVELS } from "@/lib/rbac";
+import { createAdminClient } from "@/lib/supabase/admin";
 
-export const metadata = { title: "Tools" };
+export const metadata = { title: "Werkzeuge" };
 
-function formatBytes(bytes: number) {
-  if (!bytes) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const idx = Math.floor(Math.log(bytes) / Math.log(1024));
-  const value = bytes / Math.pow(1024, idx);
-  return `${value.toFixed(value >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
+/** ---- RBAC-Konstanten (Level) ---- */
+const LEVEL_NONE = 0;
+const LEVEL_READ = 1;
+// const LEVEL_WRITE = 2; // bei Bedarf
+// const LEVEL_ADMIN = 3; // bei Bedarf
+
+/** ---- Alle verfügbaren Tool-Module (nur hier definieren/ergänzen) ----
+ * routeKey muss zu access_rules.route passen (wir normalisieren ohne führenden Slash).
+ */
+const ALL_TOOLS: Array<{
+  routeKey: string;       // z. B. "tools/files"
+  href: string;           // z. B. "/tools/files"
+  title: string;          // UI-Titel
+  description: string;    // UI-Beschreibung
+}> = [
+  {
+    routeKey: "tools/files",
+    href: "/tools/files",
+    title: "Dateien",
+    description: "Ablage, Ordner, Freigaben & Papierkorb",
+  },
+  // Weitere Tools kannst du hier hinzufügen, z. B.:
+  // {
+  //   routeKey: "tools/notes",
+  //   href: "/tools/notes",
+  //   title: "Notizen",
+  //   description: "Schnelle Notizen & Checklisten",
+  // },
+];
+
+/** Führende Slashes entfernen, doppelte Slashes bereinigen */
+function normalizeKey(key: string) {
+  return key.replace(/^\/+/, "").replace(/\/{2,}/g, "/").trim();
 }
 
-function formatDate(value: string | null) {
-  if (!value) return "–";
-  return new Date(value).toLocaleString();
+/** Daten laden: Rolle + alle Routen (mit Level) für die Rolle */
+async function getAllowedRoutesForRole(role: string) {
+  const sb = createAdminClient();
+
+  // Regeln für diese Rolle lesen
+  const { data: rules, error } = await sb
+    .from("access_rules")
+    .select("route, level")
+    .eq("role", role);
+
+  if (error || !rules) return new Map<string, number>();
+
+  // Map: route(normalized) -> level
+  const map = new Map<string, number>();
+  for (const r of rules) {
+    const key = normalizeKey(String(r.route ?? ""));
+    const level = Number(r.level ?? 0);
+    if (!key) continue;
+    // Wenn mehrfach vorhanden, größtes Level behalten
+    map.set(key, Math.max(map.get(key) ?? LEVEL_NONE, level));
+  }
+  return map;
 }
 
-export default async function ToolsIndexPage() {
-  const session = await getSessionInfo();
-  const [storage, journal] = await Promise.all([
-    getStorageUsageSummary(),
-    getJournalSummary(),
-  ]);
-
-  const canSee = (route: string, minimum = PERMISSION_LEVELS.READ) => {
-    if (!session.signedIn) return false;
-    if (session.isSuperAdmin) return true;
-    return (session.permissions[route] ?? PERMISSION_LEVELS.NONE) >= minimum;
-  };
+/** ---- Page (Server Component) ---- */
+export default async function ToolsPage() {
+  const user = await currentUser();
 
   return (
-    <RoleGate routeKey="tools">
-      <section className="card p-6 flex flex-col gap-6">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">Werkzeuge</h1>
-          <p className="text-sm text-zinc-400">
-            Sammelstelle aller Module – angelehnt an das Nextcloud-App-Grid, mit Kennzahlen aus deinen Daten.
-          </p>
+    <section className="p-6 flex flex-col gap-6">
+      <header>
+        <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">Werkzeuge</h1>
+        <p className="text-sm text-zinc-400">
+          Sammelstelle aller Module – angelehnt an das Nextcloud-App-Grid, mit Kennzahlen aus deinen Daten.
+        </p>
+      </header>
+
+      {!user ? (
+        <div className="rounded-xl border border-amber-700 bg-amber-900/10 p-4">
+          <div className="text-amber-300 font-medium">Nicht angemeldet</div>
+          <div className="text-amber-200/80 text-sm mt-1">
+            Bitte melde dich an, um deine Werkzeuge zu sehen.
+          </div>
         </div>
+      ) : (
+        <ToolsGrid />
+      )}
+    </section>
+  );
+}
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {canSee("tools/files", PERMISSION_LEVELS.READ) && (
-            <Link
-            href="/tools/files"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition flex flex-col gap-2"
-          >
-            <div className="text-zinc-100 font-medium">Dateien</div>
-            <div className="text-xs text-zinc-500">{storage.totalFiles.toLocaleString()} Dateien · {formatBytes(storage.totalBytes)}</div>
-            <p className="text-[11px] text-zinc-500">
-              Browserbasierter Speicher inklusive Freigaben &amp; Papierkorb – dein privates Nextcloud-Drive.
-            </p>
-          </Link>
-          )}
+/** Ausgelagerter Server-Teil: lädt Rolle & Regeln und rendert das Grid */
+async function ToolsGrid() {
+  const user = await currentUser();
+  const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "member";
 
-          {canSee("tools/journal", PERMISSION_LEVELS.READ) && (
-            <Link
-            href="/tools/journal"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition flex flex-col gap-2"
-          >
-            <div className="text-zinc-100 font-medium">Journal</div>
-            <div className="text-xs text-zinc-500">{journal.totalEntries.toLocaleString()} Einträge</div>
-            <p className="text-[11px] text-zinc-500">Letzte Aktualisierung: {formatDate(journal.lastUpdatedAt)}</p>
-          </Link>
-          )}
+  // Superadmin sieht alles
+  if (role === "superadmin") {
+    return <Grid tools={ALL_TOOLS} emptyHint={false} />;
+  }
 
-          {canSee("tools/storage", PERMISSION_LEVELS.READ) && (
-            <Link
-            href="/tools/storage"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition flex flex-col gap-2"
-          >
-            <div className="text-zinc-100 font-medium">Storage-Insights</div>
-            <div className="text-xs text-zinc-500">{storage.activeShares} aktive Freigaben</div>
-            <p className="text-[11px] text-zinc-500">
-              Ausführliche Statistiken zu Speicher, Freigaben und Auslastung – wie der Nextcloud Admin-Report.
-            </p>
-          </Link>
-          )}
+  // Regeln aus DB lesen
+  const allowedMap = await getAllowedRoutesForRole(role);
 
-          {canSee("tools/system", PERMISSION_LEVELS.READ) && (
-            <Link
-            href="/tools/system"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition flex flex-col gap-2"
-          >
-            <div className="text-zinc-100 font-medium">Systemübersicht</div>
-            <div className="text-xs text-zinc-500">Runtime, Speicher &amp; Regionen</div>
-            <p className="text-[11px] text-zinc-500">
-              Konsolidierte Serverdaten, damit du Deployments und Infrastruktur im Blick behältst.
-            </p>
-          </Link>
-          )}
+  // Filter: nur Tools mit Level >= READ
+  const visible = ALL_TOOLS.filter((t) => {
+    const key = normalizeKey(t.routeKey);
+    const lvl = allowedMap.get(key) ?? LEVEL_NONE;
+    return lvl >= LEVEL_READ;
+  });
 
-          {canSee("monitoring", PERMISSION_LEVELS.READ) && (
-            <Link
-            href="/monitoring"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition flex flex-col gap-2"
-          >
-            <div className="text-zinc-100 font-medium">Monitoring</div>
-            <div className="text-xs text-zinc-500">Sentry, Health &amp; Audit-Logs</div>
-            <p className="text-[11px] text-zinc-500">
-              Für schnelle Fehleranalysen direkt aus den Tools erreichbar.
-            </p>
-          </Link>
-          )}
+  return <Grid tools={visible} emptyHint={true} />;
+}
+
+/** Reines UI-Grid */
+function Grid({ tools, emptyHint }: { tools: typeof ALL_TOOLS; emptyHint: boolean }) {
+  if (!tools || tools.length === 0) {
+    return (
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+        <div className="text-zinc-300 text-sm">
+          Für deine Rolle sind derzeit keine Werkzeuge freigeschaltet.
         </div>
-      </section>
-    </RoleGate>
+        {emptyHint && (
+          <div className="text-[11px] text-zinc-500 mt-2">
+            Tipp: In <span className="font-mono text-zinc-400">/admin/settings</span> kannst du die
+            Zugriffsrechte anpassen (Route-Key z. B.{" "}
+            <span className="font-mono text-zinc-400">tools/files</span>).
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {tools.map((t) => (
+        <Link
+          key={t.routeKey}
+          href={t.href}
+          className="group rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5 hover:bg-zinc-900/60 hover:border-zinc-700 transition-colors"
+        >
+          <div className="text-zinc-100 font-medium text-base group-hover:underline">
+            {t.title}
+          </div>
+          <div className="text-zinc-400 text-sm mt-1">{t.description}</div>
+        </Link>
+      ))}
+    </div>
   );
 }
