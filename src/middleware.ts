@@ -1,16 +1,21 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
+// src/middleware.ts
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-/** Öffentliche Routen ohne Login */
-const publicRoutes = ["/", "/sign-in(.*)", "/sign-up(.*)", "/api/health"];
+/** Öffentliche Routen (ohne Login erreichbar) */
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/api/health",
+]);
 
-/** Optional: IP-Denylist (kommasepariert in ENV: BLOCKED_IPS="1.2.3.4,5.6.7.8") */
-const BLOCKED_IPS =
-  (process.env.BLOCKED_IPS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+/** Optional: IP-Denylist (kommasepariert) */
+const BLOCKED_IPS = (process.env.BLOCKED_IPS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 /** Preview-Umgebung absichern (Basic Auth) */
 function handlePreviewProtection(req: NextRequest) {
@@ -36,7 +41,7 @@ function handlePreviewProtection(req: NextRequest) {
   return null;
 }
 
-/** Security Headers */
+/** Security Headers (CSP etc.) */
 function withSecurityHeaders(res: NextResponse) {
   res.headers.set(
     "Content-Security-Policy",
@@ -67,6 +72,7 @@ function checkIpBlock(req: NextRequest) {
   if (BLOCKED_IPS.length === 0) return null;
   const ip =
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    // @ts-ignore (Vercel setzt ip am Request Objekt)
     (req as any).ip ||
     "";
   if (ip && BLOCKED_IPS.includes(ip)) {
@@ -75,7 +81,7 @@ function checkIpBlock(req: NextRequest) {
   return null;
 }
 
-export default clerkMiddleware(async (auth, req) => {
+export default clerkMiddleware((auth, req) => {
   // Preview Basic Auth
   const preview = handlePreviewProtection(req);
   if (preview) return withSecurityHeaders(preview);
@@ -84,10 +90,23 @@ export default clerkMiddleware(async (auth, req) => {
   const ipBlock = checkIpBlock(req);
   if (ipBlock) return withSecurityHeaders(ipBlock);
 
-  // Clerk Auth Flow läuft hier weiter
+  // Öffentliche Routen ohne Auth durchlassen
+  if (isPublicRoute(req)) {
+    return withSecurityHeaders(NextResponse.next());
+  }
+
+  // Alle anderen Routen schützen (redirect auf Sign-In, wenn nicht angemeldet)
+  auth().protect();
+
   return withSecurityHeaders(NextResponse.next());
-}, { publicRoutes });
+});
 
 export const config = {
-  matcher: ["/((?!.+\\.[\\w]+$|_next).*)", "/"],
+  matcher: [
+    // alles außer statische Dateien
+    "/((?!.+\\.[\\w]+$|_next).*)",
+    "/",
+    // optional: APIs / trpc
+    "/(api|trpc)(.*)",
+  ],
 };
