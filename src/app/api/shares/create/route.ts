@@ -1,24 +1,20 @@
-// src/app/api/shares/create/route.ts
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
 import { generateShareToken, hashPasswordScrypt } from "@/lib/share";
-
-/**
- * Erwarteter Body (JSON):
- * {
- *   "fileId": string,
- *   "expiresInMinutes"?: number,
- *   "password"?: string,
- *   "maxDownloads"?: number
- * }
- */
+import { applyRateLimit } from "@/lib/ratelimit";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
+    // Rate-Limit (optional; bei fehlender Upstash-Config no-op)
+    // @ts-ignore NextRequest kompatibel: Runtime liefert kompatibles Objekt
+    const rl = await applyRateLimit(req as any, "api:shares:create");
+    // Wenn applyRateLimit eine NextResponse (429) zurückgegeben hat:
+    if (rl instanceof NextResponse) return rl;
+
     const { userId } = auth();
     if (!userId) {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -41,7 +37,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "fileId missing" }, { status: 400 });
     }
 
-    // Sanitizing optional Felder
     const expMinutes =
       typeof expiresInMinutes === "number" && Number.isFinite(expiresInMinutes)
         ? Math.max(1, Math.floor(expiresInMinutes))
@@ -54,7 +49,6 @@ export async function POST(req: Request) {
 
     const sb = createAdminClient();
 
-    // Datei existiert & gehört dem User?
     const { data: file, error: fileErr } = await sb
       .from("files_meta")
       .select("id,user_id,storage_path,file_name")
@@ -68,7 +62,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    // Share-Token + optionale Passwort-Hashing
     const token = generateShareToken();
     const expires_at = expMinutes
       ? new Date(Date.now() + expMinutes * 60 * 1000).toISOString()
@@ -85,7 +78,6 @@ export async function POST(req: Request) {
       password_hash = h.hash;
     }
 
-    // Insert Share
     const { error: insErr } = await sb.from("file_shares").insert({
       token,
       file_id: file.id,
@@ -101,10 +93,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "insert_failed", detail: insErr.message }, { status: 500 });
     }
 
-    // Audit
     try {
       await logAudit({
-        action: "login_success", // falls du spezielle Action-Namen hast, hier anpassen
+        action: "login_success",
         actorUserId: userId,
         actorEmail: null,
         target: "file_share_create",
@@ -117,9 +108,7 @@ export async function POST(req: Request) {
           hasPassword: !!password_hash,
         },
       });
-    } catch {
-      // audit darf den Flow nicht brechen
-    }
+    } catch {}
 
     return NextResponse.json({ ok: true, token });
   } catch (e: any) {

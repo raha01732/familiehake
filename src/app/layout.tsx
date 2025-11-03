@@ -1,6 +1,7 @@
 import "./globals.css";
 import { Header } from "../components/Header";
 import { ClerkProvider } from "@clerk/nextjs";
+import CommandMenu from "@/components/CommandMenu";
 
 export const metadata = {
   title: "Private Tools",
@@ -23,6 +24,7 @@ export default function RootLayout({
           <footer className="text-xs text-zinc-600 text-center py-8">
             © {new Date().getFullYear()} Private Area
           </footer>
+          <CommandMenu />
         </body>
       </html>
     </ClerkProvider>
