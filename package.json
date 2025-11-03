@@ -5,7 +5,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "ci:build": "npm run lint && npm run typecheck && next build",
     "deadcode": "ts-prune",
@@ -29,13 +29,19 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@eslint/js": "^9.14.0",
+    "@next/eslint-plugin-next": "^14.2.0",
     "@types/node": "^20.11.30",
     "@types/react": "^18.2.79",
     "@types/react-dom": "^18.2.29",
     "autoprefixer": "^10.4.17",
     "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-unused-imports": "^4.0.0",
+    "globals": "^15.11.0",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.3",
-    "typescript": "^5.4.2"
+    "typescript": "^5.4.2",
+    "typescript-eslint": "^8.13.0"
   }
 }
