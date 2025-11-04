@@ -12,47 +12,32 @@ export default function MessagesPage() {
   const { userId } = useAuth();
   const { user } = useUser();
   const [privPEM, setPrivPEM] = useState<string | null>(null);
-  const [recipient, setRecipient] = useState<string>("");
   const [recipientId, setRecipientId] = useState<string>("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [plain, setPlain] = useState("");
 
-  // Load/save private key from localStorage
+  // Private Key lokal laden (nur Client)
   useEffect(() => {
     setPrivPEM(localStorage.getItem("e2e_private_pem"));
   }, []);
 
+  // RSA-Schlüssel erzeugen & öffentlichen Schlüssel publizieren
   async function ensureKey() {
     if (privPEM) return;
     const kp = await generateRSA();
-    // save private locally only
     localStorage.setItem("e2e_private_pem", kp.privatePEM);
     setPrivPEM(kp.privatePEM);
-    // publish public
     await sb.from("user_keys").upsert({ user_id: userId, public_key_pem: kp.publicPEM }, { onConflict: "user_id" });
   }
 
-  async function findRecipient() {
-    // simplistic: wir nehmen e-Mail aus Clerk Profilen, die du schon kennst (oder manuell RECIPIENT_ID eingeben)
-    // hier: versuchsweise via user_keys Tabelle über E-Mail -> user_id mappen
-    const { data } = await sb
-      .from("user_keys")
-      .select("user_id")
-      .limit(50);
-    // Demo: du kennst die ID vielleicht schon – sonst würdest du user directory bauen
-    const target = prompt("Clerk user_id des Empfängers eingeben:");
-    if (target) {
-      setRecipientId(target);
-      setRecipient(target);
-      await loadChat(target);
-    }
-  }
-
   async function loadChat(peerId: string) {
+    if (!peerId) return;
     const { data } = await sb
       .from("messages")
       .select("id,sender_id,recipient_id,ciphertext,created_at")
-      .or(`and(sender_id.eq.${userId},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${userId})`)
+      .or(
+        `and(sender_id.eq.${userId},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${userId})`
+      )
       .order("created_at", { ascending: true });
     setMessages(data ?? []);
   }
@@ -61,11 +46,17 @@ export default function MessagesPage() {
     if (!plain.trim() || !recipientId) return;
 
     // Public Key des Empfängers holen
-    const { data: keyRows } = await sb.from("user_keys").select("public_key_pem").eq("user_id", recipientId).single();
+    const { data: keyRows } = await sb
+      .from("user_keys")
+      .select("public_key_pem")
+      .eq("user_id", recipientId)
+      .single();
+
     if (!keyRows?.public_key_pem) {
       alert("Empfänger hat keinen öffentlichen Schlüssel publiziert.");
       return;
     }
+
     const pubKey = await importPublicKey(keyRows.public_key_pem);
     const ciphertext = await encryptFor(pubKey, plain.trim());
 
@@ -97,12 +88,23 @@ export default function MessagesPage() {
     }
   }
 
+  if (!userId) {
+    return (
+      <section className="p-6">
+        <div className="text-sm text-zinc-400">Bitte anmelden.</div>
+      </section>
+    );
+  }
+
   return (
     <section className="p-6 flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-zinc-100">Nachrichten (E2E)</h1>
         {!privPEM ? (
-          <button onClick={ensureKey} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900">
+          <button
+            onClick={ensureKey}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900"
+          >
             Schlüssel erzeugen & veröffentlichen
           </button>
         ) : (
@@ -119,12 +121,16 @@ export default function MessagesPage() {
             onChange={(e) => setRecipientId(e.target.value)}
             className="flex-1 rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-sm"
           />
-          <button onClick={() => loadChat(recipientId)} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900">
+          <button
+            onClick={() => loadChat(recipientId)}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900"
+          >
             Laden
           </button>
         </div>
         <div className="text-[11px] text-zinc-500">
-          Hinweis: Adressbuch/Auto-Complete bauen wir später. Der Empfänger muss vorab einen öffentlichen Schlüssel publiziert haben (Button oben).
+          Hinweis: Adressbuch/Auto-Complete bauen wir später. Der Empfänger muss vorher einen öffentlichen Schlüssel
+          publiziert haben (Button oben).
         </div>
       </div>
 
@@ -134,9 +140,13 @@ export default function MessagesPage() {
         ) : (
           <div className="flex flex-col gap-2">
             {decrypted.map(({ m, mine }) => (
-              <div key={m.id} className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${mine ? "self-end bg-zinc-800" : "self-start bg-zinc-950 border border-zinc-800"}`}>
+              <div
+                key={m.id}
+                className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
+                  mine ? "self-end bg-zinc-800" : "self-start bg-zinc-950 border border-zinc-800"
+                }`}
+              >
                 <div className="text-[10px] text-zinc-500 mb-1">{mine ? me : "Partner"}</div>
-                {/* Lazy-Decrypt per Klick */}
                 <details>
                   <summary className="cursor-pointer text-zinc-300">Nachricht anzeigen</summary>
                   <AsyncText ciphertext={m.ciphertext} reveal={reveal} />
