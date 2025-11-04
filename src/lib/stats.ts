@@ -179,7 +179,7 @@ export async function getJournalSummary(): Promise<JournalSummary> {
       totalEntries: count ?? 0,
       lastUpdatedAt,
     };
-  } catch (error) {
+  } catch {
     return {
       totalEntries: 0,
       lastUpdatedAt: null,

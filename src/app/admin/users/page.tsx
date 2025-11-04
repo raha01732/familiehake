@@ -526,7 +526,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
               <a
                 href={`/admin/users?${new URLSearchParams(
                   Object.fromEntries(
-                    Object.entries({ q, role: roleFilter }).filter(([_, v]) => (v ?? "") !== "" && v !== "all")
+                    Object.entries({ q, role: roleFilter }).filter(([, v]) => (v ?? "") !== "" && v !== "all")
                   )
                 ).toString()}`}
                 className="text-xs rounded-lg border border-zinc-700 text-zinc-300 px-2 py-1 hover:bg-zinc-800/60"
@@ -601,7 +601,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                   <a
                     href={`/admin/users?${new URLSearchParams(
                       Object.fromEntries(
-                        Object.entries({ q, role: roleFilter }).filter(([_, v]) => (v ?? "") !== "" && v !== "all")
+                        Object.entries({ q, role: roleFilter }).filter(([, v]) => (v ?? "") !== "" && v !== "all")
                       )
                     ).toString()}`}
                     className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60"
