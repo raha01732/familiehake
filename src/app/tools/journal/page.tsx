@@ -1,169 +1,105 @@
-import RoleGate from "@/components/RoleGate";
-import { auth } from "@clerk/nextjs/server";
-import { revalidatePath } from "next/cache";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { logAudit } from "@/lib/audit";
-import { reportError } from "@/lib/sentry"; // optional – kann bleiben für Sentry
+"use client";
 
-export const metadata = { title: "Journal" };
+import { useEffect, useState, useTransition } from "react";
+import { createClient } from "@/lib/supabase/browser";
+import { useAuth } from "@clerk/nextjs";
 
-type DbRow = {
+type Row = {
   id: string;
-  user_id: string;
   title: string;
-  content: string;
+  content_md: string;
   created_at: string;
   updated_at: string;
 };
 
-async function listEntries(userId: string) {
-  const sb = createAdminClient();
-  try {
+export default function JournalPage() {
+  const sb = createClient();
+  const { userId } = useAuth();
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, startSaving] = useTransition();
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await sb
+        .from("journal_entries")
+        .select("id,title,content_md,created_at,updated_at")
+        .order("created_at", { ascending: false });
+      setRows(data ?? []);
+      setLoading(false);
+    })();
+  }, [sb]);
+
+  async function createEntry() {
+    const title = `Eintrag ${new Date().toLocaleDateString()}`;
     const { data, error } = await sb
       .from("journal_entries")
-      .select("id, user_id, title, content, created_at, updated_at")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-    return (data ?? []) as DbRow[];
-  } catch (e) {
-    reportError(e, { where: "journal:listEntries", userId });
-    return [];
-  }
-}
-
-async function createEntry(formData: FormData) {
-  "use server";
-  const { userId } = auth();
-  if (!userId) return;
-
-  const title = ((formData.get("title") as string) || "").trim() || "Ohne Titel";
-  const content = ((formData.get("content") as string) || "").trim();
-
-  try {
-    const sb = createAdminClient();
-    const { error } = await sb.from("journal_entries").insert({
-      user_id: userId,
-      title,
-      content,
-    });
-    if (error) throw error;
-
-    await logAudit({
-      action: "journal_create",
-      actorUserId: userId,
-      actorEmail: null,
-      target: null,
-      detail: { title_len: title.length, content_len: content.length },
-    });
-  } catch (e) {
-    reportError(e, { where: "journal:createEntry" });
-  }
-
-  revalidatePath("/tools/journal");
-}
-
-async function deleteEntry(formData: FormData) {
-  "use server";
-  const { userId } = auth();
-  if (!userId) return;
-
-  const id = formData.get("id") as string;
-  const sb = createAdminClient();
-
-  try {
-    // Ownership prüfen
-    const { data: row, error: selErr } = await sb
-      .from("journal_entries")
-      .select("user_id, title")
-      .eq("id", id)
+      .insert({ title, content_md: "# Neuer Eintrag\n\n" })
+      .select("id,title,content_md,created_at,updated_at")
       .single();
-    if (selErr) throw selErr;
-    if (!row || row.user_id !== userId) return;
-
-    const { error: delErr } = await sb.from("journal_entries").delete().eq("id", id);
-    if (delErr) throw delErr;
-
-    await logAudit({
-      action: "journal_delete",
-      actorUserId: userId,
-      actorEmail: null,
-      target: id,
-      detail: { title: row.title },
-    });
-  } catch (e) {
-    reportError(e, { where: "journal:deleteEntry", entryId: id });
+    if (!error && data) {
+      setRows((r) => [data, ...r]);
+    }
   }
 
-  revalidatePath("/tools/journal");
-}
+  function updateRow(id: string, patch: Partial<Row>) {
+    setRows((all) => all.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
 
-export default async function JournalPage() {
-  const { userId } = auth();
+  async function saveRow(row: Row) {
+    startSaving(async () => {
+      await sb
+        .from("journal_entries")
+        .update({ title: row.title, content_md: row.content_md })
+        .eq("id", row.id);
+    });
+  }
+
   if (!userId) {
     return (
-      <RoleGate routeKey="tools/journal">
-        <div className="card p-6">Bitte anmelden.</div>
-      </RoleGate>
+      <section className="p-6">
+        <div className="text-sm text-zinc-400">Bitte anmelden.</div>
+      </section>
     );
   }
 
-  const entries = await listEntries(userId);
-
   return (
-    <RoleGate routeKey="tools/journal">
-      <section className="grid gap-6">
-        <div className="card p-6">
-          <h1 className="text-xl font-semibold text-zinc-100 mb-3">Neuer Eintrag</h1>
-          <form action={createEntry} className="grid gap-3">
-            <input
-              name="title"
-              placeholder="Titel"
-              className="rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
-            />
-            <textarea
-              name="content"
-              rows={6}
-              placeholder="Was möchtest du festhalten?"
-              className="rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
-            />
-            <div>
-              <button className="rounded-xl border border-zinc-700 text-zinc-200 text-sm px-3 py-2 hover:bg-zinc-800/60">
-                Speichern
-              </button>
-            </div>
-          </form>
-        </div>
+    <section className="p-6 flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-zinc-100">Journal</h1>
+        <button onClick={createEntry} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900">
+          Neuer Eintrag
+        </button>
+      </div>
 
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-zinc-100 mb-3">Deine Einträge</h2>
-          <div className="grid gap-3">
-            {entries.map((e) => (
-              <div key={e.id} className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-zinc-100 font-medium">{e.title}</div>
-                    <div className="text-[11px] text-zinc-500">
-                      {new Date(e.created_at).toLocaleString()}
-                    </div>
-                  </div>
-                  <form action={deleteEntry}>
-                    <input type="hidden" name="id" value={e.id} />
-                    <button className="rounded-lg border border-red-700 text-red-300 text-xs px-2 py-1 hover:bg-red-900/30">
-                      Löschen
-                    </button>
-                  </form>
-                </div>
-                <div className="text-sm text-zinc-300 mt-3 whitespace-pre-wrap">{e.content}</div>
+      {loading ? (
+        <div className="text-sm text-zinc-400">Lade…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-sm text-zinc-400">Noch keine Einträge.</div>
+      ) : (
+        <div className="grid gap-4">
+          {rows.map((r) => (
+            <div key={r.id} className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <input
+                value={r.title}
+                onChange={(e) => updateRow(r.id, { title: e.target.value })}
+                onBlur={() => saveRow(r)}
+                className="w-full bg-transparent text-zinc-100 font-medium outline-none"
+              />
+              <textarea
+                value={r.content_md}
+                onChange={(e) => updateRow(r.id, { content_md: e.target.value })}
+                onBlur={() => saveRow(r)}
+                className="mt-2 w-full min-h-[160px] bg-transparent text-sm text-zinc-200 outline-none"
+                placeholder="Markdown…"
+              />
+              <div className="mt-2 text-[11px] text-zinc-500">
+                {saving ? "Speichere…" : "Auto-Save beim Verlassen des Feldes"}
               </div>
-            ))}
-            {entries.length === 0 && (
-              <div className="text-[12px] text-zinc-500">Noch keine Einträge.</div>
-            )}
-          </div>
+            </div>
+          ))}
         </div>
-      </section>
-    </RoleGate>
+      )}
+    </section>
   );
 }
