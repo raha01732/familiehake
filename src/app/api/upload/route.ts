@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 function safeFileName(name: string) {
   // sehr defensiv: keine Pfadtrenner, kontrollierte Länge
-  const base = name.replace(/[\/\\]/g, "_").replace(/\s+/g, " ").trim();
+  const base = name.replace(/[/\\]/g, "_").replace(/\s+/g, " ").trim();
   return base.slice(0, 180) || "file";
 }
 

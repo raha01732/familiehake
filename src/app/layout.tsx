@@ -1,6 +1,7 @@
 import "./globals.css";
 import { Header } from "../components/Header";
 import { ClerkProvider } from "@clerk/nextjs";
+import React from "react";
 import CommandMenu from "@/components/CommandMenu";
 
 export const metadata = {

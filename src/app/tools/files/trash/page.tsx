@@ -50,7 +50,7 @@ async function restoreFileAction(formData: FormData) {
 
   try {
     await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "file_restore", detail: { id } });
-  } catch {}
+  } catch (e) { void e; }
 
   revalidatePath("/tools/files/trash");
 }
@@ -81,7 +81,7 @@ async function hardDeleteFileAction(formData: FormData) {
       target: row.storage_path,
       detail: { file: row.file_name, hard: true, from: "trash" },
     });
-  } catch {}
+  } catch (e) { void e; }
 
   revalidatePath("/tools/files/trash");
 }
@@ -101,7 +101,7 @@ async function restoreFolderAction(formData: FormData) {
 
   try {
     await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "folder_restore", detail: { folderId } });
-  } catch {}
+  } catch (e) { void e; }
 
   revalidatePath("/tools/files/trash");
 }
@@ -129,7 +129,7 @@ async function hardDeleteFolderAction(formData: FormData) {
 
   try {
     await logAudit({ action: "login_success", actorUserId: userId, actorEmail: null, target: "folder_hard_delete", detail: { folderId } });
-  } catch {}
+  } catch (e) { void e; }
 
   revalidatePath("/tools/files/trash");
 }

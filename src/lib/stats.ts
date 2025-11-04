@@ -145,7 +145,7 @@ export async function getStorageUsageSummary(): Promise<StorageUsageSummary> {
       expiringSoon,
       recentShares,
     };
-  } catch (error) {
+  } catch {
     return {
       totalFiles: 0,
       totalBytes: 0,

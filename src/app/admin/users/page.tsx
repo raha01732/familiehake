@@ -1,3 +1,5 @@
+/**src/app/admin/users/page.tsx */
+
 import RoleGate from "@/components/RoleGate";
 import { clerkClient, auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
@@ -159,6 +161,7 @@ async function assertRoleAssignmentAllowed(
     client.users.getUser(actorId),
     client.users.getUser(targetUserId),
   ]);
+  void _targetClerk;
 
   const assignments = await fetchAssignments([actorId, targetUserId], rolesCatalog);
   const actorRoles = assignments[actorId] ?? [];

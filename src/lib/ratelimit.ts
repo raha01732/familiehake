@@ -10,9 +10,7 @@ function getRatelimiter() {
     process.env.UPSTASH_REDIS_REST_TOKEN
   ) {
     if (!upstash) {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { Ratelimit } = require("@upstash/ratelimit");
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { Redis } = require("@upstash/redis");
       const redis = new Redis({
         url: process.env.UPSTASH_REDIS_REST_URL!,

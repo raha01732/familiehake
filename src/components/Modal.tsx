@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
+import React from "react";
+
 
 export function Modal({
   open,

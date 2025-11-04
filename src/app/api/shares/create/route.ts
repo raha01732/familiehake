@@ -108,7 +108,9 @@ export async function POST(req: Request) {
           hasPassword: !!password_hash,
         },
       });
-    } catch {}
+    } catch (e) {
+      void e;
+    }
 
     return NextResponse.json({ ok: true, token });
   } catch (e: any) {

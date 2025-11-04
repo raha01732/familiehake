@@ -154,7 +154,7 @@ async function createFolderAction(formData: FormData) {
       target: "folder_create",
       detail: { name },
     });
-  } catch {}
+  } catch (e) {void e; }
   revalidatePath("/tools/files");
 }
 
@@ -179,7 +179,7 @@ async function renameFolderAction(formData: FormData) {
       target: "folder_rename",
       detail: { folderId, name },
     });
-  } catch {}
+  } catch (e) { void e; }
   revalidatePath("/tools/files");
 }
 
@@ -203,7 +203,7 @@ async function moveFolderAction(formData: FormData) {
       target: "folder_move",
       detail: { folderId, destId },
     });
-  } catch {}
+  } catch (e) { void e;}
   revalidatePath("/tools/files");
 }
 
@@ -231,7 +231,7 @@ async function softDeleteFolderAction(formData: FormData) {
       target: "folder_soft_delete",
       detail: { folderId },
     });
-  } catch {}
+  } catch (e) { void e;}
   revalidatePath("/tools/files");
 }
 
@@ -256,7 +256,7 @@ async function moveFileAction(formData: FormData) {
       target: "file_move",
       detail: { fileId, destId },
     });
-  } catch {}
+  } catch (e) { void e;}
   revalidatePath("/tools/files");
 }
 
@@ -285,7 +285,7 @@ async function softDeleteFileAction(formData: FormData) {
       target: row.storage_path,
       detail: { event: "file_delete_soft", file: row.file_name },
     });
-  } catch {}
+  } catch (e) { void e; }
 
   revalidatePath("/tools/files");
 }
@@ -318,7 +318,7 @@ async function hardDeleteFileAction(formData: FormData) {
       target: row.storage_path,
       detail: { event: "file_delete_hard", file: row.file_name },
     });
-  } catch {}
+  } catch (e) { void e; }
 
   revalidatePath("/tools/files");
 }
@@ -387,7 +387,7 @@ async function createShareAction(formData: FormData) {
         maxDownloads: maxDownloads ?? null,
       },
     });
-  } catch {}
+  } catch (e) { void e; }
 
   revalidatePath("/tools/files");
 }
@@ -418,7 +418,7 @@ async function revokeShareAction(formData: FormData) {
         target: "file_share_revoke",
         detail: { event: "file_share_revoke", share_id: shareId },
       });
-    } catch {}
+    } catch (e) { void e; }
   }
 
   revalidatePath("/tools/files");
