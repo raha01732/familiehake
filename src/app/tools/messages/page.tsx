@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/browser";
 import { decryptWith, encryptFor, generateRSA, importPrivateKey, importPublicKey } from "@/lib/crypto";
 
 type Msg = { id: string; sender_id: string; recipient_id: string; ciphertext: string; created_at: string };
+type RevealFn = (ciphertext: string) => Promise<string>;
 
 export default function MessagesPage() {
   const sb = createClient();
@@ -78,11 +79,11 @@ export default function MessagesPage() {
     return messages.map((m) => ({ m, mine: m.sender_id === userId }));
   }, [messages, userId]);
 
-  async function reveal(ct: string) {
+  async function reveal(ciphertext: string) {
     if (!privPEM) return "—";
     const privKey = await importPrivateKey(privPEM);
     try {
-      return await decryptWith(privKey, ct);
+      return await decryptWith(privKey, ciphertext);
     } catch {
       return "Entschlüsselung fehlgeschlagen";
     }
@@ -129,8 +130,7 @@ export default function MessagesPage() {
           </button>
         </div>
         <div className="text-[11px] text-zinc-500">
-          Hinweis: Adressbuch/Auto-Complete bauen wir später. Der Empfänger muss vorher einen öffentlichen Schlüssel
-          publiziert haben (Button oben).
+          Hinweis: Der Empfänger muss vorher einen öffentlichen Schlüssel publiziert haben (Button oben).
         </div>
       </div>
 
@@ -172,11 +172,12 @@ export default function MessagesPage() {
   );
 }
 
-function AsyncText({ ciphertext, reveal }: { ciphertext: string; reveal: (c: string) => Promise<string> }) {
+function AsyncText({ ciphertext, reveal }: { ciphertext: string; reveal: RevealFn }) {
   const [txt, setTxt] = useState("…entschlüsseln…");
+
   useEffect(() => {
     (async () => setTxt(await reveal(ciphertext)))();
   }, [ciphertext, reveal]);
+
   return <div className="mt-1 text-zinc-200 whitespace-pre-wrap">{txt}</div>;
 }
-void c;
