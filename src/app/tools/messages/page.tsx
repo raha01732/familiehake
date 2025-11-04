@@ -179,3 +179,4 @@ function AsyncText({ ciphertext, reveal }: { ciphertext: string; reveal: (c: str
   }, [ciphertext, reveal]);
   return <div className="mt-1 text-zinc-200 whitespace-pre-wrap">{txt}</div>;
 }
+void c;
