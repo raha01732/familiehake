@@ -1,3 +1,4 @@
+// src/lib/access-db.ts
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   PERMISSION_LEVELS,
@@ -32,6 +33,7 @@ const FALLBACK_MATRIX: RoutePermissionMatrix = {
   tools: { member: PERMISSION_LEVELS.READ, admin: PERMISSION_LEVELS.WRITE },
   "tools/files": { member: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
   "tools/journal": { member: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
+  "tools/dispoplaner": { member: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
   "tools/storage": { admin: PERMISSION_LEVELS.WRITE },
   "tools/system": { admin: PERMISSION_LEVELS.WRITE },
   activity: { admin: PERMISSION_LEVELS.READ },

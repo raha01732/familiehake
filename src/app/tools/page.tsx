@@ -1,3 +1,4 @@
+// src/app/tools/page.tsx
 import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -20,7 +21,12 @@ const ALL_TOOLS = [
     title: "Journal",
     description: "Privates Tagebuch mit Markdown & Suche",
   },
-  // hier kannst du später weitere Tools hinzufügen
+  {
+    routeKey: "tools/dispoplaner",
+    href: "/tools/dispoplaner",
+    title: "Dispoplaner",
+    description: "Kinovorstellungen Wochenplan",
+  },
 ];
 
 function normalizeKey(key: string) {
@@ -29,14 +35,22 @@ function normalizeKey(key: string) {
 
 async function getAllowedRoutesForRole(role: string) {
   const sb = createAdminClient();
-  const { data: rules } = await sb
-    .from("access_rules")
+  const { data: roleData } = await sb
+    .from("roles")
+    .select("id")
+    .eq("name", role)
+    .single();
+
+  if (!roleData) return new Map();
+
+  const { data: perms } = await sb
+    .from("role_permissions")
     .select("route, level")
-    .eq("role", role);
+    .eq("role_id", roleData.id);
 
   const map = new Map<string, number>();
-  for (const r of rules ?? []) {
-    const key = normalizeKey(String(r.route ?? ""));
+  for (const r of perms ?? []) {
+    const key = normalizeKey(String(r.route));
     const level = Number(r.level ?? 0);
     if (!key) continue;
     map.set(key, Math.max(map.get(key) ?? LEVEL_NONE, level));
@@ -80,7 +94,7 @@ export default async function ToolsPage() {
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
           <div className="text-zinc-300 text-sm">Für deine Rolle sind derzeit keine Werkzeuge freigeschaltet.</div>
           <div className="text-[11px] text-zinc-500 mt-2">
-            Konfiguriere die Zugriffe in <span className="font-mono">/admin/settings</span> (Keys: <span className="font-mono">tools/files</span>, <span className="font-mono">tools/journal</span>).
+            Konfiguriere die Zugriffe in <span className="font-mono">/admin/settings</span> (Keys: <span className="font-mono">tools/files</span>, <span className="font-mono">tools/journal</span>, <span className="font-mono">tools/dispoplaner</span>).
           </div>
         </div>
       ) : (

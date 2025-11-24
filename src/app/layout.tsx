@@ -14,8 +14,8 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider>
-      <html lang="de" className="h-full bg-zinc-950">
-        <body className="min-h-screen text-zinc-200 antialiased">
+      <html lang="de" className="bg-zinc-950 text-zinc-50">
+        <body className="min-h-screen antialiased">
           <Header />
           <main className="max-w-6xl mx-auto w-full">{children}</main>
           <CommandMenu />

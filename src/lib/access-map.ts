@@ -1,3 +1,4 @@
+// src/lib/access-map.ts
 import { PERMISSION_LEVELS, type PermissionLevel } from "@/lib/rbac";
 
 export type RouteDescriptor = {
@@ -66,6 +67,12 @@ export const ROUTE_DESCRIPTORS: RouteDescriptor[] = [
     route: "tools/journal",
     label: "Journal",
     description: "Persönliche Notizen.",
+    defaultLevel: PERMISSION_LEVELS.WRITE,
+  },
+  {
+    route: "tools/dispoplaner",
+    label: "Dispoplaner",
+    description: "Kinovorstellungen planen",
     defaultLevel: PERMISSION_LEVELS.WRITE,
   },
   {
