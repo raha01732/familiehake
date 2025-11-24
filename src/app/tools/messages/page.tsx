@@ -1,3 +1,4 @@
+// src/app/tools/messages/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -6,6 +7,7 @@ import { createClient } from "@/lib/supabase/browser";
 import { decryptWith, encryptFor, generateRSA, importPrivateKey, importPublicKey } from "@/lib/crypto";
 
 type Msg = { id: string; sender_id: string; recipient_id: string; ciphertext: string; created_at: string };
+// eslint-disable-next-line no-unused-vars
 type RevealFn = (ciphertext: string) => Promise<string>;
 
 export default function MessagesPage() {
