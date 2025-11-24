@@ -48,7 +48,11 @@ export default function Header() {
 
           <ClerkLoaded>
             <SignedOut>
-              <SignInButton mode="modal" afterSignInUrl="/dashboard" afterSignUpUrl="/dashboard">
+              <SignInButton
+                mode="modal"
+                forceRedirectUrl="/dashboard"
+                signUpForceRedirectUrl="/dashboard"
+              >
                 <button className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow-lg shadow-cyan-500/10 transition hover:-translate-y-[1px] hover:border-cyan-300/60 hover:bg-cyan-500/20">
                   Anmelden
                 </button>
