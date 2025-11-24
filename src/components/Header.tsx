@@ -2,7 +2,14 @@
 "use client";
 
 import Link from "next/link";
-import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
+import {
+  ClerkLoaded,
+  ClerkLoading,
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  UserButton,
+} from "@clerk/nextjs";
 
 export default function Header() {
   return (
@@ -19,27 +26,37 @@ export default function Header() {
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
-          <SignedOut>
-            <SignInButton mode="modal">
-              <button className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900">
-                Anmelden
-              </button>
-            </SignInButton>
-          </SignedOut>
+          <ClerkLoading>
+            <div
+              className="h-8 w-8 rounded-full border border-zinc-800 bg-zinc-900 animate-pulse"
+              aria-label="Anmeldestatus wird geladen"
+            />
+          </ClerkLoading>
 
-          <SignedIn>
-            {/* Hoher z-index, damit das Overlay nicht von Layouts überdeckt wird */}
-            <div className="relative z-[200]">
-              <UserButton
-                afterSignOutUrl="/"
-                appearance={{
-                  elements: {
-                    userButtonAvatarBox: "ring-1 ring-zinc-700",
-                  },
-                }}
-              />
-            </div>
-          </SignedIn>
+          <ClerkLoaded>
+            <SignedOut>
+              <SignInButton mode="modal">
+                <button className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900">
+                  Anmelden
+                </button>
+              </SignInButton>
+            </SignedOut>
+
+            <SignedIn>
+              {/* Hoher z-index, damit das Overlay nicht von Layouts überdeckt wird */}
+              <div className="relative z-[200]">
+                <UserButton
+                  afterSignOutUrl="/"
+                  appearance={{
+                    elements: {
+                      avatarBox: "ring-1 ring-zinc-700", // dark mode sichtbar halten
+                      userButtonPopoverCard: "bg-zinc-950 border-zinc-800", // besserer Kontrast zum Header
+                    },
+                  }}
+                />
+              </div>
+            </SignedIn>
+          </ClerkLoaded>
         </div>
       </div>
     </header>
