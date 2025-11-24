@@ -1,82 +1,9 @@
 // src/app/tools/dispoplaner/page.tsx
 import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { addMovieAction, addShowAction, deleteMovieAction, updateMovieAction } from "./actions";
 
 export const metadata = { title: "Dispoplaner" };
-
-export async function addMovieAction(formData: FormData) {
-  "use server";
-  const title = String(formData.get("title") || "").trim();
-  const runtime = Number(formData.get("runtime") || 0);
-  const preShow = Number(formData.get("pre_show") || 25);
-  if (!title || runtime <= 0) return;
-  const sb = createAdminClient();
-  await sb.from("movies").insert({ title, runtime, pre_show: preShow });
-}
-
-export async function updateMovieAction(formData: FormData) {
-  "use server";
-  const id = Number(formData.get("id"));
-  const title = String(formData.get("title") || "").trim();
-  const runtime = Number(formData.get("runtime") || 0);
-  const preShow = Number(formData.get("pre_show") || 25);
-  if (!id || !title || runtime <= 0) return;
-  const sb = createAdminClient();
-  await sb.from("movies").update({ title, runtime, pre_show: preShow }).eq("id", id);
-}
-
-export async function deleteMovieAction(formData: FormData) {
-  "use server";
-  const id = Number(formData.get("id"));
-  if (!id) return;
-  const sb = createAdminClient();
-  await sb.from("movies").delete().eq("id", id);
-}
-
-export async function addShowAction(formData: FormData) {
-  "use server";
-  const hall = Number(formData.get("hall"));
-  const dateStr = String(formData.get("date"));
-  const timeStr = String(formData.get("time"));
-  const movieId = Number(formData.get("movie_id"));
-  const version = String(formData.get("version") || "").trim();
-  if (!hall || !dateStr || !timeStr || !movieId || !version) return;
-
-  const startTime = new Date(`${dateStr}T${timeStr}`);
-  const sb = createAdminClient();
-  const { data: movieData } = await sb
-    .from("movies")
-    .select("runtime, pre_show")
-    .eq("id", movieId)
-    .single();
-  if (!movieData) return;
-
-  const runtimeMin = movieData.runtime;
-  const preShowMin = movieData.pre_show ?? 25;
-  const endTime = new Date(startTime.getTime() + (runtimeMin + preShowMin) * 60000);
-
-  const { data: existing } = await sb
-    .from("shows")
-    .select("start_time, movie_id, version, movie:movies(runtime, pre_show)")
-    .eq("hall", hall);
-
-  for (const show of existing ?? []) {
-    const showStart = new Date(show.start_time);
-    const showRuntime = show.movie.runtime;
-    const showPreShow = show.movie.pre_show ?? 25;
-    const showEnd = new Date(showStart.getTime() + (showRuntime + showPreShow) * 60000);
-    if (showStart < endTime && showEnd > startTime) {
-      return;
-    }
-  }
-
-  await sb.from("shows").insert({
-    hall,
-    start_time: startTime.toISOString(),
-    movie_id: movieId,
-    version,
-  });
-}
 
 export default async function DispoplanerPage() {
   const user = await currentUser();
