@@ -1,3 +1,4 @@
+// src/components/CommandMenu.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -58,7 +59,7 @@ export default function CommandMenu() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="rounded-xl border border-zinc-700 bg-zinc-900/70 backdrop-blur px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-800/70"
+          className="rounded-xl border border-slate-200 bg-white/90 backdrop-blur px-3 py-2 text-xs font-medium text-slate-800 shadow-md transition hover:-translate-y-[1px] hover:border-sky-200 hover:bg-sky-50"
           title="Befehlspalette (⌘K / Ctrl+K)"
         >
           ⌘K
@@ -67,27 +68,27 @@ export default function CommandMenu() {
 
       {open && (
         <div
-          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+          className="fixed inset-0 z-50 bg-slate-900/30 backdrop-blur-sm"
           onClick={() => setOpen(false)}
           aria-modal="true"
           role="dialog"
         >
           <div
-            className="mx-auto mt-24 w-full max-w-xl rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl"
+            className="mx-auto mt-24 w-full max-w-xl rounded-2xl border border-slate-200 bg-white/95 shadow-2xl"
             onClick={(e) => e.stopPropagation()} // Klicks im Panel nicht schließen lassen
           >
-            <div className="border-b border-zinc-800 p-3">
+            <div className="border-b border-slate-200 p-3">
               <input
                 autoFocus
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Suchen oder springen…"
-                className="w-full bg-transparent text-zinc-100 placeholder-zinc-500 outline-none text-sm"
+                className="w-full bg-transparent text-slate-900 placeholder-slate-400 outline-none text-sm"
               />
             </div>
             <div className="max-h-80 overflow-auto p-2">
               {items.length === 0 ? (
-                <div className="p-4 text-center text-sm text-zinc-500">Nichts gefunden.</div>
+                <div className="p-4 text-center text-sm text-slate-500">Nichts gefunden.</div>
               ) : (
                 <ul className="grid gap-1">
                   {items.map((it, idx) => (
@@ -95,11 +96,11 @@ export default function CommandMenu() {
                       <button
                         type="button"
                         onClick={() => onAction(it)}
-                        className="w-full text-left rounded-lg px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/70 flex items-center justify-between"
+                        className="w-full text-left rounded-lg px-3 py-2 text-sm text-slate-900 hover:bg-sky-50 flex items-center justify-between"
                       >
                         <span>{it.label}</span>
                         {it.kbd && (
-                          <span className="text-[10px] text-zinc-500 border border-zinc-800 rounded px-1 py-0.5">
+                          <span className="text-[10px] text-slate-500 border border-slate-200 rounded px-1 py-0.5 bg-white/60">
                             {it.kbd}
                           </span>
                         )}
@@ -109,9 +110,9 @@ export default function CommandMenu() {
                 </ul>
               )}
             </div>
-            <div className="flex items-center justify-between border-t border-zinc-800 px-3 py-2">
-              <div className="text-[11px] text-zinc-500">Enter: Öffnen · Esc: Schließen</div>
-              <div className="text-[11px] text-zinc-600">Befehlspalette</div>
+            <div className="flex items-center justify-between border-t border-slate-200 px-3 py-2">
+              <div className="text-[11px] text-slate-500">Enter: Öffnen · Esc: Schließen</div>
+              <div className="text-[11px] text-slate-600">Befehlspalette</div>
             </div>
           </div>
         </div>
