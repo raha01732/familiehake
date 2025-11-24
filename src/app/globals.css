@@ -3,35 +3,27 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-gradient-to-br from-slate-50 via-white to-amber-50 text-slate-900 antialiased;
-}
-
-.card {
-  @apply bg-white/90 backdrop-blur border border-slate-200 rounded-2xl shadow-card text-slate-900;
-}
-
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 210 80% 45%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 38% 95%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 16% 92%;
-    --muted-foreground: 215 20% 45%;
-    --accent: 180 51% 92%;
-    --accent-foreground: 199 89% 24%;
+    --background: 222 47% 10%;
+    --foreground: 210 40% 96%;
+    --card: 222 47% 12%;
+    --card-foreground: 210 40% 96%;
+    --popover: 222 47% 12%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 189 94% 43%;
+    --primary-foreground: 210 40% 8%;
+    --secondary: 215 26% 22%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 218 30% 18%;
+    --muted-foreground: 214 20% 70%;
+    --accent: 199 89% 38%;
+    --accent-foreground: 210 40% 8%;
     --destructive: 0 84% 63%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 85%;
-    --input: 214 32% 85%;
-    --ring: 210 80% 45%;
+    --border: 215 25% 25%;
+    --input: 215 25% 25%;
+    --ring: 199 89% 38%;
     --chart-1: 199 89% 48%;
     --chart-2: 170 72% 44%;
     --chart-3: 31 89% 61%;
@@ -74,4 +66,8 @@ body {
   body {
     @apply bg-background text-foreground;
   }
+}
+
+.card {
+  @apply bg-slate-950/70 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl text-slate-100;
 }
