@@ -1,3 +1,4 @@
+// src/lib/auth.ts
 import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -7,6 +8,7 @@ import {
   type SessionRole,
   computeEffectivePermissions,
 } from "@/lib/rbac";
+import { env } from "@/lib/env";
 
 export type SessionInfo = {
   signedIn: boolean;
@@ -25,27 +27,27 @@ async function assignDefaultRoleIfMissing(
 ): Promise<SessionRole[]> {
   if (roles.length > 0) return roles;
 
-  const { data: member } = await sb
+  const { data: fallbackRole } = await sb
     .from("roles")
     .select("id, name, label, rank, is_superadmin")
-    .eq("name", "member")
+    .eq("name", "user")
     .single();
 
-  if (!member) return roles;
+  if (!fallbackRole) return roles;
 
   try {
-    await sb.from("user_roles").insert({ user_id: userId, role_id: member.id });
+    await sb.from("user_roles").insert({ user_id: userId, role_id: fallbackRole.id });
   } catch {
     // ignore race conditions
   }
 
   return [
     {
-      id: member.id,
-      name: member.name,
-      label: member.label ?? member.name,
-      rank: typeof member.rank === "number" ? member.rank : 0,
-      isSuperAdmin: !!member.is_superadmin,
+      id: fallbackRole.id,
+      name: fallbackRole.name,
+      label: fallbackRole.label ?? fallbackRole.name,
+      rank: typeof fallbackRole.rank === "number" ? fallbackRole.rank : 0,
+      isSuperAdmin: !!fallbackRole.is_superadmin,
     },
   ];
 }
@@ -106,7 +108,10 @@ export async function getSessionInfo(): Promise<SessionInfo> {
       .slice()
       .sort((a, b) => b.rank - a.rank)[0] ?? null;
 
-  const isSuperAdmin = roles.some((r) => r.isSuperAdmin);
+  const primarySuperAdminId = env().PRIMARY_SUPERADMIN_ID;
+  const isSuperAdmin =
+    user.id === primarySuperAdminId ||
+    roles.some((r) => r.isSuperAdmin || r.name.toLowerCase() === "superadmin");
 
   return {
     signedIn: true,

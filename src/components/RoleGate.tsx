@@ -1,7 +1,10 @@
+// src/components/RoleGate.tsx
 // Server Component
 import { ReactNode } from "react";
 import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { env } from "@/lib/env";
+import { getRouteDescriptor } from "@/lib/access-map";
 
 /**
  * Erwartetes Schema in Supabase (Beispiel):
@@ -31,11 +34,11 @@ function normalizeRouteKey(key: string) {
 
 export default async function RoleGate({ routeKey, children, minLevel = 1 }: Props) {
   const user = await currentUser();
-  const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "member";
+  const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
   const userId = user?.id ?? null;
 
   // 1) Superadmin override
-  if (role === "superadmin") {
+  if (userId && userId === env().PRIMARY_SUPERADMIN_ID) {
     return <>{children}</>;
   }
 
@@ -71,6 +74,10 @@ export default async function RoleGate({ routeKey, children, minLevel = 1 }: Pro
 
   // Keine Regel gefunden? → blocken mit Hinweis auf möglichen Route-Key-Mismatch
   if (!rules || rules.length === 0) {
+    const fallbackDescriptor = getRouteDescriptor(key);
+    if (fallbackDescriptor && fallbackDescriptor.defaultLevel >= minLevel) {
+      return <>{children}</>;
+    }
     return (
       <Blocked
         reason="no_rule"
