@@ -1,6 +1,6 @@
 // src/app/layout.tsx
 import React from "react";
-import { ClerkProvider } from "@clerk/nextjs";
+import { ClerkProvider, SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import "./globals.css";
 import CommandMenu from "@/components/CommandMenu";
@@ -45,22 +45,14 @@ const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 export default function RootLayout({ children }: { children: React.ReactNode }) {
 
   if (!clerkPublishableKey) {
-    return (
-      <html lang="de" className="bg-slate-950 text-slate-100">
-        <body className="min-h-screen antialiased bg-[radial-gradient(circle_at_20%_20%,rgba(14,165,233,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.12),transparent_40%),radial-gradient(circle_at_50%_60%,rgba(56,189,248,0.18),transparent_45%)]">
-          <div className="absolute inset-0 -z-10 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-20" aria-hidden />
-          <div className="max-w-4xl mx-auto w-full px-4 py-6">
-            <div className="rounded-2xl border border-amber-300/30 bg-amber-900/20 px-4 py-3 text-sm text-amber-100 shadow-lg shadow-amber-500/15">
-              <p className="font-semibold">Clerk ist nicht konfiguriert</p>
-              <p className="mt-1 text-amber-200/90">
-                Bitte die Umgebungsvariable <code className="font-mono">NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code> in Vercel setzen, damit das Benutzer-Menü geladen werden kann.
-              </p>
-            </div>
-          </div>
-          <main className="max-w-6xl mx-auto w-full px-4 pb-16 pt-4">{children}</main>
-          <CommandMenu />
-        </body>
-      </html>
+    throw new Error(
+      "Clerk ist nicht konfiguriert: Bitte NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in der Vercel-Umgebung setzen, damit das Benutzermenü geladen werden kann.",
+    );
+  }
+
+  if (!clerkPublishableKey) {
+    throw new Error(
+      "Clerk ist nicht konfiguriert: Bitte NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in der Vercel-Umgebung setzen, damit das Benutzermenü geladen werden kann.",
     );
   }
 
@@ -69,7 +61,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="de" className="bg-slate-950 text-slate-100">
         <body className="min-h-screen antialiased bg-[radial-gradient(circle_at_20%_20%,rgba(14,165,233,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.12),transparent_40%),radial-gradient(circle_at_50%_60%,rgba(56,189,248,0.18),transparent_45%)]">
           <div className="absolute inset-0 -z-10 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-20" aria-hidden />
-          <Header />
+          <header className="flex justify-end p-4">
+            <SignedIn>
+              <UserButton afterSignOutUrl="/" />
+            </SignedIn>
+            <SignedOut>
+              <SignInButton />
+            </SignedOut>
+          </header>
           <main className="max-w-6xl mx-auto w-full px-4 pb-16 pt-8">{children}</main>
           <CommandMenu />
         </body>
