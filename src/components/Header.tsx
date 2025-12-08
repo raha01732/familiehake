@@ -64,7 +64,6 @@ export default function Header() {
                 <UserButton
                   afterSignOutUrl="/"
                   userProfileMode="modal"
-                  userProfileUrl="/settings"
                   signInUrl="/sign-in"
                   appearance={{
                     elements: {
