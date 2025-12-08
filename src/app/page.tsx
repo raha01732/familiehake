@@ -1,17 +1,16 @@
 // src/app/page.tsx
 import Link from "next/link";
 import { currentUser } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
 
 export default async function PublicLanding() {
   const user = await currentUser();
-  if (user) {
-    redirect("/tools");
-  }
 
   return (
     <section className="relative max-w-5xl w-full mx-auto overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900/70 via-slate-900/50 to-slate-900/80 p-8 shadow-2xl shadow-cyan-500/10">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(34,211,238,0.14),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.18),transparent_35%),radial-gradient(circle_at_70%_60%,rgba(6,182,212,0.14),transparent_45%)]" aria-hidden />
+      <div
+        className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(34,211,238,0.14),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.18),transparent_35%),radial-gradient(circle_at_70%_60%,rgba(6,182,212,0.14),transparent_45%)]"
+        aria-hidden
+      />
       <div className="relative grid gap-10 lg:grid-cols-[1.2fr,0.8fr] items-center">
         <div className="space-y-6">
           <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200/40 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-cyan-100">
@@ -25,10 +24,10 @@ export default async function PublicLanding() {
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
             <Link
-              href={"/sign-in" as any}
+              href={user ? ("/dashboard" as any) : ("/sign-in" as any)}
               className="flex-1 text-center rounded-2xl bg-gradient-to-r from-cyan-400 via-sky-500 to-indigo-500 text-slate-950 font-semibold py-3 text-sm shadow-lg shadow-cyan-500/25 transition hover:-translate-y-[2px] hover:shadow-cyan-400/30"
             >
-              Anmelden
+              {user ? "Zum Dashboard" : "Anmelden"}
             </Link>
 
             <Link
@@ -38,9 +37,17 @@ export default async function PublicLanding() {
               Zugang anfragen
             </Link>
           </div>
-          <div className="flex items-center gap-3 text-xs text-slate-300">
-            <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
-            <p>Öffentliche Selbstregistrierung ist deaktiviert. Nur freigeschaltete Accounts können auf Inhalte zugreifen.</p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 text-xs text-slate-300">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+              <p>Öffentliche Selbstregistrierung ist deaktiviert. Nur freigeschaltete Accounts können auf Inhalte zugreifen.</p>
+            </div>
+            {user && (
+              <span className="inline-flex items-center gap-2 self-start rounded-full border border-emerald-400/50 bg-emerald-500/10 px-2 py-1 text-[11px] font-semibold text-emerald-100 shadow-inner shadow-emerald-900/40">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                Eingeloggt als {user.emailAddresses?.[0]?.emailAddress ?? user.firstName ?? "Nutzer"}
+              </span>
+            )}
           </div>
         </div>
         <div className="relative">
