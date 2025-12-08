@@ -4,42 +4,51 @@ import { ClerkProvider, SignedIn, SignedOut, SignInButton, UserButton } from "@c
 import type { Metadata } from "next";
 import "./globals.css";
 import CommandMenu from "@/components/CommandMenu";
+import Header from "@/components/Header";
 
 export const metadata: Metadata = {
   title: "FamilyHake",
   description: "Private Tools",
 };
 
+const clerkAppearance = {
+  variables: {
+    colorPrimary: "#0ea5e9",
+    colorBackground: "#0b1120",
+    colorText: "#0f172a",
+    colorInputBackground: "#0b1120",
+    colorInputText: "#e2e8f0",
+  },
+  layout: {
+    logoPlacement: "inside",
+    showOptionalFields: false,
+    socialButtonsPlacement: "bottom",
+  },
+  elements: {
+    card: "shadow-2xl border border-white/10 bg-slate-900/80 backdrop-blur-xl",
+    formButtonPrimary:
+      "bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950",
+    headerTitle: "text-slate-50",
+    headerSubtitle: "text-slate-300",
+    footerActionText: "text-slate-200",
+    footerActionLink: "text-cyan-200 hover:text-cyan-100",
+    userButtonPopover: "z-[520] shadow-2xl",
+    userButtonPopoverCard: "border border-white/10 bg-slate-900/90",
+    modalBackdrop: "z-[510] bg-slate-950/70 backdrop-blur-md",
+    formFieldInput: "bg-slate-950/30 border-white/10 text-slate-100 placeholder:text-slate-400",
+    socialButtonsBlockButtonText: "text-slate-900",
+  },
+} as const;
+
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const clerkAppearance = {
-    variables: {
-      colorPrimary: "#0ea5e9",
-      colorBackground: "#0b1120",
-      colorText: "#0f172a",
-      colorInputBackground: "#0b1120",
-      colorInputText: "#e2e8f0",
-    },
-    layout: {
-      logoPlacement: "inside",
-      showOptionalFields: false,
-      socialButtonsPlacement: "bottom",
-    },
-    elements: {
-      card: "shadow-2xl border border-white/10 bg-slate-900/80 backdrop-blur-xl",
-      formButtonPrimary:
-        "bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950",
-      headerTitle: "text-slate-50",
-      headerSubtitle: "text-slate-300",
-      footerActionText: "text-slate-200",
-      footerActionLink: "text-cyan-200 hover:text-cyan-100",
-      userButtonPopover: "z-[520] shadow-2xl",
-      userButtonPopoverCard: "border border-white/10 bg-slate-900/90",
-      modalBackdrop: "z-[510] bg-slate-950/70 backdrop-blur-md",
-      formFieldInput: "bg-slate-950/30 border-white/10 text-slate-100 placeholder:text-slate-400",
-      socialButtonsBlockButtonText: "text-slate-900",
-    },
-  } as const;
-  const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+  if (!clerkPublishableKey) {
+    throw new Error(
+      "Clerk ist nicht konfiguriert: Bitte NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in der Vercel-Umgebung setzen, damit das Benutzermenü geladen werden kann.",
+    );
+  }
 
   if (!clerkPublishableKey) {
     throw new Error(
