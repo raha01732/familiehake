@@ -60,17 +60,18 @@ export default function Header() {
             </SignedOut>
 
             <SignedIn>
-              <div className="relative z-[540]">
+              <div className="relative z-[560]">
                 <UserButton
                   afterSignOutUrl="/"
-                  userProfileMode="navigation"
+                  userProfileMode="modal"
                   userProfileUrl="/settings"
                   signInUrl="/sign-in"
                   appearance={{
                     elements: {
+                      rootBox: "pointer-events-auto cursor-pointer",
                       avatarBox:
-                        "ring-2 ring-cyan-400/50 shadow-lg shadow-cyan-500/25 transition hover:scale-[1.02] pointer-events-auto",
-                      userButtonPopover: "z-[550] drop-shadow-2xl", 
+                        "h-10 w-10 ring-2 ring-cyan-400/50 shadow-lg shadow-cyan-500/25 transition hover:scale-[1.02] pointer-events-auto",
+                      userButtonPopover: "z-[600] drop-shadow-2xl",
                       userButtonPopoverCard: "bg-slate-900/95 border border-white/10",
                     },
                   }}
