@@ -4,7 +4,6 @@ import { ClerkProvider, SignedIn, SignedOut, SignInButton, UserButton } from "@c
 import type { Metadata } from "next";
 import "./globals.css";
 import CommandMenu from "@/components/CommandMenu";
-import Header from "@/components/Header";
 
 export const metadata: Metadata = {
   title: "FamilyHake",
@@ -43,12 +42,6 @@ const clerkAppearance = {
 const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-
-  if (!clerkPublishableKey) {
-    throw new Error(
-      "Clerk ist nicht konfiguriert: Bitte NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in der Vercel-Umgebung setzen, damit das Benutzermenü geladen werden kann.",
-    );
-  }
 
   if (!clerkPublishableKey) {
     throw new Error(
