@@ -8,8 +8,10 @@ import {
   SignedIn,
   SignedOut,
   SignInButton,
-  UserButton,
+  useClerk,
+  useUser,
 } from "@clerk/nextjs";
+import { useEffect, useRef, useState } from "react";
 
 export default function Header() {
   return (
@@ -61,25 +63,101 @@ export default function Header() {
 
             <SignedIn>
               <div className="relative z-[560]">
-                <UserButton
-                  afterSignOutUrl="/"
-                  userProfileMode="modal"
-                  signInUrl="/sign-in"
-                  appearance={{
-                    elements: {
-                      rootBox: "pointer-events-auto cursor-pointer",
-                      avatarBox:
-                        "h-10 w-10 ring-2 ring-cyan-400/50 shadow-lg shadow-cyan-500/25 transition hover:scale-[1.02] pointer-events-auto",
-                      userButtonPopover: "z-[600] drop-shadow-2xl",
-                      userButtonPopoverCard: "bg-slate-900/95 border border-white/10",
-                    },
-                  }}
-                />
+                <UserMenu />
               </div>
             </SignedIn>
           </ClerkLoaded>
         </div>
       </div>
     </header>
+  );
+}
+
+function UserMenu() {
+  const { user } = useUser();
+  const { openUserProfile, signOut } = useClerk();
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
+
+  const avatarUrl = user?.imageUrl;
+  const initials = (user?.firstName?.[0] ?? "?") + (user?.lastName?.[0] ?? "");
+  const userEmail = user?.primaryEmailAddress?.emailAddress ?? "Angemeldet";
+
+  const handleProfile = async () => {
+    setIsOpen(false);
+    await openUserProfile();
+  };
+
+  const handleSignOut = async () => {
+    setIsOpen(false);
+    await signOut({ redirectUrl: "/" });
+  };
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 ring-2 ring-cyan-400/50 shadow-lg shadow-cyan-500/25 transition hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+      >
+        {avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={avatarUrl}
+            alt="Benutzeravatar"
+            className="h-10 w-10 rounded-full object-cover"
+          />
+        ) : (
+          <span className="text-sm font-semibold text-white">{initials}</span>
+        )}
+      </button>
+
+      {isOpen ? (
+        <div className="absolute right-0 mt-3 w-56 rounded-2xl border border-white/10 bg-slate-900/95 shadow-2xl shadow-cyan-500/10 backdrop-blur-xl">
+          <div className="px-4 py-3 text-sm text-slate-200">
+            <p className="font-semibold text-white">{user?.fullName ?? "Angemeldeter Benutzer"}</p>
+            <p className="truncate text-xs text-slate-400">{userEmail}</p>
+          </div>
+          <div className="border-t border-white/10" />
+          <button
+            type="button"
+            onClick={handleProfile}
+            className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-slate-100 transition hover:bg-white/10"
+          >
+            Profil & Einstellungen
+          </button>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-rose-200 transition hover:bg-white/10"
+          >
+            Abmelden
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
