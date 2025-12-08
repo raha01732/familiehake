@@ -42,6 +42,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   } as const;
   const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
+  if (!clerkPublishableKey) {
+    throw new Error(
+      "Clerk ist nicht konfiguriert: Bitte NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in der Vercel-Umgebung setzen, damit das Benutzermenü geladen werden kann.",
+    );
+  }
+
   return (
     <ClerkProvider appearance={clerkAppearance} publishableKey={clerkPublishableKey} signInUrl="/sign-in">
       <html lang="de" className="bg-slate-950 text-slate-100">
