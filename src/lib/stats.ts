@@ -1,3 +1,4 @@
+// src/lib/stats.ts
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isShareActive } from "@/lib/share";
 
@@ -69,9 +70,8 @@ function safeReduceBytes(rows: FileMetaRow[]): {
 }
 
 export async function getStorageUsageSummary(): Promise<StorageUsageSummary> {
-  const sb = createAdminClient();
-
   try {
+    const sb = createAdminClient();
     const [{ data: fileRows }, { data: shareRows }] = await Promise.all([
       sb
         .from("files_meta")
@@ -161,9 +161,8 @@ export async function getStorageUsageSummary(): Promise<StorageUsageSummary> {
 }
 
 export async function getJournalSummary(): Promise<JournalSummary> {
-  const sb = createAdminClient();
-
   try {
+    const sb = createAdminClient();
     const [{ count }, { data }] = await Promise.all([
       sb.from("journal_entries").select("id", { head: true, count: "exact" }),
       sb

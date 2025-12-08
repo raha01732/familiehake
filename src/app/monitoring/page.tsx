@@ -1,13 +1,26 @@
+// src/app/monitoring/page.tsx
 import RoleGate from "@/components/RoleGate";
 import { getPermissionOverview } from "@/lib/access-db";
 import { PERMISSION_LABELS, PERMISSION_LEVELS } from "@/lib/rbac";
 import { fetchSentryStats } from "@/lib/sentry-metrics";
-import { getStorageUsageSummary } from "@/lib/stats";
+import { getStorageUsageSummary, type StorageUsageSummary } from "@/lib/stats";
 import { createClient } from "@/lib/supabase/server";
 import { headers } from "next/headers";
 import { Card, CardContent } from "@/components/ui/card";
 
 export const metadata = { title: "System Monitoring" };
+
+const EMPTY_STORAGE: StorageUsageSummary = {
+  totalFiles: 0,
+  totalBytes: 0,
+  trashedFiles: 0,
+  trashedBytes: 0,
+  activeShares: 0,
+  revokedShares: 0,
+  expiredShares: 0,
+  expiringSoon: 0,
+  recentShares: [],
+};
 
 type HealthPayload = {
   status: "ok" | "warn" | "degraded";
@@ -17,6 +30,16 @@ type HealthPayload = {
     db: { ok: boolean; info?: string };
   };
 };
+
+type AuditEvent = {
+  ts: string;
+  action: string;
+  actor_email?: string | null;
+  target?: string | null;
+  detail?: unknown;
+};
+
+type SentryStats = Awaited<ReturnType<typeof fetchSentryStats>>;
 
 async function getHealth(): Promise<HealthPayload | null> {
   try {
@@ -30,6 +53,20 @@ async function getHealth(): Promise<HealthPayload | null> {
     return (await res.json()) as HealthPayload;
   } catch {
     return null;
+  }
+}
+
+async function fetchAuditEvents(): Promise<AuditEvent[]> {
+  try {
+    const sb = createClient();
+    const { data } = await sb
+      .from("audit_events")
+      .select("ts, action, actor_email, target, detail")
+      .order("ts", { ascending: false })
+      .limit(50);
+    return (data ?? []) as AuditEvent[];
+  } catch {
+    return [];
   }
 }
 
@@ -59,12 +96,18 @@ function serverInfo() {
 }
 
 export default async function MonitoringPage() {
-  // Nur das laden, was in dieser Komponente direkt genutzt wird
-  const [health, storage, sentry] = await Promise.all([
+  const [healthResult, storageResult, sentryResult, auditResult] = await Promise.allSettled([
     getHealth(),
     getStorageUsageSummary(),
     fetchSentryStats(),
+    fetchAuditEvents(),
   ]);
+
+  const health = healthResult.status === "fulfilled" ? healthResult.value : null;
+  const storage = storageResult.status === "fulfilled" ? storageResult.value : EMPTY_STORAGE;
+  const sentry: SentryStats =
+    sentryResult.status === "fulfilled" ? sentryResult.value : { available: false, error: "unavailable" };
+  const auditEvents = auditResult.status === "fulfilled" ? auditResult.value : [];
 
   const status: "ok" | "warn" | "degraded" | "unreachable" =
     (health?.status as any) ?? "unreachable";
@@ -88,7 +131,7 @@ export default async function MonitoringPage() {
         <div className="card p-6 flex flex-col gap-4">
           <div>
             <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Health-Check</h2>
-            <p className="text-zinc-400 text-sm leading-relaxed">/api/health – Server & DB</p>
+            <p className="text-zinc-400 text-sm leading-relaxed">/api/health – Server &amp; DB</p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -133,12 +176,18 @@ export default async function MonitoringPage() {
               <CardContent className="p-4">
                 <div className="text-xs text-zinc-400 uppercase tracking-wide">Server</div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-300">
-                  <div>Node</div><div className="text-zinc-200">{srv.node}</div>
-                  <div>Env</div><div className="text-zinc-200">{srv.env}</div>
-                  <div>Region</div><div className="text-zinc-200">{srv.region ?? "–"}</div>
-                  <div>RSS</div><div className="text-zinc-200">{formatBytes(srv.rss)}</div>
-                  <div>Heap</div><div className="text-zinc-200">{formatBytes(srv.heap)}</div>
-                  <div>Uptime</div><div className="text-zinc-200">{health?.checks?.uptime_s ?? "–"}s</div>
+                  <div>Node</div>
+                  <div className="text-zinc-200">{srv.node}</div>
+                  <div>Env</div>
+                  <div className="text-zinc-200">{srv.env}</div>
+                  <div>Region</div>
+                  <div className="text-zinc-200">{srv.region ?? "–"}</div>
+                  <div>RSS</div>
+                  <div className="text-zinc-200">{formatBytes(srv.rss)}</div>
+                  <div>Heap</div>
+                  <div className="text-zinc-200">{formatBytes(srv.heap)}</div>
+                  <div>Uptime</div>
+                  <div className="text-zinc-200">{health?.checks?.uptime_s ?? "–"}s</div>
                 </div>
 
                 <div className="mt-4 text-xs text-zinc-400 uppercase tracking-wide">Sentry</div>
@@ -147,6 +196,9 @@ export default async function MonitoringPage() {
                   <div>Rejected 24h: {sentry?.rejected24h ?? "—"}</div>
                   <div>Unresolved Issues: {sentry?.unresolvedIssues ?? "—"}</div>
                   <div>Letztes Release: {sentry?.latestRelease ?? "—"}</div>
+                  {!sentry?.available && (
+                    <div className="text-[11px] text-amber-300">Sentry API nicht verfügbar oder nicht konfiguriert.</div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -166,7 +218,7 @@ export default async function MonitoringPage() {
         <div className="card p-6 flex flex-col gap-4">
           <div>
             <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Speicher</h2>
-            <p className="text-zinc-400 text-sm leading-relaxed">Dateien & Freigaben (Supabase)</p>
+            <p className="text-zinc-400 text-sm leading-relaxed">Dateien &amp; Freigaben (Supabase)</p>
           </div>
           <div className="grid gap-2 text-sm">
             <KV label="Dateien gesamt" value={String(storage.totalFiles)} />
@@ -180,7 +232,7 @@ export default async function MonitoringPage() {
         </div>
 
         {/* Audit-Events – lädt sich selbst */}
-        <AuditTable />
+        <AuditTable events={auditEvents} />
       </section>
     </RoleGate>
   );
@@ -213,14 +265,7 @@ async function Permissions() {
   );
 }
 
-async function AuditTable() {
-  const sb = createClient();
-  const { data: events } = await sb
-    .from("audit_events")
-    .select("ts, action, actor_email, target, detail")
-    .order("ts", { ascending: false })
-    .limit(50);
-
+function AuditTable({ events }: { events: AuditEvent[] }) {
   return (
     <div className="card p-6 flex flex-col gap-4">
       <div>
@@ -228,30 +273,34 @@ async function AuditTable() {
         <p className="text-zinc-400 text-sm leading-relaxed">Neueste 50 aus audit_events</p>
       </div>
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
-            <tr>
-              <th className="px-3 py-2 font-medium">Zeit</th>
-              <th className="px-3 py-2 font-medium">Aktion</th>
-              <th className="px-3 py-2 font-medium">User</th>
-              <th className="px-3 py-2 font-medium">Ziel</th>
-              <th className="px-3 py-2 font-medium">Details</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-800">
-            {(events ?? []).map((e: any, idx: number) => (
-              <tr key={idx}>
-                <td className="px-3 py-2 text-zinc-300 text-xs whitespace-nowrap">{formatDate(e.ts)}</td>
-                <td className="px-3 py-2 text-zinc-300 text-xs">{e.action}</td>
-                <td className="px-3 py-2 text-zinc-400 text-xs">{e.actor_email ?? "—"}</td>
-                <td className="px-3 py-2 text-zinc-400 text-xs">{e.target ?? "—"}</td>
-                <td className="px-3 py-2 text-zinc-500 text-[11px]">
-                  {e.detail ? JSON.stringify(e.detail) : "—"}
-                </td>
+        {events.length === 0 ? (
+          <div className="p-4 text-sm text-zinc-400">Keine Audit-Einträge verfügbar.</div>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
+              <tr>
+                <th className="px-3 py-2 font-medium">Zeit</th>
+                <th className="px-3 py-2 font-medium">Aktion</th>
+                <th className="px-3 py-2 font-medium">User</th>
+                <th className="px-3 py-2 font-medium">Ziel</th>
+                <th className="px-3 py-2 font-medium">Details</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {events.map((e, idx) => (
+                <tr key={`${e.ts}-${idx}`}>
+                  <td className="px-3 py-2 text-zinc-300 text-xs whitespace-nowrap">{formatDate(e.ts)}</td>
+                  <td className="px-3 py-2 text-zinc-300 text-xs">{e.action}</td>
+                  <td className="px-3 py-2 text-zinc-400 text-xs">{e.actor_email ?? "—"}</td>
+                  <td className="px-3 py-2 text-zinc-400 text-xs">{e.target ?? "—"}</td>
+                  <td className="px-3 py-2 text-zinc-500 text-[11px]">
+                    {e.detail ? JSON.stringify(e.detail) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
