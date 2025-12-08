@@ -1,6 +1,7 @@
 // src/app/tools/dispoplaner/page.tsx
 import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { env } from "@/lib/env";
 import { addMovieAction, addShowAction, deleteMovieAction, updateMovieAction } from "./actions";
 
 export const metadata = { title: "Dispoplaner" };
@@ -11,8 +12,8 @@ export default async function DispoplanerPage() {
     return <section className="p-6 text-zinc-400">Bitte melde dich an, um den Dispoplaner zu nutzen.</section>;
   }
 
-  const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase() || "member";
-  const isAdmin = role === "admin" || role === "superadmin";
+  const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase() || "user";
+  const isAdmin = role === "admin" || user.id === env().PRIMARY_SUPERADMIN_ID;
 
   const sb = createAdminClient();
   const { data: movies } = await sb.from("movies").select("*").order("title");
