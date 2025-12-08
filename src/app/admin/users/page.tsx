@@ -42,7 +42,6 @@ type UserDetail = {
   lastName: string;
   roles: DbRole[];
   allowAdminManagement: boolean;
-  hasDatabaseRole: boolean;
 };
 
 async function fetchRoles(): Promise<DbRole[]> {
@@ -151,7 +150,6 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
       lastName: u.lastName ?? "",
       roles: assignments[u.id] ?? ensureDefaultRoles(rolesCatalog, undefined),
       allowAdminManagement: Boolean((u.publicMetadata as any)?.allowAdminManagement),
-      hasDatabaseRole: (assignmentRows ?? []).length > 0,
     };
   } catch {
     return null;
