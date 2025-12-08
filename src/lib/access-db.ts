@@ -6,6 +6,7 @@ import {
   describeLevel,
   normalizeLevel,
 } from "@/lib/rbac";
+import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
 
 export type DbRole = {
   id: number;
@@ -18,22 +19,21 @@ export type DbRole = {
 export type RoutePermissionMatrix = Record<string, Record<string, PermissionLevel>>;
 
 const FALLBACK_ROLES: DbRole[] = [
-  { id: 0, name: "member", label: "Mitglied", rank: 0, isSuperAdmin: false },
+  { id: 0, name: "user", label: "User", rank: 0, isSuperAdmin: false },
   { id: 1, name: "admin", label: "Admin", rank: 50, isSuperAdmin: false },
-  { id: 2, name: "superadmin", label: "Superadmin", rank: 100, isSuperAdmin: true },
 ];
 
 const FALLBACK_MATRIX: RoutePermissionMatrix = {
-  dashboard: { member: PERMISSION_LEVELS.READ, admin: PERMISSION_LEVELS.READ },
+  dashboard: { user: PERMISSION_LEVELS.READ, admin: PERMISSION_LEVELS.READ },
   admin: { admin: PERMISSION_LEVELS.READ },
   "admin/users": { admin: PERMISSION_LEVELS.READ },
-  "admin/settings": { admin: PERMISSION_LEVELS.READ },
+  "admin/settings": { admin: PERMISSION_LEVELS.ADMIN },
   settings: { admin: PERMISSION_LEVELS.READ },
   monitoring: { admin: PERMISSION_LEVELS.READ },
-  tools: { member: PERMISSION_LEVELS.READ, admin: PERMISSION_LEVELS.WRITE },
-  "tools/files": { member: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
-  "tools/journal": { member: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
-  "tools/dispoplaner": { member: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
+  tools: { user: PERMISSION_LEVELS.READ, admin: PERMISSION_LEVELS.WRITE },
+  "tools/files": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
+  "tools/journal": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
+  "tools/dispoplaner": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
   "tools/storage": { admin: PERMISSION_LEVELS.WRITE },
   "tools/system": { admin: PERMISSION_LEVELS.WRITE },
   activity: { admin: PERMISSION_LEVELS.READ },
@@ -83,6 +83,17 @@ export async function getPermissionOverview(): Promise<PermissionOverview> {
         const existing = matrix[row.route][role.name] ?? PERMISSION_LEVELS.NONE;
         if (level > existing) {
           matrix[row.route][role.name] = level;
+        }
+      }
+    }
+
+    for (const descriptor of ROUTE_DESCRIPTORS) {
+      if (!matrix[descriptor.route]) {
+        matrix[descriptor.route] = {};
+      }
+      for (const role of roles) {
+        if (matrix[descriptor.route][role.name] === undefined) {
+          matrix[descriptor.route][role.name] = descriptor.defaultLevel;
         }
       }
     }

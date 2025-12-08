@@ -3,6 +3,7 @@ import RoleGate from "@/components/RoleGate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { PERMISSION_LEVELS, PERMISSION_LABELS } from "@/lib/rbac";
+import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
 
 export const metadata = { title: "Rollen & Berechtigungen" };
 
@@ -36,6 +37,12 @@ async function getData() {
   for (const r of ruleList) {
     if (!matrix.has(r.route)) matrix.set(r.route, new Map());
     matrix.get(r.route)!.set(r.role, r.level ?? 0);
+  }
+
+  for (const descriptor of ROUTE_DESCRIPTORS) {
+    if (!matrix.has(descriptor.route)) {
+      matrix.set(descriptor.route, new Map());
+    }
   }
 
   const routes = Array.from(matrix.keys()).sort((a, b) => a.localeCompare(b));
@@ -146,6 +153,8 @@ export default async function AdminSettingsPage() {
 
             {routes.map((route) => {
               const row = matrix.get(route) ?? new Map<string, number>();
+              const descriptor = ROUTE_DESCRIPTORS.find((d) => d.route === route);
+              const fallbackLevel = descriptor?.defaultLevel ?? PERMISSION_LEVELS.NONE;
               return (
                 <div
                   key={route}
@@ -155,7 +164,7 @@ export default async function AdminSettingsPage() {
 
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {roles.map((r) => {
-                      const current = row.get(r.name) ?? PERMISSION_LEVELS.NONE;
+                      const current = row.get(r.name) ?? fallbackLevel;
                       return (
                         <form
                           key={r.name}

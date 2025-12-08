@@ -1,3 +1,4 @@
+// src/app/debug/role/page.tsx
 import { currentUser } from "@clerk/nextjs/server";
 
 export const metadata = { title: "Debug Role" };
@@ -11,7 +12,7 @@ export default async function DebugRolePage() {
         userId: user?.id,
         primaryEmail: user?.emailAddresses?.[0]?.emailAddress,
         publicMetadata: user?.publicMetadata,
-        inferredRole: (user?.publicMetadata as any)?.role ?? "member"
+        inferredRole: (user?.publicMetadata as any)?.role ?? "user"
       }, null, 2)}
     </pre>
   );
