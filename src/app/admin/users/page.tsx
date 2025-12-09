@@ -1,4 +1,4 @@
-/**src/app/admin/users/page.tsx */
+// src/app/admin/users/page.tsx
 
 import RoleGate from "@/components/RoleGate";
 import { clerkClient, auth } from "@clerk/nextjs/server";
@@ -7,6 +7,7 @@ import Link from "next/link";
 import { logAudit } from "@/lib/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DbRole } from "@/lib/access-db";
+import { env } from "@/lib/env";
 
 export const metadata = { title: "Admin | Benutzer & Rollen" };
 
@@ -40,6 +41,8 @@ type UserDetail = {
   firstName: string;
   lastName: string;
   roles: DbRole[];
+  allowAdminManagement: boolean;
+  hasDatabaseRole: boolean;
 };
 
 async function fetchRoles(): Promise<DbRole[]> {
@@ -48,21 +51,24 @@ async function fetchRoles(): Promise<DbRole[]> {
     .from("roles")
     .select("id, name, label, rank, is_superadmin")
     .order("rank", { ascending: true });
+  const allowed = new Set(["user", "admin"]);
   return (
-    data?.map((row) => ({
-      id: row.id,
-      name: row.name,
-      label: row.label ?? row.name,
-      rank: typeof row.rank === "number" ? row.rank : 0,
-      isSuperAdmin: !!row.is_superadmin,
-    })) ?? []
+    data
+      ?.filter((row) => allowed.has(row.name))
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        label: row.label ?? row.name,
+        rank: typeof row.rank === "number" ? row.rank : 0,
+        isSuperAdmin: !!row.is_superadmin,
+      })) ?? []
   );
 }
 
 function ensureDefaultRoles(rolesCatalog: DbRole[], assigned: DbRole[] | undefined): DbRole[] {
   if (assigned && assigned.length > 0) return assigned;
-  const member = rolesCatalog.find((r) => r.name === "member");
-  return member ? [member] : [];
+  const userRole = rolesCatalog.find((r) => r.name === "user");
+  return userRole ? [userRole] : [];
 }
 
 function highestRole(roles: DbRole[]): DbRole | null {
@@ -126,6 +132,8 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
   try {
     const u = await client.users.getUser(userId);
     const assignments = await fetchAssignments([userId], rolesCatalog);
+    const sb = createAdminClient();
+    const { data: assignmentRows } = await sb.from("user_roles").select("role_id").eq("user_id", userId);
     const primaryId = u.primaryEmailAddressId ?? undefined;
 
     const emails: EmailInfo[] = (u.emailAddresses ?? []).map((e) => ({
@@ -142,6 +150,8 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
       firstName: u.firstName ?? "",
       lastName: u.lastName ?? "",
       roles: assignments[u.id] ?? ensureDefaultRoles(rolesCatalog, undefined),
+      allowAdminManagement: Boolean((u.publicMetadata as any)?.allowAdminManagement),
+      hasDatabaseRole: (assignmentRows ?? []).length > 0,
     };
   } catch {
     return null;
@@ -157,51 +167,68 @@ async function assertRoleAssignmentAllowed(
   if (!actorId) throw new Error("Forbidden: not authenticated");
 
   const client = await clerkClient();
-  const [actorClerk, _targetClerk] = await Promise.all([
+  const [actorClerk, targetClerk] = await Promise.all([
     client.users.getUser(actorId),
     client.users.getUser(targetUserId),
   ]);
-  void _targetClerk;
 
+  const primarySuperAdminId = env().PRIMARY_SUPERADMIN_ID;
   const assignments = await fetchAssignments([actorId, targetUserId], rolesCatalog);
   const actorRoles = assignments[actorId] ?? [];
   const targetRoles = assignments[targetUserId] ?? [];
 
-  const actorIsSuper = actorRoles.some((r) => r.isSuperAdmin);
-  const targetIsSuper = targetRoles.some((r) => r.isSuperAdmin);
+  const actorIsPrimarySuper = actorClerk.id === primarySuperAdminId;
+  const actorIsAdmin = actorRoles.some((r) => r.name === "admin" || r.isSuperAdmin) || actorIsPrimarySuper;
+  const targetIsAdmin = targetRoles.some((r) => r.name === "admin" || r.isSuperAdmin);
+  const targetIsProtected =
+    targetClerk.id === primarySuperAdminId || targetRoles.some((r) => r.isSuperAdmin || r.name === "superadmin");
   const desiredRoles = desiredRoleIds
     .map((id) => rolesCatalog.find((r) => r.id === id))
     .filter((r): r is DbRole => !!r);
 
-  if (!actorIsSuper) {
+  if (!actorIsAdmin) {
+    await logAudit({
+      action: "access_denied",
+      actorUserId: actorClerk.id,
+      actorEmail: actorClerk.primaryEmailAddress?.emailAddress ?? null,
+      target: targetUserId,
+      detail: { reason: "role_change_requires_admin" },
+    });
+    throw new Error("Forbidden: only admins may change roles");
+  }
+
+  if (targetIsProtected && !actorIsPrimarySuper) {
     await logAudit({
       action: "access_denied",
       actorUserId: actorClerk.id,
       actorEmail: actorClerk.primaryEmailAddress?.emailAddress ?? null,
       target: targetUserId,
       detail: {
-        reason: "role_change_requires_superadmin",
+        reason: "protected_admin",
         attempted_roles: desiredRoles.map((r) => r.name),
       },
     });
-    throw new Error("Forbidden: only superadmin may change roles");
+    throw new Error("Forbidden: only the primary superadmin may change this account");
   }
 
-  if (targetIsSuper && !desiredRoles.some((r) => r.isSuperAdmin)) {
-    await logAudit({
-      action: "access_denied",
-      actorUserId: actorClerk.id,
-      actorEmail: actorClerk.primaryEmailAddress?.emailAddress ?? null,
-      target: targetUserId,
-      detail: {
-        reason: "cannot_demote_superadmin",
-        attempted_roles: desiredRoles.map((r) => r.name),
-      },
-    });
-    throw new Error("Forbidden: cannot remove superadmin role");
+  if (targetIsAdmin && !actorIsPrimarySuper) {
+    const delegationAllowed = Boolean((targetClerk.publicMetadata as any)?.allowAdminManagement);
+    if (!delegationAllowed) {
+      await logAudit({
+        action: "access_denied",
+        actorUserId: actorClerk.id,
+        actorEmail: actorClerk.primaryEmailAddress?.emailAddress ?? null,
+        target: targetUserId,
+        detail: {
+          reason: "admin_management_not_delegated",
+          attempted_roles: desiredRoles.map((r) => r.name),
+        },
+      });
+      throw new Error("Forbidden: admin changes require delegation by the superadmin");
+    }
   }
 
-  return { actorClerk, actorRoles, targetRoles };
+  return { actorClerk, actorRoles, targetRoles, targetClerk, actorIsPrimarySuper };
 }
 
 function diffRoles(before: DbRole[], after: DbRole[]) {
@@ -219,6 +246,7 @@ async function saveUserAction(formData: FormData): Promise<void> {
   const lastName = (formData.get("lastName") as string)?.trim() || "";
   const username = (formData.get("username") as string)?.trim() || "";
   const roleIdsRaw = formData.getAll("roles") as string[];
+  const allowAdminManagement = (formData.get("allowAdminManagement") as string | null) === "on";
 
   if (!userId) return;
 
@@ -227,12 +255,12 @@ async function saveUserAction(formData: FormData): Promise<void> {
     .map((id) => Number(id))
     .filter((id) => Number.isFinite(id));
 
-  const memberRole = rolesCatalog.find((r) => r.name === "member");
-  if (desiredRoleIds.length === 0 && memberRole) {
-    desiredRoleIds.push(memberRole.id);
+  const userRole = rolesCatalog.find((r) => r.name === "user");
+  if (desiredRoleIds.length === 0 && userRole) {
+    desiredRoleIds.push(userRole.id);
   }
 
-  const { actorClerk, targetRoles } = await assertRoleAssignmentAllowed(
+  const { actorClerk, targetRoles, targetClerk, actorIsPrimarySuper } = await assertRoleAssignmentAllowed(
     userId,
     desiredRoleIds,
     rolesCatalog
@@ -276,7 +304,13 @@ async function saveUserAction(formData: FormData): Promise<void> {
     firstName: firstName || undefined,
     lastName: lastName || undefined,
     username: username || undefined,
-    publicMetadata: { role: highest?.name ?? null, roles: afterRoles.map((r) => r.name) },
+    publicMetadata: {
+      role: highest?.name ?? null,
+      roles: afterRoles.map((r) => r.name),
+      allowAdminManagement: actorIsPrimarySuper
+        ? allowAdminManagement
+        : (targetClerk.publicMetadata as any)?.allowAdminManagement,
+    },
   });
 
   if (added.length > 0 || removed.length > 0) {
@@ -288,6 +322,26 @@ async function saveUserAction(formData: FormData): Promise<void> {
       detail: { added, removed },
     });
   }
+
+  revalidatePath("/admin/users");
+}
+
+async function ensureSupabaseUserAction(formData: FormData): Promise<void> {
+  "use server";
+  const userId = (formData.get("userId") as string) ?? "";
+  if (!userId) return;
+
+  const rolesCatalog = await fetchRoles();
+  const userRole = rolesCatalog.find((role) => role.name === "user");
+  if (!userRole) throw new Error("User-Rolle nicht konfiguriert");
+
+  await assertRoleAssignmentAllowed(userId, [userRole.id], rolesCatalog);
+
+  const sb = createAdminClient();
+  await sb
+    .from("user_roles")
+    .upsert({ user_id: userId, role_id: userRole.id }, { onConflict: "user_id, role_id" })
+    .throwOnError();
 
   revalidatePath("/admin/users");
 }
@@ -373,7 +427,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
   const { userId: actorId } = auth();
   const actorAssignments = actorId ? await fetchAssignments([actorId], rolesCatalog) : {};
   const actorRoles = actorAssignments[actorId ?? ""] ?? [];
-  const actorIsSuper = actorRoles.some((r) => r.isSuperAdmin);
+  const actorIsPrimarySuper = actorId === env().PRIMARY_SUPERADMIN_ID;
+  const actorIsSuper = actorIsPrimarySuper || actorRoles.some((r) => r.isSuperAdmin);
+  const actorIsAdmin = actorIsSuper || actorRoles.some((r) => r.name === "admin");
 
   const filtered = users.filter((user) => {
     const matchesQuery =
@@ -398,6 +454,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
   );
 
   const editUser = editId ? await getOneUser(editId, rolesCatalog) : null;
+  const editUserIsAdmin = editUser?.roles.some((role) => role.name === "admin") ?? false;
 
   return (
     <RoleGate routeKey="admin/users">
@@ -406,7 +463,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
           <div>
             <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Benutzer &amp; Rollen</h2>
             <p className="text-zinc-400 text-sm leading-relaxed">
-              Suche Benutzer, verwalte Profile und weise mehrere Rollen zu. Rollenänderungen sind nur Superadmins erlaubt.
+              Suche Benutzer, verwalte Profile und weise Rollen zu. Admin-Änderungen sind nur für den freigegebenen Admin oder
+              den Superadmin möglich.
             </p>
           </div>
           <div className="text-[11px] text-zinc-500">
@@ -584,17 +642,56 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                           />
                           <span>
                             {role.label}
-                            {role.isSuperAdmin ? " (Superadmin)" : ""}
                           </span>
                         </label>
                       );
                     })}
                   </div>
-                  {!actorIsSuper && (
+                  {actorIsPrimarySuper && editUserIsAdmin ? (
+                    <label className="mt-2 flex items-center gap-2 text-xs text-zinc-300">
+                      <input type="hidden" name="allowAdminManagement" value="off" />
+                      <input
+                        type="checkbox"
+                        name="allowAdminManagement"
+                        defaultChecked={editUser.allowAdminManagement}
+                        className="accent-zinc-200"
+                      />
+                      Andere Admins dürfen diesen Admin verwalten
+                    </label>
+                  ) : null}
+                  {!actorIsAdmin && (
                     <div className="text-[11px] text-amber-400">
-                      Nur Superadmins dürfen Rollen verändern.
+                      Nur der freigegebene Admin oder der Superadmin darf Rollen verändern.
                     </div>
                   )}
+                </div>
+
+                <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-100">Supabase-Verknüpfung</div>
+                      <p className="text-xs text-zinc-400">
+                        {editUser.hasDatabaseRole
+                          ? "Eintrag in user_roles vorhanden."
+                          : "Noch kein Eintrag in user_roles – bitte einmal anlegen, damit Clerk-IDs sauber verknüpft sind."}
+                      </p>
+                    </div>
+                    {editUser.hasDatabaseRole ? (
+                      <span className="inline-flex items-center rounded-full border border-green-700 px-3 py-1 text-[11px] text-green-300">
+                        Synchronisiert
+                      </span>
+                    ) : (
+                      <form action={ensureSupabaseUserAction} className="flex gap-2">
+                        <input type="hidden" name="userId" value={editUser.id} />
+                        <button
+                          className="rounded-lg border border-blue-700 text-blue-200 text-xs font-medium px-3 py-2 hover:bg-blue-900/40"
+                          disabled={!actorIsAdmin}
+                        >
+                          Supabase-Eintrag anlegen
+                        </button>
+                      </form>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-2">
@@ -610,7 +707,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                   </a>
                   <button
                     className="rounded-lg border border-green-700 text-green-300 text-xs font-medium px-3 py-2 hover:bg-green-900/30"
-                    disabled={!actorIsSuper}
+                    disabled={!actorIsAdmin}
                   >
                     Speichern
                   </button>

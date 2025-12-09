@@ -1,3 +1,5 @@
+// src/lib/rbac.ts
+
 export const PERMISSION_LEVELS = {
   NONE: 0,
   READ: 1,

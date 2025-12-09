@@ -2,6 +2,7 @@
 import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { env } from "@/lib/env";
 
 export const metadata = { title: "Werkzeuge" };
 
@@ -73,8 +74,8 @@ export default async function ToolsPage() {
     );
   }
 
-  const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "member";
-  const isSuper = role === "superadmin";
+  const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
+  const isSuper = user.id === env().PRIMARY_SUPERADMIN_ID;
 
   const visible = isSuper
     ? ALL_TOOLS
