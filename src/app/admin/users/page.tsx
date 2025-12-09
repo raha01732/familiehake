@@ -131,6 +131,8 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
   try {
     const u = await client.users.getUser(userId);
     const assignments = await fetchAssignments([userId], rolesCatalog);
+    const sb = createAdminClient();
+    const { data: assignmentRows } = await sb.from("user_roles").select("role_id").eq("user_id", userId);
     const primaryId = u.primaryEmailAddressId ?? undefined;
 
     const emails: EmailInfo[] = (u.emailAddresses ?? []).map((e) => ({
@@ -318,6 +320,26 @@ async function saveUserAction(formData: FormData): Promise<void> {
       detail: { added, removed },
     });
   }
+
+  revalidatePath("/admin/users");
+}
+
+async function ensureSupabaseUserAction(formData: FormData): Promise<void> {
+  "use server";
+  const userId = (formData.get("userId") as string) ?? "";
+  if (!userId) return;
+
+  const rolesCatalog = await fetchRoles();
+  const userRole = rolesCatalog.find((role) => role.name === "user");
+  if (!userRole) throw new Error("User-Rolle nicht konfiguriert");
+
+  await assertRoleAssignmentAllowed(userId, [userRole.id], rolesCatalog);
+
+  const sb = createAdminClient();
+  await sb
+    .from("user_roles")
+    .upsert({ user_id: userId, role_id: userRole.id }, { onConflict: "user_id, role_id" })
+    .throwOnError();
 
   revalidatePath("/admin/users");
 }
@@ -640,6 +662,34 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                       Nur der freigegebene Admin oder der Superadmin darf Rollen verändern.
                     </div>
                   )}
+                </div>
+
+                <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-100">Supabase-Verknüpfung</div>
+                      <p className="text-xs text-zinc-400">
+                        {editUser.hasDatabaseRole
+                          ? "Eintrag in user_roles vorhanden."
+                          : "Noch kein Eintrag in user_roles – bitte einmal anlegen, damit Clerk-IDs sauber verknüpft sind."}
+                      </p>
+                    </div>
+                    {editUser.hasDatabaseRole ? (
+                      <span className="inline-flex items-center rounded-full border border-green-700 px-3 py-1 text-[11px] text-green-300">
+                        Synchronisiert
+                      </span>
+                    ) : (
+                      <form action={ensureSupabaseUserAction} className="flex gap-2">
+                        <input type="hidden" name="userId" value={editUser.id} />
+                        <button
+                          className="rounded-lg border border-blue-700 text-blue-200 text-xs font-medium px-3 py-2 hover:bg-blue-900/40"
+                          disabled={!actorIsAdmin}
+                        >
+                          Supabase-Eintrag anlegen
+                        </button>
+                      </form>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-2">
