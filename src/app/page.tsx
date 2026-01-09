@@ -17,10 +17,10 @@ export default async function PublicLanding() {
             Geschützter Bereich
           </div>
           <h1 className="text-4xl md:text-5xl font-black leading-tight text-white">
-            Private Tools für Familie und Freunde – sicher, schnell, vertraulich.
+            Webseiten-Projekt von Ralf Hake.
           </h1>
           <p className="text-base md:text-lg leading-relaxed text-slate-200">
-            Hier verwaltest du Kalender, Dokumente und gemeinsame Ressourcen ohne Ablenkung. Der Zugang ist exklusiv und wird nur von Administratoren vergeben, damit alles privat bleibt.
+            Zugang und Zugriff auf Daten nur privat, keine Registrierungsmöglichkeit.
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
             <Link
@@ -40,7 +40,7 @@ export default async function PublicLanding() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 text-xs text-slate-300">
             <div className="flex items-center gap-3">
               <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
-              <p>Öffentliche Selbstregistrierung ist deaktiviert. Nur freigeschaltete Accounts können auf Inhalte zugreifen.</p>
+              <p>Öffentliche Selbstregistrierung ist deaktiviert.</p>
             </div>
             {user && (
               <span className="inline-flex items-center gap-2 self-start rounded-full border border-emerald-400/50 bg-emerald-500/10 px-2 py-1 text-[11px] font-semibold text-emerald-100 shadow-inner shadow-emerald-900/40">
@@ -59,7 +59,7 @@ export default async function PublicLanding() {
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-300">Immer erreichbar</p>
-                <p className="text-sm font-semibold text-white">Stabile Plattform für deine Familie</p>
+                <p className="text-sm font-semibold text-white">Webseiten-Projekt</p>
               </div>
             </div>
             <ul className="mt-4 space-y-3 text-sm text-slate-200">
