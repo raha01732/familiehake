@@ -50,15 +50,15 @@ function withSecurityHeaders(res: NextResponse) {
     "Content-Security-Policy",
     [
       "default-src 'self';",
-      "img-src 'self' data: blob: https://images.clerk.dev https://img.clerk.com;",
+      "img-src 'self' data: blob: https://images.clerk.dev https://img.clerk.com https://clerk.familiehake.de;",
       "style-src 'self' 'unsafe-inline';",
       "font-src 'self' data:;",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de;",
       "connect-src 'self' https://*.clerk.com https://*.clerk.services https://*.supabase.co https://*.ingest.sentry.io;",
       "frame-ancestors 'none';",
-      "frame-src https://*.clerk.com https://*.clerk.services;",
+      "frame-src https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de;",
       "base-uri 'self';",
-      "form-action 'self' https://*.clerk.com;",
+      "form-action 'self' https://*.clerk.com https://clerk.familiehake.de;",
     ].join(" ")
   );
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
