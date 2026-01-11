@@ -11,6 +11,8 @@ export const metadata: Metadata = {
   description: "Private Tools",
 };
 
+export const dynamic = "force-dynamic";
+
 const clerkAppearance = {
   variables: {
     colorPrimary: "#0ea5e9",
@@ -41,25 +43,29 @@ const clerkAppearance = {
 } as const;
 
 const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const isClerkEnabled = Boolean(clerkPublishableKey);
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-
-  if (!clerkPublishableKey) {
-    throw new Error(
-      "Clerk ist nicht konfiguriert: Bitte NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in der Vercel-Umgebung setzen, damit das Benutzermenü geladen werden kann.",
-    );
-  }
+  const shell = (
+    <>
+      <div className="absolute inset-0 -z-10 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-20" aria-hidden />
+      <Header clerkEnabled={isClerkEnabled} />
+      <main className="max-w-6xl mx-auto w-full px-4 pb-16 pt-8">{children}</main>
+      <CommandMenu />
+    </>
+  );
 
   return (
-    <ClerkProvider appearance={clerkAppearance} publishableKey={clerkPublishableKey} signInUrl="/sign-in">
-      <html lang="de" className="bg-slate-950 text-slate-100">
-        <body className="min-h-screen antialiased bg-[radial-gradient(circle_at_20%_20%,rgba(14,165,233,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.12),transparent_40%),radial-gradient(circle_at_50%_60%,rgba(56,189,248,0.18),transparent_45%)]">
-          <div className="absolute inset-0 -z-10 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-20" aria-hidden />
-          <Header />
-          <main className="max-w-6xl mx-auto w-full px-4 pb-16 pt-8">{children}</main>
-          <CommandMenu />
-        </body>
-      </html>
-    </ClerkProvider>
+    <html lang="de" className="bg-slate-950 text-slate-100">
+      <body className="min-h-screen antialiased bg-[radial-gradient(circle_at_20%_20%,rgba(14,165,233,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.12),transparent_40%),radial-gradient(circle_at_50%_60%,rgba(56,189,248,0.18),transparent_45%)]">
+        {isClerkEnabled ? (
+          <ClerkProvider appearance={clerkAppearance} publishableKey={clerkPublishableKey} signInUrl="/sign-in">
+            {shell}
+          </ClerkProvider>
+        ) : (
+          shell
+        )}
+      </body>
+    </html>
   );
 }

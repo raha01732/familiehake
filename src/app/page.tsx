@@ -4,7 +4,9 @@ import { SignIn } from "@clerk/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 
 export default async function PublicLanding() {
-  const user = await currentUser();
+  const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const isClerkEnabled = Boolean(clerkPublishableKey);
+  const user = isClerkEnabled ? await currentUser() : null;
 
   if (!user) {
     return (
@@ -28,18 +30,25 @@ export default async function PublicLanding() {
             weitergeleitet.
           </p>
           <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-cyan-500/10 backdrop-blur">
-            <SignIn
-              appearance={{
-                elements: {
-                  formButtonPrimary:
-                    "bg-gradient-to-r from-cyan-400 via-sky-500 to-indigo-500 text-slate-950 hover:from-cyan-300 hover:to-indigo-400 rounded-xl text-sm font-semibold",
-                  card: "bg-transparent shadow-none border-0 p-0",
-                  headerTitle: "hidden",
-                  headerSubtitle: "hidden",
-                },
-              }}
-              redirectUrl="/"
-            />
+            {isClerkEnabled ? (
+              <SignIn
+                appearance={{
+                  elements: {
+                    formButtonPrimary:
+                      "bg-gradient-to-r from-cyan-400 via-sky-500 to-indigo-500 text-slate-950 hover:from-cyan-300 hover:to-indigo-400 rounded-xl text-sm font-semibold",
+                    card: "bg-transparent shadow-none border-0 p-0",
+                    headerTitle: "hidden",
+                    headerSubtitle: "hidden",
+                  },
+                }}
+                redirectUrl="/"
+              />
+            ) : (
+              <div className="text-sm text-slate-200">
+                Die Anmeldung ist aktuell deaktiviert, weil die Clerk-Umgebung nicht konfiguriert
+                ist.
+              </div>
+            )}
           </div>
         </div>
       </section>

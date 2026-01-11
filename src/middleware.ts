@@ -11,6 +11,9 @@ const isPublicRoute = createRouteMatcher([
   "/api/health",
 ]);
 
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const isClerkEnabled = Boolean(clerkPublishableKey);
+
 /** Optional: IP-Denylist (kommasepariert) */
 const BLOCKED_IPS = (process.env.BLOCKED_IPS ?? "")
   .split(",")
@@ -81,25 +84,33 @@ function checkIpBlock(req: NextRequest) {
   return null;
 }
 
-export default clerkMiddleware((auth, req) => {
-  // Preview Basic Auth
+const fallbackMiddleware = (req: NextRequest) => {
   const preview = handlePreviewProtection(req);
   if (preview) return withSecurityHeaders(preview);
 
-  // IP-Block optional
   const ipBlock = checkIpBlock(req);
   if (ipBlock) return withSecurityHeaders(ipBlock);
 
-  // Öffentliche Routen ohne Auth durchlassen
+  return withSecurityHeaders(NextResponse.next());
+};
+
+const clerkEnabledMiddleware = clerkMiddleware((auth, req) => {
+  const preview = handlePreviewProtection(req);
+  if (preview) return withSecurityHeaders(preview);
+
+  const ipBlock = checkIpBlock(req);
+  if (ipBlock) return withSecurityHeaders(ipBlock);
+
   if (isPublicRoute(req)) {
     return withSecurityHeaders(NextResponse.next());
   }
 
-  // Alle anderen Routen schützen (redirect auf Sign-In, wenn nicht angemeldet)
   auth().protect();
 
   return withSecurityHeaders(NextResponse.next());
 });
+
+export default isClerkEnabled ? clerkEnabledMiddleware : fallbackMiddleware;
 
 export const config = {
   matcher: [
