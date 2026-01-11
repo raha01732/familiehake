@@ -27,7 +27,11 @@ type HealthPayload = {
   checks: {
     uptime_s: number;
     env: Record<string, boolean>;
-    db: { ok: boolean; info?: string };
+    db: {
+      ok: boolean;
+      info?: string;
+      tables?: { total: number; reachable: number; errors: string[] };
+    };
   };
 };
 
@@ -48,7 +52,11 @@ async function getHealth(): Promise<HealthPayload | null> {
     const proto = h.get("x-forwarded-proto") ?? "https";
     if (!host) return null;
     const base = `${proto}://${host}`;
-    const res = await fetch(`${base}/api/health`, { cache: "no-store" });
+    const cookie = h.get("cookie") ?? "";
+    const res = await fetch(`${base}/api/health`, {
+      cache: "no-store",
+      headers: { cookie },
+    });
     if (!res.ok) return null;
     return (await res.json()) as HealthPayload;
   } catch {
@@ -112,7 +120,12 @@ export default async function MonitoringPage() {
   const status: "ok" | "warn" | "degraded" | "unreachable" =
     (health?.status as any) ?? "unreachable";
   const env = (health?.checks?.env ?? {}) as Record<string, boolean>;
-  const db = (health?.checks?.db as { ok: boolean; info?: string }) ?? { ok: false };
+  const db =
+    (health?.checks?.db as {
+      ok: boolean;
+      info?: string;
+      tables?: { total: number; reachable: number; errors: string[] };
+    }) ?? { ok: false };
   const srv = serverInfo();
 
   const envRows: Array<[string, boolean]> = [
@@ -168,6 +181,16 @@ export default async function MonitoringPage() {
                     </span>
                   </div>
                   <div className="text-[11px] text-zinc-500">{db.info ?? "–"}</div>
+                  {db.tables && (
+                    <div className="text-[11px] text-zinc-400">
+                      Tabellen erreichbar: {db.tables.reachable}/{db.tables.total}
+                    </div>
+                  )}
+                  {db.tables?.errors?.length ? (
+                    <div className="text-[11px] text-amber-300">
+                      {db.tables.errors.join(" · ")}
+                    </div>
+                  ) : null}
                 </div>
               </CardContent>
             </Card>

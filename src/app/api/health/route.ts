@@ -1,5 +1,6 @@
+// src/app/api/health/route.ts
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -14,17 +15,49 @@ export async function GET() {
       supabase_service: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
       sentry_dsn: !!process.env.SENTRY_DSN,
     },
-    db: { ok: false, info: null as null | string },
+    db: {
+      ok: false,
+      info: null as null | string,
+      tables: { total: 0, reachable: 0, errors: [] as string[] },
+    },
   };
 
   let status: "ok" | "warn" | "degraded" = "ok";
   try {
-    const sb = createAdminClient();
-    // einfache, harmlose Abfrage als Connectivity-Proof
-    const { error } = await sb.from("role_permissions").select("route").limit(1);
-    if (error) throw error;
-    checks.db.ok = true;
-    checks.db.info = "select ok";
+    const sb = createClient();
+    const tableNames = [
+      "access_rules",
+      "roles",
+      "user_roles",
+      "audit_events",
+      "files_meta",
+      "file_shares",
+      "folders",
+      "journal_entries",
+      "calendar_events",
+      "messages",
+      "user_keys",
+      "movies",
+      "shows",
+    ];
+
+    const results = await Promise.all(
+      tableNames.map(async (table) => {
+        const { error } = await sb.from(table).select("*", { count: "exact", head: true });
+        return { table, error };
+      })
+    );
+
+    const errors = results
+      .filter((result) => result.error)
+      .map((result) => `${result.table}: ${result.error?.message ?? "unknown error"}`);
+
+    checks.db.tables.total = tableNames.length;
+    checks.db.tables.reachable = tableNames.length - errors.length;
+    checks.db.tables.errors = errors;
+
+    checks.db.ok = errors.length === 0;
+    checks.db.info = `Tabellen erreichbar: ${checks.db.tables.reachable}/${checks.db.tables.total}`;
   } catch (e: any) {
     checks.db.ok = false;
     checks.db.info = e?.message ?? "db error";
