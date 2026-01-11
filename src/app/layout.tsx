@@ -43,13 +43,14 @@ const clerkAppearance = {
 } as const;
 
 const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const clerkSignInUrl = "https://accounts.familiehake.de/sign-in";
 const isClerkEnabled = Boolean(clerkPublishableKey);
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const shell = (
     <>
       <div className="absolute inset-0 -z-10 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-20" aria-hidden />
-      <Header clerkEnabled={isClerkEnabled} />
+      <Header clerkEnabled={isClerkEnabled} signInUrl={clerkSignInUrl} />
       <main className="max-w-6xl mx-auto w-full px-4 pb-16 pt-8">{children}</main>
       <CommandMenu />
     </>
@@ -59,7 +60,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="de" className="bg-slate-950 text-slate-100">
       <body className="min-h-screen antialiased bg-[radial-gradient(circle_at_20%_20%,rgba(14,165,233,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.12),transparent_40%),radial-gradient(circle_at_50%_60%,rgba(56,189,248,0.18),transparent_45%)]">
         {isClerkEnabled ? (
-          <ClerkProvider appearance={clerkAppearance} publishableKey={clerkPublishableKey} signInUrl="/sign-in">
+          <ClerkProvider appearance={clerkAppearance} publishableKey={clerkPublishableKey} signInUrl={clerkSignInUrl}>
             {shell}
           </ClerkProvider>
         ) : (
