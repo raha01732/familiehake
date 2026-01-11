@@ -36,18 +36,10 @@ function normalizeKey(key: string) {
 
 async function getAllowedRoutesForRole(role: string) {
   const sb = createAdminClient();
-  const { data: roleData } = await sb
-    .from("roles")
-    .select("id")
-    .eq("name", role)
-    .single();
-
-  if (!roleData) return new Map();
-
   const { data: perms } = await sb
-    .from("role_permissions")
+    .from("access_rules")
     .select("route, level")
-    .eq("role_id", roleData.id);
+    .eq("role", role);
 
   const map = new Map<string, number>();
   for (const r of perms ?? []) {

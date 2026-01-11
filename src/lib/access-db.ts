@@ -56,7 +56,7 @@ export async function getPermissionOverview(): Promise<PermissionOverview> {
         .from("roles")
         .select("id, name, label, rank, is_superadmin")
         .order("rank", { ascending: true }),
-      sb.from("role_permissions").select("role_id, route, level"),
+      sb.from("access_rules").select("role, route, level"),
     ]);
 
     const roles: DbRole[] = Array.isArray(rolesData)
@@ -72,10 +72,11 @@ export async function getPermissionOverview(): Promise<PermissionOverview> {
     const matrix: RoutePermissionMatrix = {};
 
     if (Array.isArray(permissionData)) {
+      const roleByName = new Map(roles.map((role) => [role.name.toLowerCase(), role]));
       for (const row of permissionData) {
-        const roleId = row.role_id;
-        const role = roles.find((r) => r.id === roleId);
-        if (!role) continue;
+        const roleName = String(row.role ?? "").toLowerCase();
+        const role = roleByName.get(roleName);
+        if (!role || !row.route) continue;
         const level = normalizeLevel(row.level ?? 0);
         if (!matrix[row.route]) {
           matrix[row.route] = {};

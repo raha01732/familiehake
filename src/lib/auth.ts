@@ -89,14 +89,14 @@ export async function getSessionInfo(): Promise<SessionInfo> {
 
   roles = await assignDefaultRoleIfMissing(sb, user.id, roles);
 
-  const roleIds = roles.map((r) => r.id);
+  const roleNames = roles.map((r) => r.name);
 
   let permissions: EffectivePermissions = {};
-  if (roleIds.length > 0) {
+  if (roleNames.length > 0) {
     const { data: permRows } = await sb
-      .from("role_permissions")
-      .select("role_id, route, level")
-      .in("role_id", roleIds);
+      .from("access_rules")
+      .select("route, level, role")
+      .in("role", roleNames);
 
     if (Array.isArray(permRows)) {
       permissions = computeEffectivePermissions(permRows as any);

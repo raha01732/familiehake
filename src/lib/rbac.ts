@@ -26,9 +26,10 @@ export type SessionRole = {
 };
 
 export type RolePermissionRow = {
-  role_id: number;
   route: string;
   level: number;
+  role?: string | null;
+  role_id?: number | null;
 };
 
 export type EffectivePermissions = Record<string, PermissionLevel>;
