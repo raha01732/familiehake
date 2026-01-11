@@ -42,6 +42,7 @@ type UserDetail = {
   lastName: string;
   roles: DbRole[];
   allowAdminManagement: boolean;
+  hasDatabaseRole: boolean;
 };
 
 async function fetchRoles(): Promise<DbRole[]> {
@@ -131,9 +132,10 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
   try {
     const u = await client.users.getUser(userId);
     const assignments = await fetchAssignments([userId], rolesCatalog);
-    const sb = createAdminClient();
-    const { data: assignmentRows } = await sb.from("user_roles").select("role_id").eq("user_id", userId);
     const primaryId = u.primaryEmailAddressId ?? undefined;
+    const sb = createAdminClient();
+    const { data: assignmentRows } = await sb.from("user_roles").select("role_id").eq("user_id", userId).limit(1);
+    const hasDatabaseRole = (assignmentRows ?? []).length > 0;
 
     const emails: EmailInfo[] = (u.emailAddresses ?? []).map((e) => ({
       id: e.id,
@@ -150,6 +152,7 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
       lastName: u.lastName ?? "",
       roles: assignments[u.id] ?? ensureDefaultRoles(rolesCatalog, undefined),
       allowAdminManagement: Boolean((u.publicMetadata as any)?.allowAdminManagement),
+      hasDatabaseRole,
     };
   } catch {
     return null;

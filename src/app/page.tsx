@@ -1,9 +1,50 @@
 // src/app/page.tsx
 import Link from "next/link";
+import { SignIn } from "@clerk/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 
 export default async function PublicLanding() {
   const user = await currentUser();
+
+  if (!user) {
+    return (
+      <section className="relative mx-auto w-full max-w-xl overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950/90 via-slate-900/70 to-slate-950/90 p-8 shadow-2xl shadow-cyan-500/10">
+        <div
+          className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(34,211,238,0.2),transparent_40%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.2),transparent_35%),radial-gradient(circle_at_60%_80%,rgba(6,182,212,0.15),transparent_45%)]"
+          aria-hidden
+        />
+        <div className="relative space-y-6">
+          <div className="flex items-start gap-3">
+            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-cyan-400/90 to-sky-500/90 text-base font-black text-slate-950">
+              FH
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-300">Privater Bereich</p>
+              <h1 className="text-2xl font-semibold text-white">Bitte zuerst anmelden</h1>
+            </div>
+          </div>
+          <p className="text-sm leading-relaxed text-slate-200">
+            Dieser Auftritt ist geschützt. Nach dem Login wirst du automatisch zur Startseite
+            weitergeleitet.
+          </p>
+          <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-cyan-500/10 backdrop-blur">
+            <SignIn
+              appearance={{
+                elements: {
+                  formButtonPrimary:
+                    "bg-gradient-to-r from-cyan-400 via-sky-500 to-indigo-500 text-slate-950 hover:from-cyan-300 hover:to-indigo-400 rounded-xl text-sm font-semibold",
+                  card: "bg-transparent shadow-none border-0 p-0",
+                  headerTitle: "hidden",
+                  headerSubtitle: "hidden",
+                },
+              }}
+              redirectUrl="/"
+            />
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="relative max-w-5xl w-full mx-auto overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900/70 via-slate-900/50 to-slate-900/80 p-8 shadow-2xl shadow-cyan-500/10">
