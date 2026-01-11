@@ -15,9 +15,10 @@ import { useEffect, useRef, useState } from "react";
 
 type HeaderProps = {
   clerkEnabled?: boolean;
+  signInUrl?: string;
 };
 
-export default function Header({ clerkEnabled = true }: HeaderProps) {
+export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) {
   if (!clerkEnabled) {
     return (
       <header className="sticky top-0 z-[520] border-b border-white/10 bg-slate-950/60 backdrop-blur-2xl">
@@ -92,7 +93,8 @@ export default function Header({ clerkEnabled = true }: HeaderProps) {
           <ClerkLoaded>
             <SignedOut>
               <SignInButton
-                mode="modal"
+                mode={signInUrl ? "redirect" : "modal"}
+                signInUrl={signInUrl}
                 forceRedirectUrl="/dashboard"
                 signUpForceRedirectUrl="/dashboard"
               >
