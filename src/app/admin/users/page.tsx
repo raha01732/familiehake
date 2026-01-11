@@ -131,8 +131,6 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
   try {
     const u = await client.users.getUser(userId);
     const assignments = await fetchAssignments([userId], rolesCatalog);
-    const sb = createAdminClient();
-    const { data: assignmentRows } = await sb.from("user_roles").select("role_id").eq("user_id", userId);
     const primaryId = u.primaryEmailAddressId ?? undefined;
 
     const emails: EmailInfo[] = (u.emailAddresses ?? []).map((e) => ({
