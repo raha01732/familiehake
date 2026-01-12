@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
 import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect";
 import { currentUser } from "@clerk/nextjs/server";
 import { env } from "@/lib/env";
 
@@ -116,6 +117,9 @@ async function upsertAccessAction(formData: FormData): Promise<void> {
     revalidatePath("/admin/settings");
     redirect("/admin/settings?saved=1");
   } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
     console.error("access_rules_save_failed", error);
     const { isAdmin } = await getAdminStatus();
     if (isAdmin) {
@@ -150,6 +154,9 @@ async function addRouteAction(formData: FormData): Promise<void> {
     revalidatePath("/admin/settings");
     redirect("/admin/settings?route-added=1");
   } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
     console.error("access_rules_add_route_failed", error);
     const { isAdmin } = await getAdminStatus();
     if (isAdmin) {
