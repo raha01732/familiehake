@@ -8,12 +8,25 @@ export async function GET() {
   const checks: Record<string, any> = {
     uptime_s: Math.floor(process.uptime()),
     env: {
-      clerk_publishable: !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
-      clerk_secret: !!process.env.CLERK_SECRET_KEY,
-      supabase_url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-      supabase_anon: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      supabase_service: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      sentry_dsn: !!process.env.SENTRY_DSN,
+      clerk: {
+        publishable_key: !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+        secret_key: !!process.env.CLERK_SECRET_KEY,
+      },
+      supabase: {
+        url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+        anon_key: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        service_role_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      },
+      sentry: {
+        dsn: !!process.env.SENTRY_DSN,
+        api_token: !!process.env.SENTRY_API_TOKEN,
+        org_slug: !!process.env.SENTRY_ORG_SLUG,
+        project_slug: !!process.env.SENTRY_PROJECT_SLUG,
+      },
+      upstash: {
+        redis_rest_url: !!process.env.UPSTASH_REDIS_REST_URL,
+        redis_rest_token: !!process.env.UPSTASH_REDIS_REST_TOKEN,
+      },
     },
     db: {
       ok: false,
@@ -64,7 +77,7 @@ export async function GET() {
     status = "degraded";
   }
 
-  const allEnvOk = Object.values(checks.env).every(Boolean);
+  const allEnvOk = Object.values(checks.env).every((service) => Object.values(service).every(Boolean));
   if (!allEnvOk && status === "ok") status = "warn";
 
   // immer 200, Zustand im Payload
