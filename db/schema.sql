@@ -10,6 +10,13 @@ create table if not exists roles (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists dashboard_tiles (
+  id text primary key,
+  title text not null,
+  body text not null,
+  updated_at timestamptz not null default now()
+);
+
 -- Fallback: Ergänze fehlende ID-Spalte und Primärschlüssel, falls die Tabelle bereits ohne ID existiert
 do $$
 begin
@@ -117,3 +124,16 @@ join roles r on r.name = seed.role_name
 on conflict (role_id, route) do update
 set level = excluded.level,
     updated_at = now();
+
+create or replace function public.get_public_tables()
+returns table (table_name text)
+language sql
+security definer
+set search_path = public
+as $$
+  select table_name
+  from information_schema.tables
+  where table_schema = 'public'
+    and table_type = 'BASE TABLE'
+  order by table_name;
+$$;
