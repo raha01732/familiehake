@@ -1,11 +1,11 @@
 // src/lib/access-map.ts
-import { PERMISSION_LEVELS, type PermissionLevel } from "@/lib/rbac";
+export type AccessDefaults = Record<string, boolean>;
 
 export type RouteDescriptor = {
   route: string;
   label: string;
   description?: string;
-  defaultLevel: PermissionLevel;
+  defaults?: AccessDefaults;
 };
 
 export const ROUTE_DESCRIPTORS: RouteDescriptor[] = [
@@ -13,82 +13,99 @@ export const ROUTE_DESCRIPTORS: RouteDescriptor[] = [
     route: "dashboard",
     label: "Dashboard",
     description: "Übersicht und Schnellzugriff.",
-    defaultLevel: PERMISSION_LEVELS.READ,
+    defaults: { user: true, admin: true },
   },
   {
     route: "admin",
     label: "Admin",
     description: "Zentrale Verwaltungsoberfläche.",
-    defaultLevel: PERMISSION_LEVELS.READ,
+    defaults: { admin: true },
   },
   {
     route: "admin/users",
     label: "Benutzerverwaltung",
     description: "Nutzerprofile und Rollen verwalten.",
-    defaultLevel: PERMISSION_LEVELS.READ,
+    defaults: { admin: true },
   },
   {
     route: "admin/settings",
     label: "Berechtigungen",
     description: "Rollen & Zugriffe konfigurieren.",
-    defaultLevel: PERMISSION_LEVELS.ADMIN,
+    defaults: { admin: true },
   },
   {
     route: "settings",
     label: "Einstellungen",
     description: "Persönliche Einstellungen.",
-    defaultLevel: PERMISSION_LEVELS.READ,
+    defaults: { admin: true },
   },
   {
     route: "monitoring",
     label: "Monitoring",
     description: "Systemstatus & Telemetrie.",
-    defaultLevel: PERMISSION_LEVELS.READ,
+    defaults: { admin: true },
   },
   {
     route: "activity",
     label: "Activity",
     description: "Live-Audit-Feed.",
-    defaultLevel: PERMISSION_LEVELS.READ,
+    defaults: { admin: true },
   },
   {
     route: "tools",
     label: "Tools-Hub",
     description: "Sammlung aller Module.",
-    defaultLevel: PERMISSION_LEVELS.READ,
+    defaults: { user: true, admin: true },
   },
   {
     route: "tools/files",
     label: "Dateien",
     description: "Dateimanager inkl. Freigaben.",
-    defaultLevel: PERMISSION_LEVELS.WRITE,
+    defaults: { user: true, admin: true },
   },
   {
     route: "tools/journal",
     label: "Journal",
     description: "Persönliche Notizen.",
-    defaultLevel: PERMISSION_LEVELS.WRITE,
+    defaults: { user: true, admin: true },
   },
   {
     route: "tools/dispoplaner",
     label: "Dispoplaner",
     description: "Kinovorstellungen planen",
-    defaultLevel: PERMISSION_LEVELS.WRITE,
+    defaults: { user: true, admin: true },
+  },
+  {
+    route: "tools/calender",
+    label: "Kalender",
+    description: "Kalender & Termine",
+    defaults: { user: true, admin: true },
+  },
+  {
+    route: "tools/messages",
+    label: "Nachrichten",
+    description: "Interner Chat",
+    defaults: { user: true, admin: true },
   },
   {
     route: "tools/storage",
     label: "Storage-Insights",
     description: "Speichernutzung & Buckets.",
-    defaultLevel: PERMISSION_LEVELS.READ,
+    defaults: { admin: true },
   },
   {
     route: "tools/system",
     label: "Systemübersicht",
     description: "Server- und Runtime-Details.",
-    defaultLevel: PERMISSION_LEVELS.READ,
+    defaults: { admin: true },
   },
 ];
 
 export function getRouteDescriptor(route: string): RouteDescriptor | undefined {
   return ROUTE_DESCRIPTORS.find((d) => d.route === route);
+}
+
+export function getRouteDefaultAccess(route: string, role: string): boolean | undefined {
+  const descriptor = getRouteDescriptor(route);
+  return descriptor?.defaults?.[role];
 }

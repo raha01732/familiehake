@@ -2,8 +2,8 @@
 import RoleGate from "@/components/RoleGate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
-import { PERMISSION_LEVELS, PERMISSION_LABELS } from "@/lib/rbac";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
+import { redirect } from "next/navigation";
 
 export const metadata = { title: "Rollen & Berechtigungen" };
 
@@ -16,7 +16,7 @@ type DbRole = {
 type DbRule = {
   route: string;
   role: string;
-  level: number;
+  allowed: boolean;
 };
 
 /* ===================== Data ===================== */
@@ -26,17 +26,17 @@ async function getData() {
 
   const [{ data: roles }, { data: rules }] = await Promise.all([
     sb.from("roles").select("name,label,rank").order("rank", { ascending: false }),
-    sb.from("access_rules").select("route,role,level").order("route", { ascending: true }),
+    sb.from("access_rules").select("route,role,allowed").order("route", { ascending: true }),
   ]);
 
   const roleList: DbRole[] = (roles ?? []) as DbRole[];
   const ruleList: DbRule[] = (rules ?? []) as DbRule[];
 
-  // Matrix: route -> role -> level
-  const matrix = new Map<string, Map<string, number>>();
+  // Matrix: route -> role -> allowed
+  const matrix = new Map<string, Map<string, boolean>>();
   for (const r of ruleList) {
     if (!matrix.has(r.route)) matrix.set(r.route, new Map());
-    matrix.get(r.route)!.set(r.role, r.level ?? 0);
+    matrix.get(r.route)!.set(r.role, !!r.allowed);
   }
 
   for (const descriptor of ROUTE_DESCRIPTORS) {
@@ -51,27 +51,47 @@ async function getData() {
 
 /* ===================== Actions ===================== */
 
+function buildFieldName(route: string, role: string) {
+  return `access:${encodeURIComponent(route)}:${encodeURIComponent(role)}`;
+}
+
 async function upsertAccessAction(formData: FormData): Promise<void> {
   "use server";
-  const route = String(formData.get("route") ?? "").trim().replace(/^\/+/, "");
-  const role = String(formData.get("role") ?? "").trim().toLowerCase();
-  const level = Number(formData.get("level") ?? 0);
+  try {
+    const sb = createAdminClient();
+    const [{ data: roles }, { data: routes }] = await Promise.all([
+      sb.from("roles").select("name"),
+      sb.from("access_rules").select("route"),
+    ]);
 
-  if (!route || !role || !Number.isFinite(level)) return;
+    const roleNames = (roles ?? []).map((r: any) => String(r.name));
+    const routeSet = new Set<string>();
+    for (const row of routes ?? []) {
+      if (row?.route) routeSet.add(String(row.route));
+    }
+    for (const descriptor of ROUTE_DESCRIPTORS) {
+      routeSet.add(descriptor.route);
+    }
+    const routeList = Array.from(routeSet).sort((a, b) => a.localeCompare(b));
 
-  const sb = createAdminClient();
+    const payload = routeList.flatMap((route) =>
+      roleNames.map((role) => ({
+        route,
+        role,
+        allowed: formData.has(buildFieldName(route, role)),
+      }))
+    );
 
-  // Rolle sicherstellen (per UPSERT, da .insert().onConflict() nicht verfügbar ist)
-  await sb
-    .from("roles")
-    .upsert({ name: role, label: role, rank: 0 }, { onConflict: "name" });
+    if (payload.length > 0) {
+      await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
+    }
 
-  // Upsert access rule
-  await sb
-    .from("access_rules")
-    .upsert({ route, role, level }, { onConflict: "route,role" });
-
-  revalidatePath("/admin/settings");
+    revalidatePath("/admin/settings");
+    redirect("/admin/settings?saved=1");
+  } catch (error) {
+    console.error("access_rules_save_failed", error);
+    redirect("/admin/settings?error=1");
+  }
 }
 
 async function addRouteAction(formData: FormData): Promise<void> {
@@ -90,36 +110,56 @@ async function addRouteAction(formData: FormData): Promise<void> {
   const payload = roleNames.map((name) => ({
     route,
     role: name,
-    level: PERMISSION_LEVELS.NONE,
+    allowed: false,
   }));
 
-  await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
-
-  revalidatePath("/admin/settings");
+  try {
+    await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
+    revalidatePath("/admin/settings");
+    redirect("/admin/settings?route-added=1");
+  } catch (error) {
+    console.error("access_rules_add_route_failed", error);
+    redirect("/admin/settings?error=1");
+  }
 }
 
 /* ===================== Page ===================== */
 
-export default async function AdminSettingsPage() {
+export default async function AdminSettingsPage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   const { roles, routes, matrix } = await getData();
-
-  // Für die Darstellung: Levels als <option>
-  const options = [
-    { v: PERMISSION_LEVELS.NONE, label: PERMISSION_LABELS[PERMISSION_LEVELS.NONE] },
-    { v: PERMISSION_LEVELS.READ, label: PERMISSION_LABELS[PERMISSION_LEVELS.READ] },
-    { v: PERMISSION_LEVELS.WRITE, label: PERMISSION_LABELS[PERMISSION_LEVELS.WRITE] },
-    { v: PERMISSION_LEVELS.ADMIN, label: PERMISSION_LABELS[PERMISSION_LEVELS.ADMIN] },
-  ];
+  const hasFlag = (value: string | string[] | undefined) =>
+    value === "1" || (Array.isArray(value) && value.includes("1"));
+  const saved = hasFlag(searchParams?.saved);
+  const error = hasFlag(searchParams?.error);
+  const routeAdded = hasFlag(searchParams?.["route-added"]);
 
   return (
-    <RoleGate routeKey="admin/settings" minLevel={PERMISSION_LEVELS.ADMIN}>
+    <RoleGate routeKey="admin/settings">
       <section className="flex flex-col gap-8">
         <header className="card p-6 flex flex-col gap-2">
           <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">Rollen &amp; Berechtigungen</h1>
           <p className="text-sm text-zinc-400">
-            Definiere, welche Rolle auf welche Route mit welchem Level zugreifen darf.
+            Definiere per Checkbox, welche Rolle eine Route aufrufen darf.
           </p>
         </header>
+
+        {(saved || error || routeAdded) && (
+          <div
+            className={`rounded-xl border p-4 text-sm ${
+              error
+                ? "border-amber-700 bg-amber-900/10 text-amber-200"
+                : "border-emerald-700 bg-emerald-900/10 text-emerald-200"
+            }`}
+          >
+            {error && "Beim Speichern ist ein Fehler aufgetreten."}
+            {saved && "Berechtigungen wurden gespeichert."}
+            {routeAdded && "Neue Route wurde angelegt."}
+          </div>
+        )}
 
         {/* Neue Route hinzufügen */}
         <div className="card p-6">
@@ -146,63 +186,59 @@ export default async function AdminSettingsPage() {
         <div className="card p-6">
           <div className="text-sm font-medium text-zinc-100 mb-4">Zugriffs-Matrix</div>
 
-          <div className="grid gap-4">
-            {routes.length === 0 && (
-              <div className="text-sm text-zinc-500">Noch keine Routen vorhanden.</div>
-            )}
-
-            {routes.map((route) => {
-              const row = matrix.get(route) ?? new Map<string, number>();
-              const descriptor = ROUTE_DESCRIPTORS.find((d) => d.route === route);
-              const fallbackLevel = descriptor?.defaultLevel ?? PERMISSION_LEVELS.NONE;
-              return (
-                <div
-                  key={route}
-                  className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4"
-                >
-                  <div className="mb-3 text-zinc-200 font-medium text-sm">/{route}</div>
-
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {roles.map((r) => {
-                      const current = row.get(r.name) ?? fallbackLevel;
+          {routes.length === 0 ? (
+            <div className="text-sm text-zinc-500">Noch keine Routen vorhanden.</div>
+          ) : (
+            <form action={upsertAccessAction} className="flex flex-col gap-4">
+              <div className="overflow-x-auto rounded-xl border border-zinc-800">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-zinc-900/60 text-zinc-400">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-medium">Route</th>
+                      {roles.map((role) => (
+                        <th key={role.name} className="px-4 py-2 text-left font-medium">
+                          {role.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800">
+                    {routes.map((route) => {
+                      const row = matrix.get(route) ?? new Map<string, boolean>();
                       return (
-                        <form
-                          key={r.name}
-                          action={upsertAccessAction}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2"
-                        >
-                          <div className="text-sm text-zinc-200">
-                            {r.label}{" "}
-                            <span className="text-zinc-500 text-xs">({r.name})</span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <input type="hidden" name="route" value={route} />
-                            <input type="hidden" name="role" value={r.name} />
-                            <select
-                              name="level"
-                              defaultValue={String(current)}
-                              className="rounded bg-zinc-950 border border-zinc-700 text-[12px] px-2 py-1 text-zinc-100"
-                              aria-label={`Level für ${r.name} auf ${route}`}
-                            >
-                              {options.map((o) => (
-                                <option key={o.v} value={o.v}>
-                                  {o.label}
-                                </option>
-                              ))}
-                            </select>
-                            <button className="rounded border border-zinc-700 text-zinc-200 text-[11px] px-2 py-1 hover:bg-zinc-800/60">
-                              Speichern
-                            </button>
-                          </div>
-                        </form>
+                        <tr key={route} className="hover:bg-zinc-900/40">
+                          <td className="px-4 py-2 text-zinc-200 font-medium">/{route}</td>
+                          {roles.map((role) => {
+                            const isAllowed = row.get(role.name) ?? false;
+                            const fieldName = buildFieldName(route, role.name);
+                            return (
+                              <td key={role.name} className="px-4 py-2">
+                                <label className="inline-flex items-center gap-2 text-zinc-200">
+                                  <input
+                                    type="checkbox"
+                                    name={fieldName}
+                                    defaultChecked={isAllowed}
+                                    className="h-4 w-4 rounded border-zinc-700 bg-zinc-950 text-emerald-400"
+                                    aria-label={`Zugriff für ${role.name} auf ${route}`}
+                                  />
+                                  <span className="text-xs text-zinc-500">{role.name}</span>
+                                </label>
+                              </td>
+                            );
+                          })}
+                        </tr>
                       );
                     })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <button className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60">
+                  Speichern
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </section>
     </RoleGate>
