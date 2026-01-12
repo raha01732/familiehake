@@ -10,39 +10,12 @@ create table if not exists roles (
   updated_at timestamptz not null default now()
 );
 
-create table if not exists access_rules (
-  route text not null,
-  role text not null,
-  allowed boolean not null default false,
-  updated_at timestamptz not null default now(),
-  primary key (route, role)
-);
-
 create table if not exists dashboard_tiles (
   id text primary key,
   title text not null,
   body text not null,
   updated_at timestamptz not null default now()
 );
-
-do $$
-begin
-  if exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'access_rules'
-      and column_name = 'level'
-  ) then
-    alter table access_rules add column if not exists allowed boolean;
-    update access_rules
-    set allowed = (level > 0)
-    where allowed is null;
-    alter table access_rules alter column allowed set default false;
-    update access_rules set allowed = false where allowed is null;
-    alter table access_rules alter column allowed set not null;
-  end if;
-end $$;
 
 -- Fallback: Ergänze fehlende ID-Spalte und Primärschlüssel, falls die Tabelle bereits ohne ID existiert
 do $$

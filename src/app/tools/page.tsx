@@ -3,7 +3,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { env } from "@/lib/env";
 import { TOOL_LINKS } from "@/lib/navigation";
-import { getAllowedRoutesForRole, normalizeRouteKey } from "@/lib/route-access";
+import { getAllowedRoutesForRole, LEVEL_NONE, LEVEL_READ, normalizeRouteKey } from "@/lib/route-access";
 
 export const metadata = { title: "Werkzeuge" };
 
@@ -29,7 +29,9 @@ export default async function ToolsPage() {
     ? TOOL_LINKS
     : (await (async () => {
         const allowed = await getAllowedRoutesForRole(role);
-        return TOOL_LINKS.filter((t) => allowed.get(normalizeRouteKey(t.routeKey)) ?? false);
+        return TOOL_LINKS.filter(
+          (t) => (allowed.get(normalizeRouteKey(t.routeKey)) ?? LEVEL_NONE) >= LEVEL_READ
+        );
       })());
 
   return (

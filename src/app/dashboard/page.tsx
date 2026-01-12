@@ -5,27 +5,11 @@ import { logAudit } from "@/lib/audit";
 import { env } from "@/lib/env";
 import { headers } from "next/headers";
 import Link from "next/link";
-import { revalidatePath } from "next/cache";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { ADMIN_LINKS, TOOL_LINKS } from "@/lib/navigation";
-import { getAllowedRoutesForRole, normalizeRouteKey } from "@/lib/route-access";
 
 export const metadata = { title: "Dashboard | Private Tools" };
 
 type HealthSummary = {
   status: "ok" | "warn" | "degraded";
-};
-
-type DashboardTile = {
-  id: string;
-  title: string;
-  body: string;
-};
-
-const DEFAULT_WELCOME: DashboardTile = {
-  id: "welcome",
-  title: "Willkommen im Dashboard",
-  body: "Überblick über interne Bereiche. Diese Seite ist für alle Mitglieder freigeschaltet.",
 };
 
 async function getHealthSummary(): Promise<HealthSummary | null> {
@@ -43,52 +27,6 @@ async function getHealthSummary(): Promise<HealthSummary | null> {
   }
 }
 
-async function getWelcomeTile(): Promise<DashboardTile> {
-  try {
-    const sb = createAdminClient();
-    const { data } = await sb
-      .from("dashboard_tiles")
-      .select("id, title, body")
-      .eq("id", "welcome")
-      .single();
-    if (data?.title && data?.body) {
-      return {
-        id: data.id,
-        title: data.title,
-        body: data.body,
-      };
-    }
-  } catch {
-    // ignore
-  }
-  return DEFAULT_WELCOME;
-}
-
-async function updateWelcomeTile(formData: FormData) {
-  "use server";
-  const user = await currentUser();
-  const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
-  const isAdmin =
-    !!user && (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
-  if (!isAdmin) return;
-
-  const title = String(formData.get("title") ?? "").trim();
-  const body = String(formData.get("body") ?? "").trim();
-  if (!title || !body) return;
-
-  const sb = createAdminClient();
-  await sb.from("dashboard_tiles").upsert(
-    {
-      id: "welcome",
-      title,
-      body,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" }
-  );
-  revalidatePath("/dashboard");
-}
-
 export default async function DashboardPage() {
   // Login-Success (einfachheitshalber bei jedem Dashboard-Aufruf – später optional mit Cookie drosseln)
   const user = await currentUser();
@@ -98,14 +36,6 @@ export default async function DashboardPage() {
   const health = isAdmin ? await getHealthSummary() : null;
   const healthStatus = (health?.status as "ok" | "warn" | "degraded" | "unreachable") ?? "unreachable";
   const healthLabel = healthStatus === "ok" ? "Keine Fehler" : "Fehler erkannt";
-  const welcomeTile = await getWelcomeTile();
-  const allowedRoutes = isAdmin || !user ? new Map<string, number>() : await getAllowedRoutesForRole(role);
-  const toolLinks = isAdmin
-    ? TOOL_LINKS
-    : TOOL_LINKS.filter((link) => allowedRoutes.get(normalizeRouteKey(link.routeKey)) ?? false);
-  const adminLinks = isAdmin
-    ? ADMIN_LINKS
-    : ADMIN_LINKS.filter((link) => allowedRoutes.get(normalizeRouteKey(link.routeKey)) ?? false);
   if (user) {
     await logAudit({
       action: "login_success",
@@ -220,6 +150,34 @@ export default async function DashboardPage() {
             </div>
           ) : null}
         </div>
+        {isAdmin ? (
+          <div className="card p-6 flex flex-col gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-zinc-100">System-Health</h3>
+              <p className="text-zinc-400 text-sm leading-relaxed">
+                Kurzüberblick aus dem Monitoring – nur für Admins.
+              </p>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+              <div className="text-sm text-zinc-200">Status</div>
+              <span
+                className={`rounded-lg border px-2 py-0.5 text-xs ${
+                  healthStatus === "ok"
+                    ? "border-green-700 text-green-300 bg-green-900/20"
+                    : "border-amber-600 text-amber-300 bg-amber-900/20"
+                }`}
+              >
+                {healthLabel}
+              </span>
+            </div>
+            <Link
+              href="/monitoring"
+              className="text-sm text-zinc-200 hover:text-white underline underline-offset-4"
+            >
+              Zum Monitoring →
+            </Link>
+          </div>
+        ) : null}
       </section>
     </RoleGate>
   );

@@ -17,13 +17,23 @@ const FALLBACK_ROLES: DbRole[] = [
   { id: 1, name: "admin", label: "Admin", rank: 50, isSuperAdmin: false },
 ];
 
-const FALLBACK_MATRIX: RoutePermissionMatrix = ROUTE_DESCRIPTORS.reduce((acc, descriptor) => {
-  acc[descriptor.route] = {};
-  for (const role of FALLBACK_ROLES) {
-    acc[descriptor.route][role.name] = descriptor.defaults?.[role.name] ?? false;
-  }
-  return acc;
-}, {} as RoutePermissionMatrix);
+const FALLBACK_MATRIX: RoutePermissionMatrix = {
+  dashboard: { user: PERMISSION_LEVELS.READ, admin: PERMISSION_LEVELS.READ },
+  admin: { admin: PERMISSION_LEVELS.READ },
+  "admin/users": { admin: PERMISSION_LEVELS.READ },
+  "admin/settings": { admin: PERMISSION_LEVELS.ADMIN },
+  settings: { admin: PERMISSION_LEVELS.READ },
+  monitoring: { admin: PERMISSION_LEVELS.READ },
+  tools: { user: PERMISSION_LEVELS.READ, admin: PERMISSION_LEVELS.WRITE },
+  "tools/files": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
+  "tools/journal": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
+  "tools/dispoplaner": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
+  "tools/calender": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
+  "tools/messages": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
+  "tools/storage": { admin: PERMISSION_LEVELS.WRITE },
+  "tools/system": { admin: PERMISSION_LEVELS.WRITE },
+  activity: { admin: PERMISSION_LEVELS.READ },
+};
 
 export type PermissionOverview = {
   roles: DbRole[];
