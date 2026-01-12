@@ -1,6 +1,7 @@
+// src/app/settings/page.tsx
 import RoleGate from "@/components/RoleGate";
 import { getPermissionOverview } from "@/lib/access-db";
-import { PERMISSION_LABELS, PERMISSION_LEVELS } from "@/lib/rbac";
+import { ACCESS_LABELS } from "@/lib/rbac";
 
 export const metadata = { title: "Einstellungen" };
 
@@ -8,7 +9,7 @@ export default async function SettingsPage() {
   const { roles, matrix } = await getPermissionOverview();
 
   return (
-    <RoleGate routeKey="settings" minLevel={PERMISSION_LEVELS.READ}>
+    <RoleGate routeKey="settings">
       <section className="card p-6 flex flex-col gap-6">
         <header className="flex flex-col gap-2">
           <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">Zugriffsübersicht</h1>
@@ -35,9 +36,9 @@ export default async function SettingsPage() {
                 <tr key={route} className="hover:bg-zinc-900/40">
                   <td className="px-4 py-2 text-zinc-300 font-medium">/{route}</td>
                   {roles.map((role) => {
-                    const level = permissions[role.name] ?? PERMISSION_LEVELS.NONE;
-                    const label = PERMISSION_LABELS[level];
-                    const muted = level === PERMISSION_LEVELS.NONE ? "text-zinc-600" : "text-zinc-100";
+                    const allowed = permissions[role.name] ?? false;
+                    const label = allowed ? ACCESS_LABELS.allowed : ACCESS_LABELS.denied;
+                    const muted = allowed ? "text-zinc-100" : "text-zinc-600";
                     return (
                       <td key={role.id} className={`px-4 py-2 ${muted}`}>
                         {label}

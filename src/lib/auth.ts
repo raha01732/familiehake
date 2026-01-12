@@ -2,8 +2,6 @@
 import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  PERMISSION_LEVELS,
-  type PermissionLevel,
   type EffectivePermissions,
   type SessionRole,
   computeEffectivePermissions,
@@ -95,7 +93,7 @@ export async function getSessionInfo(): Promise<SessionInfo> {
   if (roleNames.length > 0) {
     const { data: permRows } = await sb
       .from("access_rules")
-      .select("route, level, role")
+      .select("route, allowed, role")
       .in("role", roleNames);
 
     if (Array.isArray(permRows)) {
@@ -124,36 +122,21 @@ export async function getSessionInfo(): Promise<SessionInfo> {
   };
 }
 
-export async function getPermissionLevelForRoute(routeKey: string): Promise<PermissionLevel> {
-  const session = await getSessionInfo();
-  if (!session.signedIn) return PERMISSION_LEVELS.NONE;
-  if (session.isSuperAdmin) return PERMISSION_LEVELS.ADMIN;
-  return session.permissions[routeKey] ?? PERMISSION_LEVELS.NONE;
-}
-
-/** Prüft Zugriff auf einen Route-Key (mindestens Lesen). */
-export async function canAccess(
-  routeKey: string,
-  minimumLevel: PermissionLevel = PERMISSION_LEVELS.READ
-): Promise<boolean> {
+export async function canAccess(routeKey: string): Promise<boolean> {
   const session = await getSessionInfo();
   if (!session.signedIn) return false;
   if (session.isSuperAdmin) return true;
-  const level = session.permissions[routeKey] ?? PERMISSION_LEVELS.NONE;
-  return level >= minimumLevel;
+  return session.permissions[routeKey] ?? false;
 }
 
 /** Wirft klar definierte Fehler-Codes für RoleGate. */
-export async function assertAccessOrThrow(
-  routeKey: string,
-  minimumLevel: PermissionLevel = PERMISSION_LEVELS.READ
-): Promise<void> {
+export async function assertAccessOrThrow(routeKey: string): Promise<void> {
   const session = await getSessionInfo();
   if (!session.signedIn) {
     throw new Error("UNAUTHORIZED_NOT_LOGGED_IN");
   }
   if (session.isSuperAdmin) return;
-  const allowed = await canAccess(routeKey, minimumLevel);
+  const allowed = await canAccess(routeKey);
   if (!allowed) {
     throw new Error("FORBIDDEN_ROLE");
   }

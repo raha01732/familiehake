@@ -1,6 +1,5 @@
-import { z } from "zod";
-
 // src/lib/env.ts
+import { z } from "zod";
 const schema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url(),
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1),
@@ -17,6 +16,8 @@ const schema = z.object({
   SENTRY_API_TOKEN: z.string().optional(),
   SENTRY_ORG_SLUG: z.string().optional(),
   SENTRY_PROJECT_SLUG: z.string().optional(),
+  UPSTASH_REDIS_REST_URL: z.string().optional(),
+  UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 });
 
 type Env = z.infer<typeof schema>;

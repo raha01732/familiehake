@@ -4,26 +4,23 @@ import { ReactNode } from "react";
 import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
-import { getRouteDescriptor } from "@/lib/access-map";
+import { getRouteDefaultAccess } from "@/lib/access-map";
 
 /**
  * Erwartetes Schema in Supabase (Beispiel):
  *  - table: roles(name text primary key, label text, rank int)
- *  - table: access_rules(route text, role text, level int, primary key(route, role))
- *    level: 0=NONE, 1=READ, 2=WRITE, 3=ADMIN  (nur Beispiel – du nutzt vermutlich PERMISSION_LEVELS)
+ *  - table: access_rules(route text, role text, allowed boolean, primary key(route, role))
  *
  * Diese Komponente:
  *  - lässt 'superadmin' immer durch
  *  - normalisiert routeKey (ohne/mit führendem Slash)
- *  - prüft access_rules(route, role)
+ *  - prüft access_rules(route, role) auf allowed=true
  */
 
 type Props = {
   /** z.B. "monitoring", "/monitoring", "admin/settings" */
   routeKey: string;
   children: ReactNode;
-  /** optional mindest-Level (default: 1=READ) */
-  minLevel?: number;
 };
 
 function normalizeRouteKey(key: string) {
@@ -32,7 +29,7 @@ function normalizeRouteKey(key: string) {
   return key.replace(/^\/+/, "").replace(/\/{2,}/g, "/").trim();
 }
 
-export default async function RoleGate({ routeKey, children, minLevel = 1 }: Props) {
+export default async function RoleGate({ routeKey, children }: Props) {
   const user = await currentUser();
   const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
   const userId = user?.id ?? null;
@@ -57,7 +54,7 @@ export default async function RoleGate({ routeKey, children, minLevel = 1 }: Pro
   // Wir versuchen beide Varianten; erste passende gewinnt
   const { data: rules, error } = await sb
     .from("access_rules")
-    .select("route, role, level")
+    .select("route, role, allowed")
     .in("route", variants)
     .eq("role", role);
 
@@ -74,8 +71,8 @@ export default async function RoleGate({ routeKey, children, minLevel = 1 }: Pro
 
   // Keine Regel gefunden? → blocken mit Hinweis auf möglichen Route-Key-Mismatch
   if (!rules || rules.length === 0) {
-    const fallbackDescriptor = getRouteDescriptor(key);
-    if (fallbackDescriptor && fallbackDescriptor.defaultLevel >= minLevel) {
+    const fallbackAllowed = getRouteDefaultAccess(key, role);
+    if (fallbackAllowed) {
       return <>{children}</>;
     }
     return (
@@ -88,9 +85,8 @@ export default async function RoleGate({ routeKey, children, minLevel = 1 }: Pro
     );
   }
 
-  // Mindestens eine passende Regel – Level prüfen
-  const maxLevel = Math.max(...rules.map((r) => Number(r.level ?? 0)));
-  if (maxLevel >= minLevel) {
+  const allowed = rules.some((rule) => !!rule.allowed);
+  if (allowed) {
     return <>{children}</>;
   }
 
@@ -99,7 +95,7 @@ export default async function RoleGate({ routeKey, children, minLevel = 1 }: Pro
       reason="insufficient_level"
       role={role}
       routeKey={routeKey}
-      debug={{ foundLevel: maxLevel, required: minLevel }}
+      debug={{ allowed }}
     />
   );
 }
@@ -132,7 +128,7 @@ function Blocked({
     no_rule:
       "Für diese Route existiert kein Eintrag für deine Rolle. Prüfe den Route-Key in den Einstellungen.",
     insufficient_level:
-      "Deine Rolle hat nicht das nötige Berechtigungslevel für diese Route.",
+      "Deine Rolle hat keinen Zugriff auf diese Route.",
     db_error:
       "Beim Lesen der Zugriffsregeln ist ein Fehler aufgetreten. Bitte später erneut versuchen.",
   };
