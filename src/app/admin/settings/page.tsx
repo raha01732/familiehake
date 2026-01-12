@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
 import { redirect } from "next/navigation";
+import { currentUser } from "@clerk/nextjs/server";
+import { env } from "@/lib/env";
 
 export const metadata = { title: "Rollen & Berechtigungen" };
 
@@ -20,6 +22,31 @@ type DbRule = {
 };
 
 /* ===================== Data ===================== */
+
+async function getAdminStatus() {
+  const user = await currentUser();
+  const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
+  const isAdmin =
+    !!user && (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
+  return { isAdmin, role, user };
+}
+
+function formatErrorDetail(error: unknown) {
+  if (error instanceof Error) {
+    const detailParts = [error.name, error.message, error.stack].filter(Boolean);
+    return detailParts.join("\n");
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function getFirstParam(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
 
 async function getData() {
   const sb = createAdminClient();
@@ -90,6 +117,11 @@ async function upsertAccessAction(formData: FormData): Promise<void> {
     redirect("/admin/settings?saved=1");
   } catch (error) {
     console.error("access_rules_save_failed", error);
+    const { isAdmin } = await getAdminStatus();
+    if (isAdmin) {
+      const detail = encodeURIComponent(formatErrorDetail(error));
+      redirect(`/admin/settings?error=1&errorDetail=${detail}`);
+    }
     redirect("/admin/settings?error=1");
   }
 }
@@ -119,6 +151,11 @@ async function addRouteAction(formData: FormData): Promise<void> {
     redirect("/admin/settings?route-added=1");
   } catch (error) {
     console.error("access_rules_add_route_failed", error);
+    const { isAdmin } = await getAdminStatus();
+    if (isAdmin) {
+      const detail = encodeURIComponent(formatErrorDetail(error));
+      redirect(`/admin/settings?error=1&errorDetail=${detail}`);
+    }
     redirect("/admin/settings?error=1");
   }
 }
@@ -131,11 +168,14 @@ export default async function AdminSettingsPage({
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const { roles, routes, matrix } = await getData();
+  const { isAdmin } = await getAdminStatus();
   const hasFlag = (value: string | string[] | undefined) =>
     value === "1" || (Array.isArray(value) && value.includes("1"));
   const saved = hasFlag(searchParams?.saved);
   const error = hasFlag(searchParams?.error);
   const routeAdded = hasFlag(searchParams?.["route-added"]);
+  const errorDetailParam = getFirstParam(searchParams?.errorDetail);
+  const errorDetail = isAdmin && errorDetailParam ? decodeURIComponent(errorDetailParam) : null;
 
   return (
     <RoleGate routeKey="admin/settings">
@@ -155,9 +195,14 @@ export default async function AdminSettingsPage({
                 : "border-emerald-700 bg-emerald-900/10 text-emerald-200"
             }`}
           >
-            {error && "Beim Speichern ist ein Fehler aufgetreten."}
+            {error && "Es ist ein Fehler aufgetreten."}
             {saved && "Berechtigungen wurden gespeichert."}
             {routeAdded && "Neue Route wurde angelegt."}
+            {error && errorDetail && (
+              <pre className="mt-3 whitespace-pre-wrap rounded-lg border border-amber-800 bg-amber-900/20 p-3 text-[11px] leading-5 text-amber-100/80">
+                {errorDetail}
+              </pre>
+            )}
           </div>
         )}
 
