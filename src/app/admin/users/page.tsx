@@ -394,11 +394,11 @@ async function createUserAction(formData: FormData): Promise<void> {
   }
 
   await logAudit({
-    action: "user_created",
+    action: "role_change",
     actorUserId: (await auth()).userId ?? null,
     actorEmail: null,
     target: created.id,
-    detail: { email },
+    detail: { email, event: "user_created" },
   });
 
   revalidatePath("/admin/users");
