@@ -43,6 +43,7 @@ type UserDetail = {
   roles: DbRole[];
   allowAdminManagement: boolean;
   hasDatabaseRole: boolean;
+  roleMappingAvailable: boolean;
 };
 
 async function fetchRoles(): Promise<DbRole[]> {
@@ -78,10 +79,17 @@ function highestRole(roles: DbRole[]): DbRole | null {
 async function fetchAssignments(userIds: string[], rolesCatalog: DbRole[]): Promise<Record<string, DbRole[]>> {
   if (userIds.length === 0) return {};
   const sb = createAdminClient();
-  const { data } = await sb
+  const { data, error } = await sb
     .from("user_roles")
     .select("user_id, roles(id, name, label, rank, is_superadmin)")
     .in("user_id", userIds);
+
+  if (error) {
+    return userIds.reduce<Record<string, DbRole[]>>((acc, id) => {
+      acc[id] = ensureDefaultRoles(rolesCatalog, undefined);
+      return acc;
+    }, {});
+  }
 
   const map: Record<string, DbRole[]> = {};
   for (const row of data ?? []) {
@@ -134,8 +142,13 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
     const assignments = await fetchAssignments([userId], rolesCatalog);
     const primaryId = u.primaryEmailAddressId ?? undefined;
     const sb = createAdminClient();
-    const { data: assignmentRows } = await sb.from("user_roles").select("role_id").eq("user_id", userId).limit(1);
-    const hasDatabaseRole = (assignmentRows ?? []).length > 0;
+    const { data: assignmentRows, error: assignmentError } = await sb
+      .from("user_roles")
+      .select("role_id")
+      .eq("user_id", userId)
+      .limit(1);
+    const roleMappingAvailable = assignmentError?.code !== "42P01";
+    const hasDatabaseRole = roleMappingAvailable && (assignmentRows ?? []).length > 0;
 
     const emails: EmailInfo[] = (u.emailAddresses ?? []).map((e) => ({
       id: e.id,
@@ -153,6 +166,7 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
       roles: assignments[u.id] ?? ensureDefaultRoles(rolesCatalog, undefined),
       allowAdminManagement: Boolean((u.publicMetadata as any)?.allowAdminManagement),
       hasDatabaseRole,
+      roleMappingAvailable,
     };
   } catch {
     return null;
@@ -327,6 +341,69 @@ async function saveUserAction(formData: FormData): Promise<void> {
   revalidatePath("/admin/users");
 }
 
+async function createUserAction(formData: FormData): Promise<void> {
+  "use server";
+  const email = (formData.get("email") as string)?.trim().toLowerCase() ?? "";
+  const firstName = (formData.get("firstName") as string)?.trim() || "";
+  const lastName = (formData.get("lastName") as string)?.trim() || "";
+  const username = (formData.get("username") as string)?.trim() || "";
+  const password = (formData.get("password") as string)?.trim() || "";
+
+  if (!email) return;
+
+  const rolesCatalog = await fetchRoles();
+  const userRole = rolesCatalog.find((role) => role.name === "user");
+  const { userId: actorId } = auth();
+  const actorAssignments = actorId ? await fetchAssignments([actorId], rolesCatalog) : {};
+  const actorRoles = actorAssignments[actorId ?? ""] ?? [];
+  const actorIsPrimarySuper = actorId === env().PRIMARY_SUPERADMIN_ID;
+  const actorIsAdmin = actorIsPrimarySuper || actorRoles.some((r) => r.name === "admin" || r.isSuperAdmin);
+
+  if (!actorIsAdmin) {
+    await logAudit({
+      action: "access_denied",
+      actorUserId: actorId,
+      actorEmail: null,
+      target: "user_create",
+      detail: { reason: "create_requires_admin" },
+    });
+    throw new Error("Forbidden: only admins may create users");
+  }
+
+  const client = await clerkClient();
+  const created = await client.users.createUser({
+    emailAddress: [email],
+    firstName: firstName || undefined,
+    lastName: lastName || undefined,
+    username: username || undefined,
+    password: password || undefined,
+    skipPasswordRequirement: password ? undefined : true,
+    publicMetadata: {
+      role: userRole?.name ?? "user",
+      roles: [userRole?.name ?? "user"],
+    },
+  });
+
+  if (userRole) {
+    const sb = createAdminClient();
+    try {
+      await sb.from("user_roles").insert({ user_id: created.id, role_id: userRole.id }).throwOnError();
+    } catch (error) {
+      console.error("createUserAction user_roles insert error:", error);
+    }
+  }
+
+  await logAudit({
+    action: "role_change",
+    actorUserId: (await auth()).userId ?? null,
+    actorEmail: null,
+    target: created.id,
+    detail: { email, event: "user_created" },
+  });
+
+  revalidatePath("/admin/users");
+}
+
 async function ensureSupabaseUserAction(formData: FormData): Promise<void> {
   "use server";
   const userId = (formData.get("userId") as string) ?? "";
@@ -339,10 +416,14 @@ async function ensureSupabaseUserAction(formData: FormData): Promise<void> {
   await assertRoleAssignmentAllowed(userId, [userRole.id], rolesCatalog);
 
   const sb = createAdminClient();
-  await sb
-    .from("user_roles")
-    .upsert({ user_id: userId, role_id: userRole.id }, { onConflict: "user_id, role_id" })
-    .throwOnError();
+  try {
+    await sb
+      .from("user_roles")
+      .upsert({ user_id: userId, role_id: userRole.id }, { onConflict: "user_id, role_id" })
+      .throwOnError();
+  } catch (error) {
+    console.error("ensureSupabaseUserAction error:", error);
+  }
 
   revalidatePath("/admin/users");
 }
@@ -516,6 +597,81 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
           </div>
         </form>
 
+        <form action={createUserAction} className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 grid gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-100">Neuen Benutzer anlegen</h3>
+              <p className="text-xs text-zinc-400">
+                Erstellt einen Clerk-Benutzer und weist automatisch die Standardrolle „User“ zu.
+              </p>
+            </div>
+            <span className="text-[11px] text-zinc-500">Nur Admins</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-xs text-zinc-400">E-Mail</label>
+              <input
+                name="email"
+                type="email"
+                required
+                placeholder="name@example.com"
+                disabled={!actorIsAdmin}
+                className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">Benutzername</label>
+              <input
+                name="username"
+                placeholder="optional"
+                disabled={!actorIsAdmin}
+                className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-xs text-zinc-400">Vorname</label>
+              <input
+                name="firstName"
+                placeholder="optional"
+                disabled={!actorIsAdmin}
+                className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">Nachname</label>
+              <input
+                name="lastName"
+                placeholder="optional"
+                disabled={!actorIsAdmin}
+                className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-zinc-400">Temporäres Passwort (optional)</label>
+            <input
+              name="password"
+              type="password"
+              placeholder="optional"
+              disabled={!actorIsAdmin}
+              className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+            />
+          </div>
+          {!actorIsAdmin && (
+            <div className="text-[11px] text-amber-400">Nur Admins dürfen neue Benutzer anlegen.</div>
+          )}
+          <div className="flex justify-end">
+            <button
+              className="rounded-lg border border-emerald-600 text-emerald-200 text-xs font-medium px-3 py-2 hover:bg-emerald-900/30 disabled:opacity-60"
+              disabled={!actorIsAdmin}
+            >
+              Benutzer anlegen
+            </button>
+          </div>
+        </form>
+
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
           <table className="w-full text-left text-sm">
             <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
@@ -672,12 +828,14 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                     <div>
                       <div className="text-sm font-semibold text-zinc-100">Supabase-Verknüpfung</div>
                       <p className="text-xs text-zinc-400">
-                        {editUser.hasDatabaseRole
-                          ? "Eintrag in user_roles vorhanden."
-                          : "Noch kein Eintrag in user_roles – bitte einmal anlegen, damit Clerk-IDs sauber verknüpft sind."}
+                        {!editUser.roleMappingAvailable
+                          ? "Die Tabelle user_roles fehlt in Supabase. Bitte das Schema aus db/schema.sql ausführen."
+                          : editUser.hasDatabaseRole
+                            ? "Eintrag in user_roles vorhanden."
+                            : "Noch kein Eintrag in user_roles – bitte einmal anlegen, damit Clerk-IDs sauber verknüpft sind."}
                       </p>
                     </div>
-                    {editUser.hasDatabaseRole ? (
+                    {editUser.roleMappingAvailable && editUser.hasDatabaseRole ? (
                       <span className="inline-flex items-center rounded-full border border-green-700 px-3 py-1 text-[11px] text-green-300">
                         Synchronisiert
                       </span>
@@ -686,7 +844,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                         <input type="hidden" name="userId" value={editUser.id} />
                         <button
                           className="rounded-lg border border-blue-700 text-blue-200 text-xs font-medium px-3 py-2 hover:bg-blue-900/40"
-                          disabled={!actorIsAdmin}
+                          disabled={!actorIsAdmin || !editUser.roleMappingAvailable}
                         >
                           Supabase-Eintrag anlegen
                         </button>
