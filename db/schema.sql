@@ -54,6 +54,29 @@ create table if not exists user_roles (
   primary key (user_id, role_id)
 );
 
+-- Fein-granulare Berechtigungen pro Tool/Route (bool-basiert)
+create table if not exists access_rules (
+  route text not null,
+  role text not null,
+  allowed boolean not null default false,
+  updated_at timestamptz not null default now(),
+  primary key (route, role)
+);
+
+-- Fallback: Ergänze fehlende Spalten, falls access_rules bereits ohne allowed existiert
+do $$
+begin
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'access_rules'
+      and column_name = 'allowed'
+  ) then
+    alter table access_rules add column allowed boolean not null default false;
+  end if;
+end $$;
+
 -- Fein-granulare Berechtigungen pro Tool/Route
 create table if not exists role_permissions (
   role_id bigint not null references roles(id) on delete cascade,
@@ -123,6 +146,13 @@ from seed
 join roles r on r.name = seed.role_name
 on conflict (role_id, route) do update
 set level = excluded.level,
+    updated_at = now();
+
+insert into access_rules (route, role, allowed)
+select seed.route, seed.role_name, (seed.level > 0) as allowed
+from seed
+on conflict (route, role) do update
+set allowed = excluded.allowed,
     updated_at = now();
 
 create or replace function public.get_public_tables()
