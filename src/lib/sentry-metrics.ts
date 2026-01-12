@@ -1,3 +1,4 @@
+// src/lib/sentry-metrics.ts
 import { env } from "@/lib/env";
 
 type SentryStats = {
@@ -61,13 +62,9 @@ export async function fetchSentryStats(): Promise<SentryStats> {
     if (!receivedRes.ok) {
       throw new Error(`received:${receivedRes.status}`);
     }
-    if (!rejectedRes.ok) {
-      throw new Error(`rejected:${rejectedRes.status}`);
-    }
-
     const [received, rejected, issues, releases] = await Promise.all([
       receivedRes.json() as Promise<SentryStatsResponse>,
-      rejectedRes.json() as Promise<SentryStatsResponse>,
+      rejectedRes.ok ? (rejectedRes.json() as Promise<SentryStatsResponse>) : Promise.resolve([]),
       issuesRes.ok ? ((issuesRes.json() as Promise<SentryIssue[]>) ?? Promise.resolve([])) : Promise.resolve([]),
       releasesRes.ok ? ((releasesRes.json() as Promise<SentryRelease[]>) ?? Promise.resolve([])) : Promise.resolve([]),
     ]);

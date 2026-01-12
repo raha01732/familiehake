@@ -26,7 +26,7 @@ type HealthPayload = {
   status: "ok" | "warn" | "degraded";
   checks: {
     uptime_s: number;
-    env: Record<string, boolean>;
+    env: Record<string, Record<string, boolean>>;
     db: {
       ok: boolean;
       info?: string;
@@ -119,7 +119,7 @@ export default async function MonitoringPage() {
 
   const status: "ok" | "warn" | "degraded" | "unreachable" =
     (health?.status as any) ?? "unreachable";
-  const env = (health?.checks?.env ?? {}) as Record<string, boolean>;
+  const env = (health?.checks?.env ?? {}) as Record<string, Record<string, boolean>>;
   const db =
     (health?.checks?.db as {
       ok: boolean;
@@ -128,13 +128,38 @@ export default async function MonitoringPage() {
     }) ?? { ok: false };
   const srv = serverInfo();
 
-  const envRows: Array<[string, boolean]> = [
-    ["Clerk Publishable Key", !!env.clerk_publishable],
-    ["Clerk Secret Key", !!env.clerk_secret],
-    ["Supabase URL", !!env.supabase_url],
-    ["Supabase Anon Key", !!env.supabase_anon],
-    ["Supabase Service Key", !!env.supabase_service],
-    ["Sentry DSN", !!env.sentry_dsn],
+  const envGroups = [
+    {
+      name: "Clerk",
+      checks: [
+        { label: "Publishable Key", ok: !!env?.clerk?.publishable_key },
+        { label: "Secret Key", ok: !!env?.clerk?.secret_key },
+      ],
+    },
+    {
+      name: "Supabase",
+      checks: [
+        { label: "URL", ok: !!env?.supabase?.url },
+        { label: "Anon Key", ok: !!env?.supabase?.anon_key },
+        { label: "Service Role Key", ok: !!env?.supabase?.service_role_key },
+      ],
+    },
+    {
+      name: "Sentry",
+      checks: [
+        { label: "DSN", ok: !!env?.sentry?.dsn },
+        { label: "API Token", ok: !!env?.sentry?.api_token },
+        { label: "Org Slug", ok: !!env?.sentry?.org_slug },
+        { label: "Project Slug", ok: !!env?.sentry?.project_slug },
+      ],
+    },
+    {
+      name: "Upstash",
+      checks: [
+        { label: "Redis REST URL", ok: !!env?.upstash?.redis_rest_url },
+        { label: "Redis REST Token", ok: !!env?.upstash?.redis_rest_token },
+      ],
+    },
   ];
 
   return (
@@ -159,9 +184,9 @@ export default async function MonitoringPage() {
 
                 <div className="mt-3 grid gap-2">
                   <div className="text-xs text-zinc-400 uppercase tracking-wide">Environment</div>
-                  <div className="grid gap-1">
-                    {envRows.map(([label, ok]) => (
-                      <EnvRow key={label} label={label} ok={ok} />
+                  <div className="grid gap-2">
+                    {envGroups.map((group) => (
+                      <EnvGroup key={group.name} name={group.name} checks={group.checks} />
                     ))}
                   </div>
                 </div>
@@ -349,5 +374,35 @@ function EnvRow({ label, ok }: { label: string; ok: boolean }) {
         <span className={`rounded-lg border px-2 py-0.5 text-[11px] ${cls}`}>{ok ? "OK" : "Fehlt"}</span>
       </div>
     </div>
+  );
+}
+
+function EnvGroup({
+  name,
+  checks,
+}: {
+  name: string;
+  checks: Array<{ label: string; ok: boolean }>;
+}) {
+  const allOk = checks.every((check) => check.ok);
+  const cls = allOk
+    ? "border-green-700 text-green-300 bg-green-900/20"
+    : "border-amber-600 text-amber-300 bg-amber-900/20";
+
+  return (
+    <details className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
+      <summary className="flex cursor-pointer items-center justify-between list-none">
+        <div className="text-sm text-zinc-200">{name}</div>
+        <div className="flex items-center gap-2">
+          <span className={`rounded-lg border px-2 py-0.5 text-[11px] ${cls}`}>{allOk ? "OK" : "Fehlt"}</span>
+          <span className="text-[11px] text-zinc-500">v</span>
+        </div>
+      </summary>
+      <div className="mt-2 grid gap-1">
+        {checks.map((check) => (
+          <EnvRow key={`${name}-${check.label}`} label={check.label} ok={check.ok} />
+        ))}
+      </div>
+    </details>
   );
 }
