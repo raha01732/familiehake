@@ -76,6 +76,18 @@ export const ROUTE_DESCRIPTORS: RouteDescriptor[] = [
     defaultLevel: PERMISSION_LEVELS.WRITE,
   },
   {
+    route: "tools/calender",
+    label: "Kalender",
+    description: "Kalender & Termine",
+    defaultLevel: PERMISSION_LEVELS.WRITE,
+  },
+  {
+    route: "tools/messages",
+    label: "Nachrichten",
+    description: "Interner Chat",
+    defaultLevel: PERMISSION_LEVELS.WRITE,
+  },
+  {
     route: "tools/storage",
     label: "Storage-Insights",
     description: "Speichernutzung & Buckets.",

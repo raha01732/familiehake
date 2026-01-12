@@ -1,6 +1,6 @@
 // src/app/api/health/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -45,22 +45,15 @@ export async function GET() {
 
   let status: "ok" | "warn" | "degraded" = "ok";
   try {
-    const sb = createClient();
-    const tableNames = [
-      "access_rules",
-      "roles",
-      "user_roles",
-      "audit_events",
-      "files_meta",
-      "file_shares",
-      "folders",
-      "journal_entries",
-      "calendar_events",
-      "messages",
-      "user_keys",
-      "movies",
-      "shows",
-    ];
+    const sb = createAdminClient();
+    const { data: tablesData, error: tablesError } = await sb.rpc("get_public_tables");
+    const tableNames = Array.isArray(tablesData)
+      ? tablesData.map((row: { table_name: string }) => row.table_name).filter(Boolean)
+      : [];
+
+    if (tablesError) {
+      throw new Error(tablesError.message);
+    }
 
     const results = await Promise.all(
       tableNames.map(async (table) => {
@@ -77,7 +70,7 @@ export async function GET() {
     checks.db.tables.reachable = tableNames.length - errors.length;
     checks.db.tables.errors = errors;
 
-    checks.db.ok = errors.length === 0;
+    checks.db.ok = errors.length === 0 && tableNames.length > 0;
     checks.db.info = `Tabellen erreichbar: ${checks.db.tables.reachable}/${checks.db.tables.total}`;
   } catch (e: any) {
     checks.db.ok = false;

@@ -34,6 +34,8 @@ const FALLBACK_MATRIX: RoutePermissionMatrix = {
   "tools/files": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
   "tools/journal": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
   "tools/dispoplaner": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
+  "tools/calender": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
+  "tools/messages": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
   "tools/storage": { admin: PERMISSION_LEVELS.WRITE },
   "tools/system": { admin: PERMISSION_LEVELS.WRITE },
   activity: { admin: PERMISSION_LEVELS.READ },
