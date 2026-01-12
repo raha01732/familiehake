@@ -1,11 +1,11 @@
 // src/app/admin/settings/page.tsx
 import RoleGate from "@/components/RoleGate";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { revalidatePath } from "next/cache";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
-import { redirect } from "next/navigation";
-import { isRedirectError } from "next/dist/client/components/redirect";
+import { discoverAppRoutes } from "@/lib/route-discovery";
+import { normalizeRouteKey } from "@/lib/route-access";
+import { revalidatePath } from "next/cache";
 import { currentUser } from "@clerk/nextjs/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 
 export const metadata = { title: "Rollen & Berechtigungen" };
@@ -32,21 +32,8 @@ async function getAdminStatus() {
   return { isAdmin, role, user };
 }
 
-function formatErrorDetail(error: unknown) {
-  if (error instanceof Error) {
-    const detailParts = [error.name, error.message, error.stack].filter(Boolean);
-    return detailParts.join("\n");
-  }
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return String(error);
-  }
-}
-
-function getFirstParam(value: string | string[] | undefined) {
-  if (Array.isArray(value)) return value[0];
-  return value;
+function normalizeRoleKey(role: string) {
+  return role.trim().toLowerCase();
 }
 
 async function getData() {
@@ -59,17 +46,32 @@ async function getData() {
 
   const roleList: DbRole[] = (roles ?? []) as DbRole[];
   const ruleList: DbRule[] = (rules ?? []) as DbRule[];
+  const discoveredRoutes = await discoverAppRoutes();
 
   // Matrix: route -> role -> allowed
   const matrix = new Map<string, Map<string, boolean>>();
   for (const r of ruleList) {
-    if (!matrix.has(r.route)) matrix.set(r.route, new Map());
-    matrix.get(r.route)!.set(r.role, !!r.allowed);
+    const normalizedRoute = normalizeRouteKey(String(r.route ?? ""));
+    const normalizedRole = normalizeRoleKey(String(r.role ?? ""));
+    if (!normalizedRoute) continue;
+    if (!normalizedRole) continue;
+    if (!matrix.has(normalizedRoute)) matrix.set(normalizedRoute, new Map());
+    matrix.get(normalizedRoute)!.set(normalizedRole, !!r.allowed);
   }
 
   for (const descriptor of ROUTE_DESCRIPTORS) {
-    if (!matrix.has(descriptor.route)) {
-      matrix.set(descriptor.route, new Map());
+    const normalizedRoute = normalizeRouteKey(descriptor.route);
+    if (!normalizedRoute) continue;
+    if (!matrix.has(normalizedRoute)) {
+      matrix.set(normalizedRoute, new Map());
+    }
+  }
+
+  for (const route of discoveredRoutes) {
+    const normalizedRoute = normalizeRouteKey(route);
+    if (!normalizedRoute) continue;
+    if (!matrix.has(normalizedRoute)) {
+      matrix.set(normalizedRoute, new Map());
     }
   }
 
@@ -92,20 +94,29 @@ async function upsertAccessAction(formData: FormData): Promise<void> {
       sb.from("access_rules").select("route"),
     ]);
 
-    const roleNames = (roles ?? []).map((r: any) => String(r.name));
+    const roleNames = (roles ?? []).map((r: any) => normalizeRoleKey(String(r.name)));
     const routeSet = new Set<string>();
     for (const row of routes ?? []) {
-      if (row?.route) routeSet.add(String(row.route));
+      if (row?.route) {
+        const normalizedRoute = normalizeRouteKey(String(row.route));
+        if (normalizedRoute) routeSet.add(normalizedRoute);
+      }
     }
     for (const descriptor of ROUTE_DESCRIPTORS) {
-      routeSet.add(descriptor.route);
+      const normalizedRoute = normalizeRouteKey(descriptor.route);
+      if (normalizedRoute) routeSet.add(normalizedRoute);
+    }
+    const discoveredRoutes = await discoverAppRoutes();
+    for (const route of discoveredRoutes) {
+      const normalizedRoute = normalizeRouteKey(route);
+      if (normalizedRoute) routeSet.add(normalizedRoute);
     }
     const routeList = Array.from(routeSet).sort((a, b) => a.localeCompare(b));
 
     const payload = routeList.flatMap((route) =>
       roleNames.map((role) => ({
         route,
-        role,
+        role: normalizeRoleKey(role),
         allowed: formData.has(buildFieldName(route, role)),
       }))
     );
@@ -115,18 +126,9 @@ async function upsertAccessAction(formData: FormData): Promise<void> {
     }
 
     revalidatePath("/admin/settings");
-    redirect("/admin/settings?saved=1");
   } catch (error) {
-    if (isRedirectError(error)) {
-      throw error;
-    }
     console.error("access_rules_save_failed", error);
-    const { isAdmin } = await getAdminStatus();
-    if (isAdmin) {
-      const detail = encodeURIComponent(formatErrorDetail(error));
-      redirect(`/admin/settings?error=1&errorDetail=${detail}`);
-    }
-    redirect("/admin/settings?error=1");
+    revalidatePath("/admin/settings");
   }
 }
 
@@ -134,13 +136,14 @@ async function addRouteAction(formData: FormData): Promise<void> {
   "use server";
   const routeRaw = String(formData.get("route") ?? "").trim();
   if (!routeRaw) return;
-  const route = routeRaw.replace(/^\/+/, ""); // ohne führenden Slash
+  const route = normalizeRouteKey(routeRaw);
+  if (!route) return;
 
   const sb = createAdminClient();
 
   // Für alle bekannten Rollen einen Default-Eintrag (NONE)
   const { data: roles } = await sb.from("roles").select("name");
-  const roleNames = (roles ?? []).map((r: any) => r.name as string);
+  const roleNames = (roles ?? []).map((r: any) => normalizeRoleKey(r.name as string));
   if (roleNames.length === 0) return;
 
   const payload = roleNames.map((name) => ({
@@ -152,18 +155,9 @@ async function addRouteAction(formData: FormData): Promise<void> {
   try {
     await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
     revalidatePath("/admin/settings");
-    redirect("/admin/settings?route-added=1");
   } catch (error) {
-    if (isRedirectError(error)) {
-      throw error;
-    }
     console.error("access_rules_add_route_failed", error);
-    const { isAdmin } = await getAdminStatus();
-    if (isAdmin) {
-      const detail = encodeURIComponent(formatErrorDetail(error));
-      redirect(`/admin/settings?error=1&errorDetail=${detail}`);
-    }
-    redirect("/admin/settings?error=1");
+    revalidatePath("/admin/settings");
   }
 }
 
@@ -176,13 +170,13 @@ export default async function AdminSettingsPage({
 }) {
   const { roles, routes, matrix } = await getData();
   const { isAdmin } = await getAdminStatus();
-  const hasFlag = (value: string | string[] | undefined) =>
-    value === "1" || (Array.isArray(value) && value.includes("1"));
-  const saved = hasFlag(searchParams?.saved);
-  const error = hasFlag(searchParams?.error);
-  const routeAdded = hasFlag(searchParams?.["route-added"]);
-  const errorDetailParam = getFirstParam(searchParams?.errorDetail);
-  const errorDetail = isAdmin && errorDetailParam ? decodeURIComponent(errorDetailParam) : null;
+  const error =
+    searchParams?.error === "1" ||
+    (Array.isArray(searchParams?.error) && searchParams?.error.includes("1"));
+  const errorDetail =
+    isAdmin && typeof searchParams?.errorDetail === "string"
+      ? decodeURIComponent(searchParams?.errorDetail)
+      : null;
 
   return (
     <RoleGate routeKey="admin/settings">
@@ -194,7 +188,7 @@ export default async function AdminSettingsPage({
           </p>
         </header>
 
-        {(saved || error || routeAdded) && (
+        {error && (
           <div
             className={`rounded-xl border p-4 text-sm ${
               error
@@ -203,8 +197,6 @@ export default async function AdminSettingsPage({
             }`}
           >
             {error && "Es ist ein Fehler aufgetreten."}
-            {saved && "Berechtigungen wurden gespeichert."}
-            {routeAdded && "Neue Route wurde angelegt."}
             {error && errorDetail && (
               <pre className="mt-3 whitespace-pre-wrap rounded-lg border border-amber-800 bg-amber-900/20 p-3 text-[11px] leading-5 text-amber-100/80">
                 {errorDetail}
@@ -261,8 +253,9 @@ export default async function AdminSettingsPage({
                         <tr key={route} className="hover:bg-zinc-900/40">
                           <td className="px-4 py-2 text-zinc-200 font-medium">/{route}</td>
                           {roles.map((role) => {
-                            const isAllowed = row.get(role.name) ?? false;
-                            const fieldName = buildFieldName(route, role.name);
+                            const roleKey = normalizeRoleKey(role.name);
+                            const isAllowed = row.get(roleKey) ?? false;
+                            const fieldName = buildFieldName(route, roleKey);
                             return (
                               <td key={role.name} className="px-4 py-2">
                                 <label className="inline-flex items-center gap-2 text-zinc-200">
