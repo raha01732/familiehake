@@ -16,10 +16,12 @@ export const dynamic = "force-dynamic";
 const clerkAppearance = {
   variables: {
     colorPrimary: "#0ea5e9",
-    colorBackground: "#0b1120",
-    colorText: "#0f172a",
-    colorInputBackground: "#0b1120",
-    colorInputText: "#e2e8f0",
+    colorBackground: "#0f172a",
+    colorText: "#e2e8f0",
+    colorTextSecondary: "#94a3b8",
+    colorInputBackground: "#0b1220",
+    colorInputText: "#f8fafc",
+    colorNeutral: "#cbd5f5",
   },
   layout: {
     logoPlacement: "inside",
@@ -27,7 +29,7 @@ const clerkAppearance = {
     socialButtonsPlacement: "bottom",
   },
   elements: {
-    card: "shadow-2xl border border-white/10 bg-slate-900/80 backdrop-blur-xl",
+    card: "shadow-2xl border border-white/10 bg-slate-900/90 backdrop-blur-xl text-slate-100",
     formButtonPrimary:
       "bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950",
     headerTitle: "text-slate-50",
@@ -35,10 +37,13 @@ const clerkAppearance = {
     footerActionText: "text-slate-200",
     footerActionLink: "text-cyan-200 hover:text-cyan-100",
     userButtonPopover: "z-[520] shadow-2xl",
-    userButtonPopoverCard: "border border-white/10 bg-slate-900/90",
+    userButtonPopoverCard: "border border-white/10 bg-slate-900/95 text-slate-100",
     modalBackdrop: "z-[510] bg-slate-950/70 backdrop-blur-md",
-    formFieldInput: "bg-slate-950/30 border-white/10 text-slate-100 placeholder:text-slate-400",
+    modalContent: "bg-slate-900 text-slate-100 border border-white/10 shadow-2xl",
+    formFieldInput: "bg-slate-950/40 border-white/10 text-slate-100 placeholder:text-slate-400",
     socialButtonsBlockButtonText: "text-slate-900",
+    profileSectionTitleText: "text-slate-100",
+    navbar: "bg-slate-950/60 text-slate-200",
   },
 } as const;
 
