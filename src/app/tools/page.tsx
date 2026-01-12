@@ -1,55 +1,11 @@
 // src/app/tools/page.tsx
 import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
+import { TOOL_LINKS } from "@/lib/navigation";
+import { getAllowedRoutesForRole, normalizeRouteKey } from "@/lib/route-access";
 
 export const metadata = { title: "Werkzeuge" };
-
-const LEVEL_NONE = 0;
-const LEVEL_READ = 1;
-
-const ALL_TOOLS = [
-  {
-    routeKey: "tools/files",
-    href: "/tools/files",
-    title: "Dateien",
-    description: "Ablage, Ordner, Freigaben & Papierkorb",
-  },
-  {
-    routeKey: "tools/journal",
-    href: "/tools/journal",
-    title: "Journal",
-    description: "Privates Tagebuch mit Markdown & Suche",
-  },
-  {
-    routeKey: "tools/dispoplaner",
-    href: "/tools/dispoplaner",
-    title: "Dispoplaner",
-    description: "Kinovorstellungen Wochenplan",
-  },
-];
-
-function normalizeKey(key: string) {
-  return key.replace(/^\/+/, "").replace(/\/{2,}/g, "/").trim();
-}
-
-async function getAllowedRoutesForRole(role: string) {
-  const sb = createAdminClient();
-  const { data: perms } = await sb
-    .from("access_rules")
-    .select("route, level")
-    .eq("role", role);
-
-  const map = new Map<string, number>();
-  for (const r of perms ?? []) {
-    const key = normalizeKey(String(r.route));
-    const level = Number(r.level ?? 0);
-    if (!key) continue;
-    map.set(key, Math.max(map.get(key) ?? LEVEL_NONE, level));
-  }
-  return map;
-}
 
 export default async function ToolsPage() {
   const user = await currentUser();
@@ -70,10 +26,10 @@ export default async function ToolsPage() {
   const isSuper = user.id === env().PRIMARY_SUPERADMIN_ID;
 
   const visible = isSuper
-    ? ALL_TOOLS
+    ? TOOL_LINKS
     : (await (async () => {
         const allowed = await getAllowedRoutesForRole(role);
-        return ALL_TOOLS.filter((t) => (allowed.get(normalizeKey(t.routeKey)) ?? LEVEL_NONE) >= LEVEL_READ);
+        return TOOL_LINKS.filter((t) => allowed.get(normalizeRouteKey(t.routeKey)) ?? false);
       })());
 
   return (
@@ -87,7 +43,11 @@ export default async function ToolsPage() {
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
           <div className="text-zinc-300 text-sm">Für deine Rolle sind derzeit keine Werkzeuge freigeschaltet.</div>
           <div className="text-[11px] text-zinc-500 mt-2">
-            Konfiguriere die Zugriffe in <span className="font-mono">/admin/settings</span> (Keys: <span className="font-mono">tools/files</span>, <span className="font-mono">tools/journal</span>, <span className="font-mono">tools/dispoplaner</span>).
+            Konfiguriere die Zugriffe in <span className="font-mono">/admin/settings</span> (Keys:{" "}
+            <span className="font-mono">
+              {TOOL_LINKS.map((link) => link.routeKey).join(", ")}
+            </span>
+            ).
           </div>
         </div>
       ) : (
@@ -98,7 +58,7 @@ export default async function ToolsPage() {
               href={t.href}
               className="group rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5 hover:bg-zinc-900/60 hover:border-zinc-700 transition-colors"
             >
-              <div className="text-zinc-100 font-medium text-base group-hover:underline">{t.title}</div>
+              <div className="text-zinc-100 font-medium text-base group-hover:underline">{t.label}</div>
               <div className="text-zinc-400 text-sm mt-1">{t.description}</div>
             </Link>
           ))}
