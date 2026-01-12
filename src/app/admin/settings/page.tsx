@@ -3,10 +3,12 @@ import RoleGate from "@/components/RoleGate";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
 import { discoverAppRoutes } from "@/lib/route-discovery";
 import { normalizeRouteKey } from "@/lib/route-access";
-import { revalidatePath } from "next/cache";
-import { currentUser } from "@clerk/nextjs/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { currentUser } from "@clerk/nextjs/server";
+import { isRedirectError } from "next/dist/client/components/redirect";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 export const metadata = { title: "Rollen & Berechtigungen" };
 
@@ -52,11 +54,9 @@ async function getData() {
   const matrix = new Map<string, Map<string, boolean>>();
   for (const r of ruleList) {
     const normalizedRoute = normalizeRouteKey(String(r.route ?? ""));
-    const normalizedRole = normalizeRoleKey(String(r.role ?? ""));
     if (!normalizedRoute) continue;
-    if (!normalizedRole) continue;
     if (!matrix.has(normalizedRoute)) matrix.set(normalizedRoute, new Map());
-    matrix.get(normalizedRoute)!.set(normalizedRole, !!r.allowed);
+    matrix.get(normalizedRoute)!.set(r.role, !!r.allowed);
   }
 
   for (const descriptor of ROUTE_DESCRIPTORS) {
