@@ -5,7 +5,15 @@ import { createClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const checks: Record<string, any> = {
+  const checks: {
+    uptime_s: number;
+    env: Record<string, Record<string, boolean>>;
+    db: {
+      ok: boolean;
+      info: string | null;
+      tables: { total: number; reachable: number; errors: string[] };
+    };
+  } = {
     uptime_s: Math.floor(process.uptime()),
     env: {
       clerk: {
@@ -30,7 +38,7 @@ export async function GET() {
     },
     db: {
       ok: false,
-      info: null as null | string,
+      info: null,
       tables: { total: 0, reachable: 0, errors: [] as string[] },
     },
   };
