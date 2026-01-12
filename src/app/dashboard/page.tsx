@@ -2,7 +2,9 @@
 import RoleGate from "@/components/RoleGate";
 import { currentUser } from "@clerk/nextjs/server";
 import { logAudit } from "@/lib/audit";
+import { getSessionInfo } from "@/lib/auth";
 import { env } from "@/lib/env";
+import { ADMIN_LINKS, TOOL_LINKS } from "@/lib/navigation";
 import { headers } from "next/headers";
 import Link from "next/link";
 
@@ -10,6 +12,16 @@ export const metadata = { title: "Dashboard | Private Tools" };
 
 type HealthSummary = {
   status: "ok" | "warn" | "degraded";
+};
+
+type WelcomeTile = {
+  title: string;
+  body: string;
+};
+
+const DEFAULT_WELCOME_TILE: WelcomeTile = {
+  title: "Willkommen zurück!",
+  body: "Schön, dass du da bist. Hier findest du deine freigeschalteten Tools und den Systemstatus.",
 };
 
 async function getHealthSummary(): Promise<HealthSummary | null> {
@@ -27,15 +39,34 @@ async function getHealthSummary(): Promise<HealthSummary | null> {
   }
 }
 
+async function getWelcomeTile(): Promise<WelcomeTile> {
+  return DEFAULT_WELCOME_TILE;
+}
+
+async function updateWelcomeTile(formData: FormData) {
+  "use server";
+  const title = String(formData.get("title") ?? "").trim();
+  const body = String(formData.get("body") ?? "").trim();
+  if (!title && !body) return;
+}
+
 export default async function DashboardPage() {
   // Login-Success (einfachheitshalber bei jedem Dashboard-Aufruf – später optional mit Cookie drosseln)
   const user = await currentUser();
+  const session = await getSessionInfo();
   const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
   const isAdmin =
     !!user && (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
   const health = isAdmin ? await getHealthSummary() : null;
   const healthStatus = (health?.status as "ok" | "warn" | "degraded" | "unreachable") ?? "unreachable";
   const healthLabel = healthStatus === "ok" ? "Keine Fehler" : "Fehler erkannt";
+  const welcomeTile = await getWelcomeTile();
+  const toolLinks = session.signedIn
+    ? TOOL_LINKS.filter((link) => session.isSuperAdmin || session.permissions[link.routeKey])
+    : [];
+  const adminLinks = session.signedIn
+    ? ADMIN_LINKS.filter((link) => session.isSuperAdmin || session.permissions[link.routeKey])
+    : [];
   if (user) {
     await logAudit({
       action: "login_success",

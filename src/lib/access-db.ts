@@ -18,21 +18,21 @@ const FALLBACK_ROLES: DbRole[] = [
 ];
 
 const FALLBACK_MATRIX: RoutePermissionMatrix = {
-  dashboard: { user: PERMISSION_LEVELS.READ, admin: PERMISSION_LEVELS.READ },
-  admin: { admin: PERMISSION_LEVELS.READ },
-  "admin/users": { admin: PERMISSION_LEVELS.READ },
-  "admin/settings": { admin: PERMISSION_LEVELS.ADMIN },
-  settings: { admin: PERMISSION_LEVELS.READ },
-  monitoring: { admin: PERMISSION_LEVELS.READ },
-  tools: { user: PERMISSION_LEVELS.READ, admin: PERMISSION_LEVELS.WRITE },
-  "tools/files": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
-  "tools/journal": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
-  "tools/dispoplaner": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
-  "tools/calender": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
-  "tools/messages": { user: PERMISSION_LEVELS.WRITE, admin: PERMISSION_LEVELS.ADMIN },
-  "tools/storage": { admin: PERMISSION_LEVELS.WRITE },
-  "tools/system": { admin: PERMISSION_LEVELS.WRITE },
-  activity: { admin: PERMISSION_LEVELS.READ },
+  dashboard: { user: true, admin: true },
+  admin: { admin: true },
+  "admin/users": { admin: true },
+  "admin/settings": { admin: true },
+  settings: { admin: true },
+  monitoring: { admin: true },
+  tools: { user: true, admin: true },
+  "tools/files": { user: true, admin: true },
+  "tools/journal": { user: true, admin: true },
+  "tools/dispoplaner": { user: true, admin: true },
+  "tools/calender": { user: true, admin: true },
+  "tools/messages": { user: true, admin: true },
+  "tools/storage": { admin: true },
+  "tools/system": { admin: true },
+  activity: { admin: true },
 };
 
 export type PermissionOverview = {
