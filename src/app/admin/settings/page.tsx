@@ -1,12 +1,14 @@
 // src/app/admin/settings/page.tsx
 import RoleGate from "@/components/RoleGate";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { revalidatePath } from "next/cache";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
-import { redirect } from "next/navigation";
-import { isRedirectError } from "next/dist/client/components/redirect";
-import { currentUser } from "@clerk/nextjs/server";
+import { discoverAppRoutes } from "@/lib/route-discovery";
+import { normalizeRouteKey } from "@/lib/route-access";
 import { env } from "@/lib/env";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { currentUser } from "@clerk/nextjs/server";
+import { isRedirectError } from "next/dist/client/components/redirect";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 export const metadata = { title: "Rollen & Berechtigungen" };
 
@@ -59,17 +61,30 @@ async function getData() {
 
   const roleList: DbRole[] = (roles ?? []) as DbRole[];
   const ruleList: DbRule[] = (rules ?? []) as DbRule[];
+  const discoveredRoutes = await discoverAppRoutes();
 
   // Matrix: route -> role -> allowed
   const matrix = new Map<string, Map<string, boolean>>();
   for (const r of ruleList) {
-    if (!matrix.has(r.route)) matrix.set(r.route, new Map());
-    matrix.get(r.route)!.set(r.role, !!r.allowed);
+    const normalizedRoute = normalizeRouteKey(String(r.route ?? ""));
+    if (!normalizedRoute) continue;
+    if (!matrix.has(normalizedRoute)) matrix.set(normalizedRoute, new Map());
+    matrix.get(normalizedRoute)!.set(r.role, !!r.allowed);
   }
 
   for (const descriptor of ROUTE_DESCRIPTORS) {
-    if (!matrix.has(descriptor.route)) {
-      matrix.set(descriptor.route, new Map());
+    const normalizedRoute = normalizeRouteKey(descriptor.route);
+    if (!normalizedRoute) continue;
+    if (!matrix.has(normalizedRoute)) {
+      matrix.set(normalizedRoute, new Map());
+    }
+  }
+
+  for (const route of discoveredRoutes) {
+    const normalizedRoute = normalizeRouteKey(route);
+    if (!normalizedRoute) continue;
+    if (!matrix.has(normalizedRoute)) {
+      matrix.set(normalizedRoute, new Map());
     }
   }
 
@@ -95,10 +110,19 @@ async function upsertAccessAction(formData: FormData): Promise<void> {
     const roleNames = (roles ?? []).map((r: any) => String(r.name));
     const routeSet = new Set<string>();
     for (const row of routes ?? []) {
-      if (row?.route) routeSet.add(String(row.route));
+      if (row?.route) {
+        const normalizedRoute = normalizeRouteKey(String(row.route));
+        if (normalizedRoute) routeSet.add(normalizedRoute);
+      }
     }
     for (const descriptor of ROUTE_DESCRIPTORS) {
-      routeSet.add(descriptor.route);
+      const normalizedRoute = normalizeRouteKey(descriptor.route);
+      if (normalizedRoute) routeSet.add(normalizedRoute);
+    }
+    const discoveredRoutes = await discoverAppRoutes();
+    for (const route of discoveredRoutes) {
+      const normalizedRoute = normalizeRouteKey(route);
+      if (normalizedRoute) routeSet.add(normalizedRoute);
     }
     const routeList = Array.from(routeSet).sort((a, b) => a.localeCompare(b));
 
@@ -134,7 +158,8 @@ async function addRouteAction(formData: FormData): Promise<void> {
   "use server";
   const routeRaw = String(formData.get("route") ?? "").trim();
   if (!routeRaw) return;
-  const route = routeRaw.replace(/^\/+/, ""); // ohne führenden Slash
+  const route = normalizeRouteKey(routeRaw);
+  if (!route) return;
 
   const sb = createAdminClient();
 
