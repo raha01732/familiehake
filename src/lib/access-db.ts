@@ -1,11 +1,5 @@
 // src/lib/access-db.ts
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  PERMISSION_LEVELS,
-  type PermissionLevel,
-  describeLevel,
-  normalizeLevel,
-} from "@/lib/rbac";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
 
 export type DbRole = {
@@ -16,7 +10,7 @@ export type DbRole = {
   isSuperAdmin: boolean;
 };
 
-export type RoutePermissionMatrix = Record<string, Record<string, PermissionLevel>>;
+export type RoutePermissionMatrix = Record<string, Record<string, boolean>>;
 
 const FALLBACK_ROLES: DbRole[] = [
   { id: 0, name: "user", label: "User", rank: 0, isSuperAdmin: false },
@@ -58,7 +52,7 @@ export async function getPermissionOverview(): Promise<PermissionOverview> {
         .from("roles")
         .select("id, name, label, rank, is_superadmin")
         .order("rank", { ascending: true }),
-      sb.from("access_rules").select("role, route, level"),
+      sb.from("access_rules").select("role, route, allowed"),
     ]);
 
     const roles: DbRole[] = Array.isArray(rolesData)
@@ -79,14 +73,11 @@ export async function getPermissionOverview(): Promise<PermissionOverview> {
         const roleName = String(row.role ?? "").toLowerCase();
         const role = roleByName.get(roleName);
         if (!role || !row.route) continue;
-        const level = normalizeLevel(row.level ?? 0);
+        const allowed = !!row.allowed;
         if (!matrix[row.route]) {
           matrix[row.route] = {};
         }
-        const existing = matrix[row.route][role.name] ?? PERMISSION_LEVELS.NONE;
-        if (level > existing) {
-          matrix[row.route][role.name] = level;
-        }
+        matrix[row.route][role.name] = allowed;
       }
     }
 
@@ -96,7 +87,7 @@ export async function getPermissionOverview(): Promise<PermissionOverview> {
       }
       for (const role of roles) {
         if (matrix[descriptor.route][role.name] === undefined) {
-          matrix[descriptor.route][role.name] = descriptor.defaultLevel;
+          matrix[descriptor.route][role.name] = descriptor.defaults?.[role.name] ?? false;
         }
       }
     }
@@ -110,8 +101,4 @@ export async function getPermissionOverview(): Promise<PermissionOverview> {
     console.error("getPermissionOverview", error);
     return getFallbackOverview();
   }
-}
-
-export function levelToLabel(level: PermissionLevel): string {
-  return describeLevel(level);
 }

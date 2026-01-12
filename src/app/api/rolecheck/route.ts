@@ -1,3 +1,4 @@
+// src/app/api/rolecheck/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { canAccess } from "@/lib/auth";
 

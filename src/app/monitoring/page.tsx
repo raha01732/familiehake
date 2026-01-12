@@ -1,7 +1,7 @@
 // src/app/monitoring/page.tsx
 import RoleGate from "@/components/RoleGate";
 import { getPermissionOverview } from "@/lib/access-db";
-import { PERMISSION_LABELS, PERMISSION_LEVELS } from "@/lib/rbac";
+import { ACCESS_LABELS } from "@/lib/rbac";
 import { fetchSentryStats } from "@/lib/sentry-metrics";
 import { getStorageUsageSummary, type StorageUsageSummary } from "@/lib/stats";
 import { createClient } from "@/lib/supabase/server";
@@ -300,8 +300,8 @@ async function Permissions() {
             <div className="text-zinc-500 text-xs">
               {roles
                 .map((r) => {
-                  const level = roleLevels[r.name] ?? PERMISSION_LEVELS.NONE;
-                  return `${r.label}: ${PERMISSION_LABELS[level]}`;
+                  const allowed = roleLevels[r.name] ?? false;
+                  return `${r.label}: ${allowed ? ACCESS_LABELS.allowed : ACCESS_LABELS.denied}`;
                 })
                 .join(" • ")}
             </div>
