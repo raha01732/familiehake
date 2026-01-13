@@ -41,13 +41,26 @@ function normalizeRoleKey(role: string) {
 async function getData() {
   const sb = createAdminClient();
 
-  const [{ data: roles }, { data: rules }] = await Promise.all([
-    sb.from("roles").select("name,label,rank").order("rank", { ascending: false }),
-    sb.from("access_rules").select("route,role,allowed").order("route", { ascending: true }),
+  // IMPORTANT: throwOnError() sorgt dafür, dass Supabase Fehler nicht "verschluckt" werden.
+  const [rolesRes, rulesRes] = await Promise.all([
+    sb.from("roles").select("name,label,rank").order("rank", { ascending: false }).throwOnError(),
+    sb.from("access_rules").select("route,role,allowed").order("route", { ascending: true }).throwOnError(),
   ]);
 
-  const roleList: DbRole[] = (roles ?? []) as DbRole[];
-  const ruleList: DbRule[] = (rules ?? []) as DbRule[];
+  // ===================== MINI-DEBUG START =====================
+  // Wenn Checkboxen leer sind: Schau in Vercel Logs nach diesen Zeilen.
+  // Ursache ist oft: RLS blockt, Service-Role-Key fehlt, falsches Projekt/Schema, fehlender Unique-Constraint.
+  console.log("[ADMIN_SETTINGS MINI-DEBUG] roles_count:", rolesRes.data?.length ?? 0);
+  console.log("[ADMIN_SETTINGS MINI-DEBUG] rules_count:", rulesRes.data?.length ?? 0);
+  console.log("[ADMIN_SETTINGS MINI-DEBUG] rules_sample:", (rolesRes.data?.length ?? 0) > 0 ? "roles_ok" : "roles_empty");
+  console.log(
+    "[ADMIN_SETTINGS MINI-DEBUG] first_rules_rows:",
+    (rulesRes.data ?? []).slice(0, 5).map((r) => ({ route: r.route, role: r.role, allowed: r.allowed }))
+  );
+  // ===================== MINI-DEBUG END =====================
+
+  const roleList: DbRole[] = (rolesRes.data ?? []) as unknown as DbRole[];
+  const ruleList: DbRule[] = (rulesRes.data ?? []) as unknown as DbRule[];
   const discoveredRoutes = await discoverAppRoutes();
 
   // Matrix: route -> role -> allowed
@@ -61,20 +74,18 @@ async function getData() {
     matrix.get(normalizedRoute)!.set(normalizedRole, !!r.allowed);
   }
 
+  // Statische Routen-Descriptors sicherstellen
   for (const descriptor of ROUTE_DESCRIPTORS) {
     const normalizedRoute = normalizeRouteKey(descriptor.route);
     if (!normalizedRoute) continue;
-    if (!matrix.has(normalizedRoute)) {
-      matrix.set(normalizedRoute, new Map());
-    }
+    if (!matrix.has(normalizedRoute)) matrix.set(normalizedRoute, new Map());
   }
 
+  // Discovered Routes sicherstellen
   for (const route of discoveredRoutes) {
     const normalizedRoute = normalizeRouteKey(route);
     if (!normalizedRoute) continue;
-    if (!matrix.has(normalizedRoute)) {
-      matrix.set(normalizedRoute, new Map());
-    }
+    if (!matrix.has(normalizedRoute)) matrix.set(normalizedRoute, new Map());
   }
 
   const routes = Array.from(matrix.keys()).sort((a, b) => a.localeCompare(b));
@@ -90,29 +101,34 @@ function buildFieldName(route: string, role: string) {
 async function upsertAccessAction(formData: FormData): Promise<void> {
   "use server";
   const sb = createAdminClient();
+
   try {
-    const [{ data: roles }, { data: routes }] = await Promise.all([
-      sb.from("roles").select("name"),
-      sb.from("access_rules").select("route"),
+    const [rolesRes, routesRes] = await Promise.all([
+      sb.from("roles").select("name").throwOnError(),
+      sb.from("access_rules").select("route").throwOnError(),
     ]);
 
-    const roleNames = (roles ?? []).map((r: any) => normalizeRoleKey(String(r.name)));
+    const roleNames = (rolesRes.data ?? []).map((r: any) => normalizeRoleKey(String(r.name)));
+
     const routeSet = new Set<string>();
-    for (const row of routes ?? []) {
+    for (const row of routesRes.data ?? []) {
       if (row?.route) {
         const normalizedRoute = normalizeRouteKey(String(row.route));
         if (normalizedRoute) routeSet.add(normalizedRoute);
       }
     }
+
     for (const descriptor of ROUTE_DESCRIPTORS) {
       const normalizedRoute = normalizeRouteKey(descriptor.route);
       if (normalizedRoute) routeSet.add(normalizedRoute);
     }
+
     const discoveredRoutes = await discoverAppRoutes();
     for (const route of discoveredRoutes) {
       const normalizedRoute = normalizeRouteKey(route);
       if (normalizedRoute) routeSet.add(normalizedRoute);
     }
+
     const routeList = Array.from(routeSet).sort((a, b) => a.localeCompare(b));
 
     const payload = routeList.flatMap((route) =>
@@ -124,7 +140,8 @@ async function upsertAccessAction(formData: FormData): Promise<void> {
     );
 
     if (payload.length > 0) {
-      await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
+      const upsertRes = await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
+      if (upsertRes.error) throw upsertRes.error;
     }
   } catch (error) {
     console.error("access_rules_save_failed", error);
@@ -151,20 +168,22 @@ async function addRouteAction(formData: FormData): Promise<void> {
   const sb = createAdminClient();
 
   // Für alle bekannten Rollen einen Default-Eintrag (NONE)
-  const { data: roles } = await sb.from("roles").select("name");
-  const roleNames = (roles ?? []).map((r: any) => normalizeRoleKey(r.name as string));
-  if (roleNames.length === 0) {
-    redirect("/admin/settings?error=1&errorDetail=no_roles_found");
-  }
-
-  const payload = roleNames.map((name) => ({
-    route,
-    role: name,
-    allowed: false,
-  }));
-
   try {
-    await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
+    const rolesRes = await sb.from("roles").select("name").throwOnError();
+    const roleNames = (rolesRes.data ?? []).map((r: any) => normalizeRoleKey(String(r.name)));
+
+    if (roleNames.length === 0) {
+      redirect("/admin/settings?error=1&errorDetail=no_roles_found");
+    }
+
+    const payload = roleNames.map((name) => ({
+      route,
+      role: name,
+      allowed: false,
+    }));
+
+    const upsertRes = await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
+    if (upsertRes.error) throw upsertRes.error;
   } catch (error) {
     console.error("access_rules_add_route_failed", error);
     revalidatePath("/admin/settings");
@@ -188,15 +207,19 @@ export default async function AdminSettingsPage({
     getAdminStatus(),
     checkDatabaseLive(),
   ]);
+
   const saved =
     searchParams?.saved === "1" ||
     (Array.isArray(searchParams?.saved) && searchParams?.saved.includes("1"));
+
   const added =
     searchParams?.added === "1" ||
     (Array.isArray(searchParams?.added) && searchParams?.added.includes("1"));
+
   const error =
     searchParams?.error === "1" ||
     (Array.isArray(searchParams?.error) && searchParams?.error.includes("1"));
+
   const errorDetail =
     isAdmin && typeof searchParams?.errorDetail === "string"
       ? decodeURIComponent(searchParams?.errorDetail)
@@ -215,9 +238,7 @@ export default async function AdminSettingsPage({
                 className={`h-2 w-2 rounded-full ${liveStatus.live ? "bg-emerald-400" : "bg-rose-400"}`}
                 aria-hidden="true"
               />
-              <span className="text-zinc-200">
-                {liveStatus.live ? "Live" : "Nicht-Live"}
-              </span>
+              <span className="text-zinc-200">{liveStatus.live ? "Live" : "Nicht-Live"}</span>
             </div>
           </div>
           <p className="text-sm text-zinc-400">
@@ -295,6 +316,7 @@ export default async function AdminSettingsPage({
                             const roleKey = normalizeRoleKey(role.name);
                             const isAllowed = row.get(roleKey) ?? false;
                             const fieldName = buildFieldName(route, roleKey);
+
                             return (
                               <td key={role.name} className="px-4 py-2">
                                 <label className="inline-flex items-center gap-2 text-zinc-200">
@@ -316,6 +338,7 @@ export default async function AdminSettingsPage({
                   </tbody>
                 </table>
               </div>
+
               <div>
                 <button className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60">
                   Speichern
