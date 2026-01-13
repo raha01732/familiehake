@@ -1,6 +1,7 @@
 // src/lib/access-db.ts
-import { createAdminClient } from "@/lib/supabase/admin";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
+import { checkDatabaseLiveWithClient, type DatabaseLiveStatus } from "@/lib/check-database-live";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export type DbRole = {
   id: number;
