@@ -9,7 +9,7 @@ type MinimalAdminClient = {
     select: (
       columns: string,
       options: { count: "exact"; head: true }
-    ) => Promise<{ error: { message: string } | null }>;
+    ) => PromiseLike<{ error: { message: string } | null }>;
   };
 };
 
