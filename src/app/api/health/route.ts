@@ -1,6 +1,7 @@
 // src/app/api/health/route.ts
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { reportError } from "@/lib/sentry";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ export async function GET() {
       ok: boolean;
       info: string | null;
       tables: { total: number; reachable: number; errors: string[] };
+      heartbeat: { ok: boolean; last_pinged_at: string | null; info: string | null };
     };
   } = {
     uptime_s: Math.floor(process.uptime()),
@@ -40,6 +42,7 @@ export async function GET() {
       ok: false,
       info: null,
       tables: { total: 0, reachable: 0, errors: [] as string[] },
+      heartbeat: { ok: false, last_pinged_at: null, info: null },
     },
   };
 
@@ -55,12 +58,15 @@ export async function GET() {
       throw new Error(tablesError.message);
     }
 
-    const results = await Promise.all(
-      tableNames.map(async (table) => {
-        const { error } = await sb.from(table).select("*", { count: "exact", head: true });
-        return { table, error };
-      })
-    );
+    const [results, heartbeatResult] = await Promise.all([
+      Promise.all(
+        tableNames.map(async (table) => {
+          const { error } = await sb.from(table).select("*", { count: "exact", head: true });
+          return { table, error };
+        })
+      ),
+      sb.from("db_heartbeat").select("pinged_at").order("pinged_at", { ascending: false }).limit(1),
+    ]);
 
     const errors = results
       .filter((result) => result.error)
@@ -72,6 +78,24 @@ export async function GET() {
 
     checks.db.ok = errors.length === 0 && tableNames.length > 0;
     checks.db.info = `Tabellen erreichbar: ${checks.db.tables.reachable}/${checks.db.tables.total}`;
+
+    if (heartbeatResult.error) {
+      checks.db.heartbeat.ok = false;
+      checks.db.heartbeat.info = heartbeatResult.error.message;
+    } else {
+      const lastPing = heartbeatResult.data?.[0]?.pinged_at ?? null;
+      const today = new Date().toISOString().slice(0, 10);
+      const lastPingDay = lastPing ? new Date(lastPing).toISOString().slice(0, 10) : null;
+      const ok = lastPingDay === today;
+      checks.db.heartbeat.last_pinged_at = lastPing;
+      checks.db.heartbeat.ok = ok;
+      checks.db.heartbeat.info = ok ? "Heartbeat aktuell" : "Kein Heartbeat heute";
+
+      if (!ok) {
+        reportError(new Error("db_heartbeat_missing"), { lastPing, today });
+        if (status === "ok") status = "warn";
+      }
+    }
   } catch (e: any) {
     checks.db.ok = false;
     checks.db.info = e?.message ?? "db error";

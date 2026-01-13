@@ -4,6 +4,7 @@ import { getPermissionOverview } from "@/lib/access-db";
 import { ACCESS_LABELS } from "@/lib/rbac";
 import { fetchSentryStats } from "@/lib/sentry-metrics";
 import { getStorageUsageSummary, type StorageUsageSummary } from "@/lib/stats";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { headers } from "next/headers";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,6 +32,7 @@ type HealthPayload = {
       ok: boolean;
       info?: string;
       tables?: { total: number; reachable: number; errors: string[] };
+      heartbeat?: { ok: boolean; last_pinged_at: string | null; info: string | null };
     };
   };
 };
@@ -41,6 +43,11 @@ type AuditEvent = {
   actor_email?: string | null;
   target?: string | null;
   detail?: unknown;
+};
+
+type HeartbeatEvent = {
+  id: number;
+  pinged_at: string;
 };
 
 type SentryStats = Awaited<ReturnType<typeof fetchSentryStats>>;
@@ -78,6 +85,20 @@ async function fetchAuditEvents(): Promise<AuditEvent[]> {
   }
 }
 
+async function fetchHeartbeatEvents(): Promise<HeartbeatEvent[]> {
+  try {
+    const sb = createAdminClient();
+    const { data } = await sb
+      .from("db_heartbeat")
+      .select("id, pinged_at")
+      .order("pinged_at", { ascending: false })
+      .limit(10);
+    return (data ?? []) as HeartbeatEvent[];
+  } catch {
+    return [];
+  }
+}
+
 function formatBytes(bytes: number | null) {
   if (!bytes) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -104,11 +125,12 @@ function serverInfo() {
 }
 
 export default async function MonitoringPage() {
-  const [healthResult, storageResult, sentryResult, auditResult] = await Promise.allSettled([
+  const [healthResult, storageResult, sentryResult, auditResult, heartbeatResult] = await Promise.allSettled([
     getHealth(),
     getStorageUsageSummary(),
     fetchSentryStats(),
     fetchAuditEvents(),
+    fetchHeartbeatEvents(),
   ]);
 
   const health = healthResult.status === "fulfilled" ? healthResult.value : null;
@@ -116,6 +138,7 @@ export default async function MonitoringPage() {
   const sentry: SentryStats =
     sentryResult.status === "fulfilled" ? sentryResult.value : { available: false, error: "unavailable" };
   const auditEvents = auditResult.status === "fulfilled" ? auditResult.value : [];
+  const heartbeatEvents = heartbeatResult.status === "fulfilled" ? heartbeatResult.value : [];
 
   const status: "ok" | "warn" | "degraded" | "unreachable" =
     (health?.status as any) ?? "unreachable";
@@ -125,6 +148,7 @@ export default async function MonitoringPage() {
       ok: boolean;
       info?: string;
       tables?: { total: number; reachable: number; errors: string[] };
+      heartbeat?: { ok: boolean; last_pinged_at: string | null; info: string | null };
     }) ?? { ok: false };
   const srv = serverInfo();
 
@@ -216,6 +240,15 @@ export default async function MonitoringPage() {
                       {db.tables.errors.join(" · ")}
                     </div>
                   ) : null}
+                  {db.heartbeat && (
+                    <div className="mt-2 text-[11px] text-zinc-400">
+                      <span className="uppercase tracking-wide text-zinc-500">Heartbeat</span>:{" "}
+                      <span className={db.heartbeat.ok ? "text-emerald-300" : "text-amber-300"}>
+                        {db.heartbeat.info ?? "–"}
+                      </span>{" "}
+                      · Letzter Ping: {formatDate(db.heartbeat.last_pinged_at)}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -260,6 +293,38 @@ export default async function MonitoringPage() {
             <p className="text-zinc-400 text-sm leading-relaxed">Wer darf was? (live aus DB)</p>
           </div>
           <Permissions />
+        </div>
+
+        {/* DB Keep-Alive */}
+        <div className="card p-6 flex flex-col gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">DB Keep-Alive</h2>
+            <p className="text-zinc-400 text-sm leading-relaxed">
+              Letzte 10 Pings aus <span className="font-mono">public.db_heartbeat</span>.
+            </p>
+          </div>
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+            {heartbeatEvents.length === 0 ? (
+              <div className="p-4 text-sm text-zinc-400">Keine Heartbeats verfügbar.</div>
+            ) : (
+              <table className="w-full text-left text-sm">
+                <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">ID</th>
+                    <th className="px-3 py-2 font-medium">Pinged At</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800">
+                  {heartbeatEvents.map((entry) => (
+                    <tr key={entry.id}>
+                      <td className="px-3 py-2 text-zinc-300 text-xs">{entry.id}</td>
+                      <td className="px-3 py-2 text-zinc-300 text-xs">{formatDate(entry.pinged_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
 
         {/* Storage */}
