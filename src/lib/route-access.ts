@@ -12,13 +12,13 @@ export async function getAllowedRoutesForRole(role: string) {
   const sb = createAdminClient();
   const { data: perms } = await sb
     .from("access_rules")
-    .select("route, level")
+    .select("route, allowed")
     .eq("role", role);
 
   const map = new Map<string, number>();
   for (const r of perms ?? []) {
     const key = normalizeRouteKey(String(r.route));
-    const level = Number(r.level ?? 0);
+    const level = r.allowed ? LEVEL_READ : LEVEL_NONE;
     if (!key) continue;
     map.set(key, Math.max(map.get(key) ?? LEVEL_NONE, level));
   }

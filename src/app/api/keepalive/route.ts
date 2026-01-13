@@ -5,9 +5,7 @@ import { NextResponse } from "next/server";
 export async function GET() {
   const sb = createAdminClient();
   const pingedAt = new Date().toISOString();
-  const { error } = await sb
-    .from("db_heartbeat")
-    .upsert({ id: 1, pinged_at: pingedAt }, { onConflict: "id" });
+  const { error } = await sb.from("db_heartbeat").insert({ pinged_at: pingedAt });
 
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
