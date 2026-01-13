@@ -5,10 +5,9 @@ export type DatabaseLiveStatus = {
 };
 
 type MinimalAdminClient = {
-  from: (_table: string) => {
+  from: (...args: [string]) => {
     select: (
-      _columns: string,
-      _options: { count: "exact"; head: true }
+      ...args: [string, { count: "exact"; head: true }]
     ) => PromiseLike<{ error: { message: string } | null }>;
   };
 };
