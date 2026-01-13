@@ -38,6 +38,22 @@ export default function ActivityFeed({
       setRtError(msg);
       return;
     }
+
+    // ✅ ===================== WEBSOCKET-GUARD START =====================
+    // Verhindert "client_create_failed: WebSocket not available"
+    // (z.B. durch Browser/Firewall/Proxy/Blocker-Umgebungen)
+    if (typeof window === "undefined" || typeof window.WebSocket === "undefined") {
+      const msg = "Realtime disabled: WebSocket not available in this environment.";
+      console.warn("[ActivityFeed MINI-DEBUG]", msg, {
+        hasWindow: typeof window !== "undefined",
+        hasWebSocket: typeof window !== "undefined" && typeof window.WebSocket !== "undefined",
+      });
+      setRtStatus("ws_missing");
+      setRtError(msg);
+      return;
+    }
+    // ✅ ===================== WEBSOCKET-GUARD END =====================
+
     // ===================== MINI-DEBUG END =====================
 
     try {
