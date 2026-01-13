@@ -1,4 +1,5 @@
 {
+  "comment": "package.json",
   "name": "my-private-app",
   "private": true,
   "scripts": {
@@ -7,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "node --test --loader ./tests/ts-loader.mjs",
     "ci:build": "npm run lint && npm run typecheck && next build",
     "deadcode": "ts-prune",
     "depcheck": "depcheck"
