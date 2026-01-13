@@ -11,52 +11,108 @@ type AuditRow = {
   detail: any | null;
 };
 
-export default function ActivityFeed({ initial }: { initial: AuditRow[] }) {
+export default function ActivityFeed({
+  initial,
+  debug = false,
+}: {
+  initial: AuditRow[];
+  debug?: boolean;
+}) {
   const [items, setItems] = useState<AuditRow[]>(initial);
+  const [rtStatus, setRtStatus] = useState<string>("init");
+  const [rtError, setRtError] = useState<string | null>(null);
+
   const sbRef = useRef<ReturnType<typeof createBrowserClient> | null>(null);
 
   useEffect(() => {
-    const sb = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-    sbRef.current = sb;
+    // ===================== MINI-DEBUG START =====================
+    // Diese Logs erscheinen NUR im Browser (DevTools Console).
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-    const sub = sb
-      .channel("audit_events_stream")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "audit_events" },
-        (payload: any) => {
-          const row = payload.new as AuditRow;
-          setItems((prev) => [row, ...prev].slice(0, 100));
+    if (!url || !anon) {
+      const msg =
+        "Realtime disabled: NEXT_PUBLIC_SUPABASE_URL oder NEXT_PUBLIC_SUPABASE_ANON_KEY fehlt.";
+      console.warn("[ActivityFeed MINI-DEBUG]", msg, { url: !!url, anon: !!anon });
+      setRtStatus("env_missing");
+      setRtError(msg);
+      return;
+    }
+    // ===================== MINI-DEBUG END =====================
+
+    try {
+      const sb = createBrowserClient(url, anon);
+      sbRef.current = sb;
+
+      const channel = sb
+        .channel("audit_events_stream")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "audit_events" },
+          (payload: any) => {
+            try {
+              const row = payload.new as AuditRow;
+              setItems((prev) => [row, ...prev].slice(0, 100));
+            } catch (e: any) {
+              console.error("[ActivityFeed] payload handling failed", e);
+              setRtError(e?.message ?? "payload_handling_failed");
+            }
+          }
+        );
+
+      channel.subscribe((status) => {
+        // Status z.B.: "SUBSCRIBED", "CHANNEL_ERROR", "TIMED_OUT", ...
+        setRtStatus(String(status));
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.warn("[ActivityFeed] realtime subscribe status:", status);
         }
-      )
-      .subscribe();
+      });
 
-    return () => {
-      sub.unsubscribe();
-    };
+      return () => {
+        try {
+          channel.unsubscribe();
+        } catch (e) {
+          console.warn("[ActivityFeed] unsubscribe failed", e);
+        }
+      };
+    } catch (e: any) {
+      console.error("[ActivityFeed] createBrowserClient failed", e);
+      setRtStatus("client_create_failed");
+      setRtError(e?.message ?? "createBrowserClient_failed");
+    }
   }, []);
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+      {debug && (
+        <div className="border-b border-zinc-800 bg-zinc-950/40 p-3 text-[11px] text-zinc-300">
+          <div>
+            <span className="text-zinc-500">Realtime status:</span>{" "}
+            <span className="font-mono">{rtStatus}</span>
+          </div>
+          {rtError && (
+            <div className="mt-1 whitespace-pre-wrap text-amber-300">
+              <span className="text-zinc-500">Realtime error:</span>{" "}
+              <span className="font-mono">{rtError}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       <table className="w-full text-left text-sm">
         <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
           <tr>
-            <th className="px-3 py-2 font-medium">Zeit</th>
-            <th className="px-3 py-2 font-medium">Aktion</th>
-            <th className="px-3 py-2 font-medium">User</th>
-            <th className="px-3 py-2 font-medium">Ziel</th>
-            <th className="px-3 py-2 font-medium">Details</th>
+            <th className="px-3 py-2">Zeit</th>
+            <th className="px-3 py-2">Aktion</th>
+            <th className="px-3 py-2">Akteur</th>
+            <th className="px-3 py-2">Ziel</th>
+            <th className="px-3 py-2">Detail</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-800">
           {items.map((e, idx) => (
-            <tr key={`${e.ts}-${idx}`}>
-              <td className="px-3 py-2 text-zinc-300 text-xs whitespace-nowrap">
-                {new Date(e.ts).toLocaleString()}
-              </td>
+            <tr key={`${e.ts}-${e.action}-${idx}`} className="hover:bg-zinc-900/40">
+              <td className="px-3 py-2 text-zinc-400 text-xs font-mono">{e.ts}</td>
               <td className="px-3 py-2 text-zinc-300 text-xs">{e.action}</td>
               <td className="px-3 py-2 text-zinc-400 text-xs">{e.actor_email ?? "—"}</td>
               <td className="px-3 py-2 text-zinc-400 text-xs">{e.target ?? "—"}</td>
