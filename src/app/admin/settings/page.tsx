@@ -47,18 +47,6 @@ async function getData() {
     sb.from("access_rules").select("route,role,allowed").order("route", { ascending: true }).throwOnError(),
   ]);
 
-  // ===================== MINI-DEBUG START =====================
-  // Wenn Checkboxen leer sind: Schau in Vercel Logs nach diesen Zeilen.
-  // Ursache ist oft: RLS blockt, Service-Role-Key fehlt, falsches Projekt/Schema, fehlender Unique-Constraint.
-  console.log("[ADMIN_SETTINGS MINI-DEBUG] roles_count:", rolesRes.data?.length ?? 0);
-  console.log("[ADMIN_SETTINGS MINI-DEBUG] rules_count:", rulesRes.data?.length ?? 0);
-  console.log("[ADMIN_SETTINGS MINI-DEBUG] rules_sample:", (rolesRes.data?.length ?? 0) > 0 ? "roles_ok" : "roles_empty");
-  console.log(
-    "[ADMIN_SETTINGS MINI-DEBUG] first_rules_rows:",
-    (rulesRes.data ?? []).slice(0, 5).map((r) => ({ route: r.route, role: r.role, allowed: r.allowed }))
-  );
-  // ===================== MINI-DEBUG END =====================
-
   const roleList: DbRole[] = (rolesRes.data ?? []) as unknown as DbRole[];
   const ruleList: DbRule[] = (rulesRes.data ?? []) as unknown as DbRule[];
   const discoveredRoutes = await discoverAppRoutes();
