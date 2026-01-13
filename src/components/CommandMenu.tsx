@@ -1,6 +1,7 @@
 // src/components/CommandMenu.tsx
 "use client";
 
+import { useUser } from "@clerk/nextjs";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -22,12 +23,16 @@ const ROUTES: Item[] = [
 ];
 
 export default function CommandMenu() {
+  const { isLoaded, isSignedIn, user } = useUser();
+  const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "";
+  const isAdmin = isSignedIn && (role === "admin" || role === "superadmin");
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const router = useRouter();
 
   // ⌘K / Ctrl+K zum Öffnen/Schließen
   useEffect(() => {
+    if (!isAdmin) return;
     const onKey = (e: KeyboardEvent) => {
       const isMod = e.ctrlKey || e.metaKey;
       if (isMod && e.key.toLowerCase() === "k") {
@@ -38,7 +43,7 @@ export default function CommandMenu() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [isAdmin]);
 
   const items = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -51,6 +56,10 @@ export default function CommandMenu() {
     if (it.href) router.push(it.href);
     else it.action?.();
   };
+
+  if (!isLoaded || !isAdmin) {
+    return null;
+  }
 
   return (
     <>
