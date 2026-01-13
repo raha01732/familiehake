@@ -1,3 +1,4 @@
+// src/lib/supabase/admin.ts
 import { createClient } from "@supabase/supabase-js";
 
 // Nur Server (Service Role Key) – NIE ins Browser-Bundle!
