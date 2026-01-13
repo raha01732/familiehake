@@ -89,8 +89,8 @@ function buildFieldName(route: string, role: string) {
 
 async function upsertAccessAction(formData: FormData): Promise<void> {
   "use server";
+  const sb = createAdminClient();
   try {
-    const sb = createAdminClient();
     const [{ data: roles }, { data: routes }] = await Promise.all([
       sb.from("roles").select("name"),
       sb.from("access_rules").select("route"),
@@ -126,15 +126,15 @@ async function upsertAccessAction(formData: FormData): Promise<void> {
     if (payload.length > 0) {
       await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
     }
-
-    revalidatePath("/admin/settings");
-    redirect("/admin/settings?saved=1");
   } catch (error) {
     console.error("access_rules_save_failed", error);
     revalidatePath("/admin/settings");
     const errorDetail = error instanceof Error ? error.message : "unknown_error";
     redirect(`/admin/settings?error=1&errorDetail=${encodeURIComponent(errorDetail)}`);
   }
+
+  revalidatePath("/admin/settings");
+  redirect("/admin/settings?saved=1");
 }
 
 async function addRouteAction(formData: FormData): Promise<void> {
@@ -165,14 +165,15 @@ async function addRouteAction(formData: FormData): Promise<void> {
 
   try {
     await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
-    revalidatePath("/admin/settings");
-    redirect("/admin/settings?added=1");
   } catch (error) {
     console.error("access_rules_add_route_failed", error);
     revalidatePath("/admin/settings");
     const errorDetail = error instanceof Error ? error.message : "unknown_error";
     redirect(`/admin/settings?error=1&errorDetail=${encodeURIComponent(errorDetail)}`);
   }
+
+  revalidatePath("/admin/settings");
+  redirect("/admin/settings?added=1");
 }
 
 /* ===================== Page ===================== */
