@@ -12,6 +12,11 @@ export type DbRole = {
 
 export type RoutePermissionMatrix = Record<string, Record<string, boolean>>;
 
+export type DatabaseLiveStatus = {
+  live: boolean;
+  error?: string;
+};
+
 const FALLBACK_ROLES: DbRole[] = [
   { id: 0, name: "user", label: "User", rank: 0, isSuperAdmin: false },
   { id: 1, name: "admin", label: "Admin", rank: 50, isSuperAdmin: false },
@@ -100,5 +105,19 @@ export async function getPermissionOverview(): Promise<PermissionOverview> {
   } catch (error) {
     console.error("getPermissionOverview", error);
     return getFallbackOverview();
+  }
+}
+
+export async function checkDatabaseLive(): Promise<DatabaseLiveStatus> {
+  try {
+    const sb = createAdminClient();
+    const { error } = await sb.from("roles").select("id", { count: "exact", head: true });
+    if (error) {
+      return { live: false, error: error.message };
+    }
+    return { live: true };
+  } catch (error) {
+    console.error("checkDatabaseLive", error);
+    return { live: false, error: error instanceof Error ? error.message : "unknown_error" };
   }
 }
