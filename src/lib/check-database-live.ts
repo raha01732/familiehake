@@ -4,13 +4,16 @@ export type DatabaseLiveStatus = {
   error?: string;
 };
 
+/* eslint-disable @typescript-eslint/no-unused-vars */
 type MinimalAdminClient = {
-  from: (...args: [string]) => {
+  from: (table: string) => {
     select: (
-      ...args: [string, { count: "exact"; head: true }]
+      columns: string,
+      options: { count: "exact"; head: true }
     ) => PromiseLike<{ error: { message: string } | null }>;
   };
 };
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 export async function checkDatabaseLiveWithClient(
   sb: MinimalAdminClient
