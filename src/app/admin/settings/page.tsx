@@ -1,6 +1,7 @@
 // src/app/admin/settings/page.tsx
 import RoleGate from "@/components/RoleGate";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
+import { checkDatabaseLive } from "@/lib/access-db";
 import { discoverAppRoutes } from "@/lib/route-discovery";
 import { normalizeRouteKey } from "@/lib/route-access";
 import { env } from "@/lib/env";
@@ -52,9 +53,11 @@ async function getData() {
   const matrix = new Map<string, Map<string, boolean>>();
   for (const r of ruleList) {
     const normalizedRoute = normalizeRouteKey(String(r.route ?? ""));
+    const normalizedRole = normalizeRoleKey(String(r.role ?? ""));
     if (!normalizedRoute) continue;
+    if (!normalizedRole) continue;
     if (!matrix.has(normalizedRoute)) matrix.set(normalizedRoute, new Map());
-    matrix.get(normalizedRoute)!.set(r.role, !!r.allowed);
+    matrix.get(normalizedRoute)!.set(normalizedRole, !!r.allowed);
   }
 
   for (const descriptor of ROUTE_DESCRIPTORS) {
@@ -166,8 +169,11 @@ export default async function AdminSettingsPage({
 }: {
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
-  const { roles, routes, matrix } = await getData();
-  const { isAdmin } = await getAdminStatus();
+  const [{ roles, routes, matrix }, { isAdmin }, liveStatus] = await Promise.all([
+    getData(),
+    getAdminStatus(),
+    checkDatabaseLive(),
+  ]);
   const error =
     searchParams?.error === "1" ||
     (Array.isArray(searchParams?.error) && searchParams?.error.includes("1"));
@@ -180,7 +186,20 @@ export default async function AdminSettingsPage({
     <RoleGate routeKey="admin/settings">
       <section className="flex flex-col gap-8">
         <header className="card p-6 flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">Rollen &amp; Berechtigungen</h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">
+              Rollen &amp; Berechtigungen
+            </h1>
+            <div className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-xs">
+              <span
+                className={`h-2 w-2 rounded-full ${liveStatus.live ? "bg-emerald-400" : "bg-rose-400"}`}
+                aria-hidden="true"
+              />
+              <span className="text-zinc-200">
+                {liveStatus.live ? "Live" : "Nicht-Live"}
+              </span>
+            </div>
+          </div>
           <p className="text-sm text-zinc-400">
             Definiere per Checkbox, welche Rolle eine Route aufrufen darf.
           </p>
