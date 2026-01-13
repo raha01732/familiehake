@@ -38,7 +38,7 @@ export default async function ActivityPage() {
         <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">Aktivitäten</h1>
         <p className="text-sm text-zinc-400">Die letzten Systemereignisse aus der Datenbank.</p>
 
-        <ActivityFeed initial={events as any} />
+        <ActivityFeed initial={(events ?? []) as any} debug />
       </section>
     </RoleGate>
   );
