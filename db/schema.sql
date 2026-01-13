@@ -10,6 +10,11 @@ create table if not exists roles (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists db_heartbeat (
+  id integer primary key,
+  pinged_at timestamptz not null default now()
+);
+
 create table if not exists dashboard_tiles (
   id text primary key,
   title text not null,
