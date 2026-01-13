@@ -1,0 +1,9 @@
+{
+  "comment": "vercel.json",
+  "crons": [
+    {
+      "path": "/api/keepalive",
+      "schedule": "0 */12 * * *"
+    }
+  ]
+}

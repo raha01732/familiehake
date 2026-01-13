@@ -1,6 +1,7 @@
 // src/lib/access-db.ts
-import { createAdminClient } from "@/lib/supabase/admin";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
+import { checkDatabaseLiveWithClient, type DatabaseLiveStatus } from "@/lib/check-database-live";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export type DbRole = {
   id: number;
@@ -11,6 +12,8 @@ export type DbRole = {
 };
 
 export type RoutePermissionMatrix = Record<string, Record<string, boolean>>;
+
+export type { DatabaseLiveStatus };
 
 const FALLBACK_ROLES: DbRole[] = [
   { id: 0, name: "user", label: "User", rank: 0, isSuperAdmin: false },
@@ -101,4 +104,9 @@ export async function getPermissionOverview(): Promise<PermissionOverview> {
     console.error("getPermissionOverview", error);
     return getFallbackOverview();
   }
+}
+
+export async function checkDatabaseLive(): Promise<DatabaseLiveStatus> {
+  const sb = createAdminClient();
+  return checkDatabaseLiveWithClient(sb);
 }
