@@ -48,23 +48,30 @@ type UserDetail = {
 
 async function fetchRoles(): Promise<DbRole[]> {
   const sb = createAdminClient();
-  const { data } = await sb
+  const { data, error } = await sb
     .from("roles")
     .select("id, name, label, rank, is_superadmin")
     .order("rank", { ascending: true });
-  const allowed = new Set(["user", "admin"]);
+
+  if (error) {
+    console.error("fetchRoles failed:", error);
+    return [];
+  }
+
+  const allowed = new Set(["user", "admin", "superadmin"]); // superadmin optional, aber schadet nicht
   return (
     data
-      ?.filter((row) => allowed.has(row.name))
+      ?.filter((row) => allowed.has(String(row.name).toLowerCase()))
       .map((row) => ({
         id: row.id,
-        name: row.name,
+        name: String(row.name).toLowerCase(),
         label: row.label ?? row.name,
         rank: typeof row.rank === "number" ? row.rank : 0,
         isSuperAdmin: !!row.is_superadmin,
       })) ?? []
   );
 }
+
 
 function ensureDefaultRoles(rolesCatalog: DbRole[], assigned: DbRole[] | undefined): DbRole[] {
   if (assigned && assigned.length > 0) return assigned;
