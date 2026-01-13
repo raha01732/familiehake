@@ -8,6 +8,7 @@ import { env } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { currentUser } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 export const metadata = { title: "Rollen & Berechtigungen" };
 
@@ -83,7 +84,7 @@ async function getData() {
 /* ===================== Actions ===================== */
 
 function buildFieldName(route: string, role: string) {
-  return `access:${encodeURIComponent(route)}:${encodeURIComponent(role)}`;
+  return `access:${route}:${role}`;
 }
 
 async function upsertAccessAction(formData: FormData): Promise<void> {
@@ -127,25 +128,34 @@ async function upsertAccessAction(formData: FormData): Promise<void> {
     }
 
     revalidatePath("/admin/settings");
+    redirect("/admin/settings?saved=1");
   } catch (error) {
     console.error("access_rules_save_failed", error);
     revalidatePath("/admin/settings");
+    const errorDetail = error instanceof Error ? error.message : "unknown_error";
+    redirect(`/admin/settings?error=1&errorDetail=${encodeURIComponent(errorDetail)}`);
   }
 }
 
 async function addRouteAction(formData: FormData): Promise<void> {
   "use server";
   const routeRaw = String(formData.get("route") ?? "").trim();
-  if (!routeRaw) return;
+  if (!routeRaw) {
+    redirect("/admin/settings?error=1&errorDetail=route_missing");
+  }
   const route = normalizeRouteKey(routeRaw);
-  if (!route) return;
+  if (!route) {
+    redirect("/admin/settings?error=1&errorDetail=route_invalid");
+  }
 
   const sb = createAdminClient();
 
   // Für alle bekannten Rollen einen Default-Eintrag (NONE)
   const { data: roles } = await sb.from("roles").select("name");
   const roleNames = (roles ?? []).map((r: any) => normalizeRoleKey(r.name as string));
-  if (roleNames.length === 0) return;
+  if (roleNames.length === 0) {
+    redirect("/admin/settings?error=1&errorDetail=no_roles_found");
+  }
 
   const payload = roleNames.map((name) => ({
     route,
@@ -156,9 +166,12 @@ async function addRouteAction(formData: FormData): Promise<void> {
   try {
     await sb.from("access_rules").upsert(payload, { onConflict: "route,role" });
     revalidatePath("/admin/settings");
+    redirect("/admin/settings?added=1");
   } catch (error) {
     console.error("access_rules_add_route_failed", error);
     revalidatePath("/admin/settings");
+    const errorDetail = error instanceof Error ? error.message : "unknown_error";
+    redirect(`/admin/settings?error=1&errorDetail=${encodeURIComponent(errorDetail)}`);
   }
 }
 
@@ -174,6 +187,12 @@ export default async function AdminSettingsPage({
     getAdminStatus(),
     checkDatabaseLive(),
   ]);
+  const saved =
+    searchParams?.saved === "1" ||
+    (Array.isArray(searchParams?.saved) && searchParams?.saved.includes("1"));
+  const added =
+    searchParams?.added === "1" ||
+    (Array.isArray(searchParams?.added) && searchParams?.added.includes("1"));
   const error =
     searchParams?.error === "1" ||
     (Array.isArray(searchParams?.error) && searchParams?.error.includes("1"));
@@ -205,7 +224,7 @@ export default async function AdminSettingsPage({
           </p>
         </header>
 
-        {error && (
+        {(saved || added || error) && (
           <div
             className={`rounded-xl border p-4 text-sm ${
               error
@@ -213,6 +232,8 @@ export default async function AdminSettingsPage({
                 : "border-emerald-700 bg-emerald-900/10 text-emerald-200"
             }`}
           >
+            {!error && saved && "Die Zugriffs-Matrix wurde gespeichert."}
+            {!error && added && "Die Route wurde hinzugefügt."}
             {error && "Es ist ein Fehler aufgetreten."}
             {error && errorDetail && (
               <pre className="mt-3 whitespace-pre-wrap rounded-lg border border-amber-800 bg-amber-900/20 p-3 text-[11px] leading-5 text-amber-100/80">
