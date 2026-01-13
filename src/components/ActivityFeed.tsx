@@ -26,7 +26,6 @@ export default function ActivityFeed({
 
   useEffect(() => {
     // ===================== MINI-DEBUG START =====================
-    // Diese Logs erscheinen NUR im Browser (DevTools Console).
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -39,25 +38,30 @@ export default function ActivityFeed({
       return;
     }
 
-    // ✅ ===================== WEBSOCKET-GUARD START =====================
-    // Verhindert "client_create_failed: WebSocket not available"
-    // (z.B. durch Browser/Firewall/Proxy/Blocker-Umgebungen)
-    if (typeof window === "undefined" || typeof window.WebSocket === "undefined") {
-      const msg = "Realtime disabled: WebSocket not available in this environment.";
+    // Wichtiger als window.WebSocket: globalThis.WebSocket (wird von Libraries oft genutzt)
+    const WS: any = (globalThis as any).WebSocket;
+
+    // ✅ Strenger Guard: muss ein echter Constructor sein
+    if (typeof WS !== "function") {
+      const msg = "Realtime disabled: globalThis.WebSocket is not available.";
       console.warn("[ActivityFeed MINI-DEBUG]", msg, {
         hasWindow: typeof window !== "undefined",
-        hasWebSocket: typeof window !== "undefined" && typeof window.WebSocket !== "undefined",
+        windowWS: typeof window !== "undefined" ? typeof (window as any).WebSocket : "n/a",
+        globalWS: typeof WS,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "n/a",
       });
       setRtStatus("ws_missing");
       setRtError(msg);
       return;
     }
-    // ✅ ===================== WEBSOCKET-GUARD END =====================
-
     // ===================== MINI-DEBUG END =====================
 
     try {
-      const sb = createBrowserClient(url, anon);
+      // ✅ WebSocket explizit an Supabase durchreichen (damit Realtime nicht "raten" muss)
+      const sb = createBrowserClient(url, anon, {
+        realtime: { WebSocket: WS } as any,
+      } as any);
+
       sbRef.current = sb;
 
       const channel = sb
@@ -77,7 +81,6 @@ export default function ActivityFeed({
         );
 
       channel.subscribe((status) => {
-        // Status z.B.: "SUBSCRIBED", "CHANNEL_ERROR", "TIMED_OUT", ...
         setRtStatus(String(status));
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           console.warn("[ActivityFeed] realtime subscribe status:", status);
@@ -142,3 +145,4 @@ export default function ActivityFeed({
     </div>
   );
 }
+
