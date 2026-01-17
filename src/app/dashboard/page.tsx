@@ -118,6 +118,22 @@ async function updateWelcomeTile(formData: FormData) {
   }
 
   const existing = await getWelcomeTile();
+
+  // ===================== WELCOME TILE VERSIONING START =====================
+try {
+  const sbAdmin = createAdminClient();
+
+  await sbAdmin.from("dashboard_tile_versions").insert({
+    tile_id: "welcome",
+    title: existing.title,
+    body: existing.body,
+    changed_by: user?.id ?? null,
+  });
+} catch (e) {
+  console.error("[WELCOME_TILE VERSIONING] insert failed", e);
+}
+// ===================== WELCOME TILE VERSIONING END =====================
+
   const title = titleInput || existing.title;
   const body = bodyInput || existing.body;
 
@@ -132,6 +148,24 @@ async function updateWelcomeTile(formData: FormData) {
     },
     { onConflict: "id" }
   );
+
+  await logAudit({
+  action: "dashboard_welcome_update",
+  actorUserId: user.id,
+  actorEmail: user.emailAddresses?.[0]?.emailAddress ?? null,
+  target: "dashboard_tiles:welcome",
+  detail: {
+    before: {
+      title: existing.title,
+      body: existing.body,
+    },
+    after: {
+      title,
+      body,
+    },
+  },
+});
+
 
   wtDebug("updateWelcomeTile upsert_result", {
     ok: !error,
