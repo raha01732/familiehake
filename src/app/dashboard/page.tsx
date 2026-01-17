@@ -6,6 +6,7 @@ import { getSessionInfo } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { ADMIN_LINKS, TOOL_LINKS } from "@/lib/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import Link from "next/link";
@@ -54,7 +55,7 @@ async function getHealthSummary(): Promise<HealthSummary | null> {
 }
 
 async function getWelcomeTile(): Promise<WelcomeTile> {
-  const sb = createClient();
+  const sb = createAdminClient();
 
   const { data, error } = await sb
     .from("dashboard_tiles")
@@ -121,7 +122,7 @@ async function updateWelcomeTile(formData: FormData) {
   const title = titleInput || existing.title;
   const body = bodyInput || existing.body;
 
-  const sb = createClient();
+  const sb = createAdminClient();
 
   const { error } = await sb.from("dashboard_tiles").upsert(
     {
