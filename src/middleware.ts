@@ -9,6 +9,7 @@ const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/api/health",
+  "/api/keepalive",
 ]);
 
 const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
@@ -26,7 +27,7 @@ function handlePreviewProtection(req: NextRequest) {
   if (!isPreview) return null;
 
   const url = new URL(req.url);
-  const allowed = ["/_next", "/favicon.ico", "/robots.txt", "/api/health"];
+  const allowed = ["/_next", "/favicon.ico", "/robots.txt", "/api/health", "/api/keepalive"];
   if (allowed.some((p) => url.pathname.startsWith(p))) return null;
 
   const authHeader = req.headers.get("authorization") || "";
