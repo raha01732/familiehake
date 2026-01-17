@@ -5,6 +5,8 @@ import { logAudit } from "@/lib/audit";
 import { getSessionInfo } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { ADMIN_LINKS, TOOL_LINKS } from "@/lib/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import Link from "next/link";
 
@@ -40,14 +42,44 @@ async function getHealthSummary(): Promise<HealthSummary | null> {
 }
 
 async function getWelcomeTile(): Promise<WelcomeTile> {
-  return DEFAULT_WELCOME_TILE;
+  const sb = createClient();
+  const { data } = await sb.from("dashboard_tiles").select("title,body").eq("id", "welcome").maybeSingle();
+  if (!data?.title && !data?.body) {
+    return DEFAULT_WELCOME_TILE;
+  }
+  return {
+    title: data.title ?? DEFAULT_WELCOME_TILE.title,
+    body: data.body ?? DEFAULT_WELCOME_TILE.body
+  };
 }
 
 async function updateWelcomeTile(formData: FormData) {
   "use server";
-  const title = String(formData.get("title") ?? "").trim();
-  const body = String(formData.get("body") ?? "").trim();
-  if (!title && !body) return;
+  const user = await currentUser();
+  const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
+  const isAdmin =
+    !!user && (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
+  if (!isAdmin) return;
+
+  const titleInput = String(formData.get("title") ?? "").trim();
+  const bodyInput = String(formData.get("body") ?? "").trim();
+  if (!titleInput && !bodyInput) return;
+
+  const existing = await getWelcomeTile();
+  const title = titleInput || existing.title;
+  const body = bodyInput || existing.body;
+
+  const sb = createClient();
+  await sb.from("dashboard_tiles").upsert(
+    {
+      id: "welcome",
+      title,
+      body,
+      updated_at: new Date().toISOString()
+    },
+    { onConflict: "id" }
+  );
+  revalidatePath("/dashboard");
 }
 
 export default async function DashboardPage() {
