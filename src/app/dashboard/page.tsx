@@ -5,7 +5,6 @@ import { logAudit } from "@/lib/audit";
 import { getSessionInfo } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { ADMIN_LINKS, TOOL_LINKS } from "@/lib/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
