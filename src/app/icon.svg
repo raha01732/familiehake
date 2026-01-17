@@ -1,0 +1,18 @@
+<!-- src/app/icon.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="FamilyHake favicon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#22d3ee" />
+    </linearGradient>
+    <linearGradient id="roof" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8fafc" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#e2e8f0" stop-opacity="0.9" />
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="#0f172a" />
+  <rect x="16" y="16" width="224" height="224" rx="44" fill="url(#bg)" opacity="0.18" />
+  <path d="M128 52 52 112h20v72c0 11 9 20 20 20h72c11 0 20-9 20-20v-72h20L128 52z" fill="url(#roof)" />
+  <path d="M98 140c0-16 13-29 30-29s30 13 30 29c0 20-17 32-30 44-13-12-30-24-30-44z" fill="#0ea5e9" opacity="0.95" />
+  <path d="M98 140c0-16 13-29 30-29 8 0 15 3 20 8-4-3-9-4-14-4-15 0-26 11-26 25 0 16 13 26 26 36-3 3-6 5-10 8-13-12-26-24-26-44z" fill="#22d3ee" opacity="0.85" />
+</svg>
