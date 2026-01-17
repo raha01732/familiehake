@@ -79,6 +79,8 @@ async function updateWelcomeTile(formData: FormData) {
     },
     { onConflict: "id" }
   );
+   await sb.from("dashboard_tiles").upsert(...).throwOnError();
+
   revalidatePath("/dashboard");
 }
 
