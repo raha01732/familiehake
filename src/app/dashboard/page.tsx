@@ -26,6 +26,18 @@ const DEFAULT_WELCOME_TILE: WelcomeTile = {
   body: "Schön, dass du da bist. Hier findest du deine freigeschalteten Tools und den Systemstatus.",
 };
 
+// ===================== WELCOME TILE DEBUG START =====================
+// Aktivieren über Env: DEBUG_WELCOME_TILES=1
+function wtDebug(tag: string, payload?: Record<string, any>) {
+  if (process.env.DEBUG_WELCOME_TILES !== "1") return;
+  try {
+    console.log(`[WELCOME_TILE DEBUG] ${tag}`, payload ?? {});
+  } catch {
+    // no-op
+  }
+}
+// ===================== WELCOME TILE DEBUG END =====================
+
 async function getHealthSummary(): Promise<HealthSummary | null> {
   try {
     const h = headers();
@@ -43,42 +55,93 @@ async function getHealthSummary(): Promise<HealthSummary | null> {
 
 async function getWelcomeTile(): Promise<WelcomeTile> {
   const sb = createClient();
-  const { data } = await sb.from("dashboard_tiles").select("title,body").eq("id", "welcome").maybeSingle();
+
+  const { data, error } = await sb
+    .from("dashboard_tiles")
+    .select("title,body")
+    .eq("id", "welcome")
+    .maybeSingle();
+
+  wtDebug("getWelcomeTile result", {
+    hasData: !!data,
+    titleLen: data?.title ? String(data.title).length : 0,
+    bodyLen: data?.body ? String(data.body).length : 0,
+    error: error
+      ? { message: error.message, code: (error as any).code, details: (error as any).details }
+      : null,
+  });
+
   if (!data?.title && !data?.body) {
+    wtDebug("getWelcomeTile fallback_used", { reason: "no_title_and_no_body" });
     return DEFAULT_WELCOME_TILE;
   }
+
   return {
     title: data.title ?? DEFAULT_WELCOME_TILE.title,
-    body: data.body ?? DEFAULT_WELCOME_TILE.body
+    body: data.body ?? DEFAULT_WELCOME_TILE.body,
   };
 }
 
 async function updateWelcomeTile(formData: FormData) {
   "use server";
+
   const user = await currentUser();
   const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
   const isAdmin =
     !!user && (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
-  if (!isAdmin) return;
+
+  wtDebug("updateWelcomeTile called", {
+    hasUser: !!user,
+    userId: user?.id ?? null,
+    role,
+    isAdmin,
+  });
+
+  if (!isAdmin) {
+    wtDebug("updateWelcomeTile blocked", { reason: "not_admin" });
+    return;
+  }
 
   const titleInput = String(formData.get("title") ?? "").trim();
   const bodyInput = String(formData.get("body") ?? "").trim();
-  if (!titleInput && !bodyInput) return;
+
+  wtDebug("updateWelcomeTile inputs", {
+    titleLen: titleInput.length,
+    bodyLen: bodyInput.length,
+    titlePreview: titleInput.slice(0, 80),
+    bodyPreview: bodyInput.slice(0, 80),
+  });
+
+  if (!titleInput && !bodyInput) {
+    wtDebug("updateWelcomeTile early_return", { reason: "empty_inputs" });
+    return;
+  }
 
   const existing = await getWelcomeTile();
   const title = titleInput || existing.title;
   const body = bodyInput || existing.body;
 
   const sb = createClient();
-  await sb.from("dashboard_tiles").upsert(
+
+  const { error } = await sb.from("dashboard_tiles").upsert(
     {
       id: "welcome",
       title,
       body,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
     },
     { onConflict: "id" }
   );
+
+  wtDebug("updateWelcomeTile upsert_result", {
+    ok: !error,
+    error: error
+      ? { message: error.message, code: (error as any).code, details: (error as any).details }
+      : null,
+    savedTitleLen: title.length,
+    savedBodyLen: body.length,
+  });
+
   revalidatePath("/dashboard");
 }
 
@@ -105,7 +168,7 @@ export default async function DashboardPage() {
       actorUserId: user.id,
       actorEmail: user.emailAddresses?.[0]?.emailAddress ?? null,
       target: "/dashboard",
-      detail: null
+      detail: null,
     });
   }
 
@@ -156,9 +219,7 @@ export default async function DashboardPage() {
           <div className="card p-6 flex flex-col gap-2">
             <div className="flex items-start justify-between gap-3">
               <h2 className="text-xl font-semibold text-zinc-100">{welcomeTile.title}</h2>
-              {isAdmin ? (
-                <span className="text-[11px] text-zinc-500">Admin editierbar</span>
-              ) : null}
+              {isAdmin ? <span className="text-[11px] text-zinc-500">Admin editierbar</span> : null}
             </div>
             <p className="text-zinc-400 text-sm leading-relaxed whitespace-pre-wrap">{welcomeTile.body}</p>
             {isAdmin ? (
@@ -213,6 +274,7 @@ export default async function DashboardPage() {
             </div>
           ) : null}
         </div>
+
         {isAdmin ? (
           <div className="card p-6 flex flex-col gap-3">
             <div>
