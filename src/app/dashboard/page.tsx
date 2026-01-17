@@ -43,31 +43,22 @@ async function getHealthSummary(): Promise<HealthSummary | null> {
 
 async function getWelcomeTile(): Promise<WelcomeTile> {
   const sb = createClient();
-  const { data } = await sb
-    .from("dashboard_tiles")
-    .select("title,body")
-    .eq("id", "welcome")
-    .maybeSingle();
-
+  const { data } = await sb.from("dashboard_tiles").select("title,body").eq("id", "welcome").maybeSingle();
   if (!data?.title && !data?.body) {
     return DEFAULT_WELCOME_TILE;
   }
-
   return {
     title: data.title ?? DEFAULT_WELCOME_TILE.title,
-    body: data.body ?? DEFAULT_WELCOME_TILE.body,
+    body: data.body ?? DEFAULT_WELCOME_TILE.body
   };
 }
 
 async function updateWelcomeTile(formData: FormData) {
   "use server";
-
   const user = await currentUser();
   const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
   const isAdmin =
-    !!user &&
-    (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
-
+    !!user && (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
   if (!isAdmin) return;
 
   const titleInput = String(formData.get("title") ?? "").trim();
@@ -79,125 +70,177 @@ async function updateWelcomeTile(formData: FormData) {
   const body = bodyInput || existing.body;
 
   const sb = createClient();
-
-  await sb
-    .from("dashboard_tiles")
-    .upsert(
-      {
-        id: "welcome",
-        title,
-        body,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" }
-    )
-    .throwOnError();
-
+  await sb.from("dashboard_tiles").upsert(
+    {
+      id: "welcome",
+      title,
+      body,
+      updated_at: new Date().toISOString()
+    },
+    { onConflict: "id" }
+  );
   revalidatePath("/dashboard");
 }
 
 export default async function DashboardPage() {
+  // Login-Success (einfachheitshalber bei jedem Dashboard-Aufruf – später optional mit Cookie drosseln)
   const user = await currentUser();
   const session = await getSessionInfo();
-
   const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
   const isAdmin =
-    !!user &&
-    (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
-
+    !!user && (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
   const health = isAdmin ? await getHealthSummary() : null;
-  const healthStatus =
-    (health?.status as "ok" | "warn" | "degraded" | "unreachable") ?? "unreachable";
+  const healthStatus = (health?.status as "ok" | "warn" | "degraded" | "unreachable") ?? "unreachable";
   const healthLabel = healthStatus === "ok" ? "Keine Fehler" : "Fehler erkannt";
-
   const welcomeTile = await getWelcomeTile();
-
   const toolLinks = session.signedIn
-    ? TOOL_LINKS.filter(
-        (link) => session.isSuperAdmin || session.permissions[link.routeKey]
-      )
+    ? TOOL_LINKS.filter((link) => session.isSuperAdmin || session.permissions[link.routeKey])
     : [];
-
   const adminLinks = session.signedIn
-    ? ADMIN_LINKS.filter(
-        (link) => session.isSuperAdmin || session.permissions[link.routeKey]
-      )
+    ? ADMIN_LINKS.filter((link) => session.isSuperAdmin || session.permissions[link.routeKey])
     : [];
-
   if (user) {
     await logAudit({
       action: "login_success",
       actorUserId: user.id,
       actorEmail: user.emailAddresses?.[0]?.emailAddress ?? null,
       target: "/dashboard",
+      detail: null
     });
   }
 
   return (
     <RoleGate routeKey="dashboard">
-      <section className="flex flex-col gap-6">
-        <header className="card p-6 flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold text-zinc-100">
-            {welcomeTile.title}
-          </h1>
-          <p className="text-zinc-400">{welcomeTile.body}</p>
-
-          {isAdmin && (
-            <form action={updateWelcomeTile} className="mt-4 grid gap-2">
-              <input
-                name="title"
-                placeholder="Titel ändern"
-                className="rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
-              />
-              <textarea
-                name="body"
-                placeholder="Text ändern"
-                rows={3}
-                className="rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
-              />
-              <button className="self-start rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60">
-                Speichern
-              </button>
-            </form>
-          )}
-        </header>
-
-        {isAdmin && (
-          <div className="card p-6 flex items-center justify-between">
-            <div className="text-sm text-zinc-200">Systemstatus</div>
-            <div className="text-xs text-zinc-400">{healthLabel}</div>
+      <section className="grid gap-6 lg:grid-cols-[240px_1fr]">
+        <aside className="card p-4 flex flex-col gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-zinc-500">Tools</div>
+            <nav className="mt-2 flex flex-col gap-1">
+              {toolLinks.length === 0 ? (
+                <span className="text-xs text-zinc-500">Keine Tools freigeschaltet</span>
+              ) : (
+                toolLinks.map((link) => (
+                  <Link
+                    key={link.routeKey}
+                    href={link.href}
+                    className="rounded-md px-2 py-1 text-sm text-zinc-200 hover:bg-zinc-900/60 hover:text-white"
+                  >
+                    {link.label}
+                  </Link>
+                ))
+              )}
+            </nav>
           </div>
-        )}
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {toolLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="card p-4 hover:bg-zinc-900/60"
-            >
-              <div className="text-sm font-medium text-zinc-100">
-                {link.label}
+          {adminLinks.length > 0 && (
+            <>
+              <div className="text-zinc-600 text-xs">----</div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-zinc-500">Admin</div>
+                <nav className="mt-2 flex flex-col gap-1">
+                  {adminLinks.map((link) => (
+                    <Link
+                      key={link.routeKey}
+                      href={link.href}
+                      className="rounded-md px-2 py-1 text-sm text-zinc-200 hover:bg-zinc-900/60 hover:text-white"
+                    >
+                      {link.label}
+                    </Link>
+                  ))}
+                </nav>
               </div>
-            </Link>
-          ))}
-        </div>
+            </>
+          )}
+        </aside>
 
-        {adminLinks.length > 0 && (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {adminLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="card p-4 hover:bg-zinc-900/60"
-              >
-                <div className="text-sm font-medium text-zinc-100">
-                  {link.label}
-                </div>
-              </Link>
-            ))}
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="card p-6 flex flex-col gap-2">
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-xl font-semibold text-zinc-100">{welcomeTile.title}</h2>
+              {isAdmin ? (
+                <span className="text-[11px] text-zinc-500">Admin editierbar</span>
+              ) : null}
+            </div>
+            <p className="text-zinc-400 text-sm leading-relaxed whitespace-pre-wrap">{welcomeTile.body}</p>
+            {isAdmin ? (
+              <form action={updateWelcomeTile} className="mt-3 grid gap-2">
+                <input
+                  name="title"
+                  defaultValue={welcomeTile.title}
+                  className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200"
+                />
+                <textarea
+                  name="body"
+                  defaultValue={welcomeTile.body}
+                  rows={4}
+                  className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200"
+                />
+                <button
+                  type="submit"
+                  className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-900"
+                >
+                  Speichern
+                </button>
+              </form>
+            ) : null}
           </div>
-        )}
+
+          {isAdmin ? (
+            <div className="card p-6 flex flex-col gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-zinc-100">System-Health</h3>
+                <p className="text-zinc-400 text-sm leading-relaxed">
+                  Kurzüberblick aus dem Monitoring – nur für Admins.
+                </p>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                <div className="text-sm text-zinc-200">Status</div>
+                <span
+                  className={`rounded-lg border px-2 py-0.5 text-xs ${
+                    healthStatus === "ok"
+                      ? "border-green-700 text-green-300 bg-green-900/20"
+                      : "border-amber-600 text-amber-300 bg-amber-900/20"
+                  }`}
+                >
+                  {healthLabel}
+                </span>
+              </div>
+              <Link
+                href="/monitoring"
+                className="text-sm text-zinc-200 hover:text-white underline underline-offset-4"
+              >
+                Zum Monitoring →
+              </Link>
+            </div>
+          ) : null}
+        </div>
+        {isAdmin ? (
+          <div className="card p-6 flex flex-col gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-zinc-100">System-Health</h3>
+              <p className="text-zinc-400 text-sm leading-relaxed">
+                Kurzüberblick aus dem Monitoring – nur für Admins.
+              </p>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+              <div className="text-sm text-zinc-200">Status</div>
+              <span
+                className={`rounded-lg border px-2 py-0.5 text-xs ${
+                  healthStatus === "ok"
+                    ? "border-green-700 text-green-300 bg-green-900/20"
+                    : "border-amber-600 text-amber-300 bg-amber-900/20"
+                }`}
+              >
+                {healthLabel}
+              </span>
+            </div>
+            <Link
+              href="/monitoring"
+              className="text-sm text-zinc-200 hover:text-white underline underline-offset-4"
+            >
+              Zum Monitoring →
+            </Link>
+          </div>
+        ) : null}
       </section>
     </RoleGate>
   );
