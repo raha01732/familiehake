@@ -30,6 +30,10 @@ export const AUDIT_ACTIONS = [
   "journal_create",
   "journal_update",
   "journal_delete",
+
+
+  // Dashboard
+  "dashboard_welcome_update",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
