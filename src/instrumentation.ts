@@ -1,11 +1,13 @@
-// src/instrumentation.ts
-import * as Sentry from "@sentry/nextjs";
+import * as Sentry from '@sentry/nextjs';
 
 export async function register() {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    tracesSampleRate: 0.1, // anpassen
-    integrations: (integrations) => integrations,
-  });
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    await import('../sentry.server.config');
+  }
+
+  if (process.env.NEXT_RUNTIME === 'edge') {
+    await import('../sentry.edge.config');
+  }
 }
 
+export const onRequestError = Sentry.captureRequestError;
