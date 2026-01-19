@@ -8,19 +8,15 @@ import CommandMenu from "@/components/CommandMenu";
 import Header from "@/components/Header";
 import * as Sentry from '@sentry/nextjs';
 
-export const metadata: Metadata = {
-  title: "FamilyHake",
-  description: "Private Tools",
-};
-
 export function generateMetadata(): Metadata {
-        return {
-          // ... your existing metadata
-          other: {
-            ...Sentry.getTraceData()
-          }
-        };
-      }
+  return {
+    title: "FamilyHake",
+    description: "Private Tools",
+    other: {
+      ...Sentry.getTraceData(),
+    },
+  };
+}
 
 export const dynamic = "force-dynamic";
 
