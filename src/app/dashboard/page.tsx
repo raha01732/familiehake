@@ -1,5 +1,6 @@
 // src/app/dashboard/page.tsx
 import RoleGate from "@/components/RoleGate";
+import WelcomeTileCard, { WelcomeTile } from "@/components/dashboard/WelcomeTileCard";
 import { currentUser } from "@clerk/nextjs/server";
 import { logAudit } from "@/lib/audit";
 import { getSessionInfo } from "@/lib/auth";
@@ -16,15 +17,27 @@ type HealthSummary = {
   status: "ok" | "warn" | "degraded";
 };
 
-type WelcomeTile = {
-  title: string;
-  body: string;
-};
-
 const DEFAULT_WELCOME_TILE: WelcomeTile = {
   title: "Willkommen zurück!",
   body: "Schön, dass du da bist. Hier findest du deine freigeschalteten Tools und den Systemstatus.",
+  titleColor: "#f4f4f5",
+  bodyColor: "#a1a1aa",
+  titleSize: 22,
+  bodySize: 14,
 };
+
+const COLOR_PATTERN = /^#([0-9a-fA-F]{3}){1,2}$/;
+
+function normalizeColor(input: string | null | undefined, fallback: string) {
+  if (!input) return fallback;
+  return COLOR_PATTERN.test(input) ? input : fallback;
+}
+
+function normalizeFontSize(input: string | null | undefined, fallback: number, min: number, max: number) {
+  const parsed = Number(input);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
 
 // ===================== WELCOME TILE DEBUG START =====================
 // Aktivieren über Env: DEBUG_WELCOME_TILES=1
@@ -58,7 +71,7 @@ async function getWelcomeTile(): Promise<WelcomeTile> {
 
   const { data, error } = await sb
     .from("dashboard_tiles")
-    .select("title,body")
+    .select("title,body,title_color,body_color,title_size,body_size")
     .eq("id", "welcome")
     .maybeSingle();
 
@@ -79,6 +92,20 @@ async function getWelcomeTile(): Promise<WelcomeTile> {
   return {
     title: data.title ?? DEFAULT_WELCOME_TILE.title,
     body: data.body ?? DEFAULT_WELCOME_TILE.body,
+    titleColor: normalizeColor(data.title_color, DEFAULT_WELCOME_TILE.titleColor),
+    bodyColor: normalizeColor(data.body_color, DEFAULT_WELCOME_TILE.bodyColor),
+    titleSize: normalizeFontSize(
+      data.title_size ? String(data.title_size) : null,
+      DEFAULT_WELCOME_TILE.titleSize,
+      14,
+      40
+    ),
+    bodySize: normalizeFontSize(
+      data.body_size ? String(data.body_size) : null,
+      DEFAULT_WELCOME_TILE.bodySize,
+      12,
+      24
+    ),
   };
 }
 
@@ -104,15 +131,30 @@ async function updateWelcomeTile(formData: FormData) {
 
   const titleInput = String(formData.get("title") ?? "").trim();
   const bodyInput = String(formData.get("body") ?? "").trim();
+  const titleColorInput = String(formData.get("titleColor") ?? "").trim();
+  const bodyColorInput = String(formData.get("bodyColor") ?? "").trim();
+  const titleSizeInput = String(formData.get("titleSize") ?? "").trim();
+  const bodySizeInput = String(formData.get("bodySize") ?? "").trim();
 
   wtDebug("updateWelcomeTile inputs", {
     titleLen: titleInput.length,
     bodyLen: bodyInput.length,
+    titleColor: titleColorInput || null,
+    bodyColor: bodyColorInput || null,
+    titleSize: titleSizeInput || null,
+    bodySize: bodySizeInput || null,
     titlePreview: titleInput.slice(0, 80),
     bodyPreview: bodyInput.slice(0, 80),
   });
 
-  if (!titleInput && !bodyInput) {
+  if (
+    !titleInput &&
+    !bodyInput &&
+    !titleColorInput &&
+    !bodyColorInput &&
+    !titleSizeInput &&
+    !bodySizeInput
+  ) {
     wtDebug("updateWelcomeTile early_return", { reason: "empty_inputs" });
     return;
   }
@@ -120,22 +162,26 @@ async function updateWelcomeTile(formData: FormData) {
   const existing = await getWelcomeTile();
 
   // ===================== WELCOME TILE VERSIONING START =====================
-try {
-  const sbAdmin = createAdminClient();
+  try {
+    const sbAdmin = createAdminClient();
 
-  await sbAdmin.from("dashboard_tile_versions").insert({
-    tile_id: "welcome",
-    title: existing.title,
-    body: existing.body,
-    changed_by: user?.id ?? null,
-  });
-} catch (e) {
-  console.error("[WELCOME_TILE VERSIONING] insert failed", e);
-}
-// ===================== WELCOME TILE VERSIONING END =====================
+    await sbAdmin.from("dashboard_tile_versions").insert({
+      tile_id: "welcome",
+      title: existing.title,
+      body: existing.body,
+      changed_by: user?.id ?? null,
+    });
+  } catch (e) {
+    console.error("[WELCOME_TILE VERSIONING] insert failed", e);
+  }
+  // ===================== WELCOME TILE VERSIONING END =====================
 
   const title = titleInput || existing.title;
   const body = bodyInput || existing.body;
+  const titleColor = normalizeColor(titleColorInput, existing.titleColor);
+  const bodyColor = normalizeColor(bodyColorInput, existing.bodyColor);
+  const titleSize = normalizeFontSize(titleSizeInput, existing.titleSize, 14, 40);
+  const bodySize = normalizeFontSize(bodySizeInput, existing.bodySize, 12, 24);
 
   const sb = createAdminClient();
 
@@ -144,28 +190,39 @@ try {
       id: "welcome",
       title,
       body,
+      title_color: titleColor,
+      body_color: bodyColor,
+      title_size: titleSize,
+      body_size: bodySize,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" }
   );
 
   await logAudit({
-  action: "dashboard_welcome_update",
-  actorUserId: user.id,
-  actorEmail: user.emailAddresses?.[0]?.emailAddress ?? null,
-  target: "dashboard_tiles:welcome",
-  detail: {
-    before: {
-      title: existing.title,
-      body: existing.body,
+    action: "dashboard_welcome_update",
+    actorUserId: user.id,
+    actorEmail: user.emailAddresses?.[0]?.emailAddress ?? null,
+    target: "dashboard_tiles:welcome",
+    detail: {
+      before: {
+        title: existing.title,
+        body: existing.body,
+        titleColor: existing.titleColor,
+        bodyColor: existing.bodyColor,
+        titleSize: existing.titleSize,
+        bodySize: existing.bodySize,
+      },
+      after: {
+        title,
+        body,
+        titleColor,
+        bodyColor,
+        titleSize,
+        bodySize,
+      },
     },
-    after: {
-      title,
-      body,
-    },
-  },
-});
-
+  });
 
   wtDebug("updateWelcomeTile upsert_result", {
     ok: !error,
@@ -177,6 +234,7 @@ try {
   });
 
   revalidatePath("/dashboard");
+  revalidatePath("/");
 }
 
 export default async function DashboardPage() {
@@ -247,96 +305,37 @@ export default async function DashboardPage() {
               </div>
             </>
           )}
+          {isAdmin ? (
+            <>
+              <div className="text-zinc-600 text-xs">----</div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3">
+                <div className="text-xs uppercase tracking-wide text-zinc-500">System-Health</div>
+                <div className="mt-2 flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                  <div className="text-sm text-zinc-200">Status</div>
+                  <span
+                    className={`rounded-lg border px-2 py-0.5 text-xs ${
+                      healthStatus === "ok"
+                        ? "border-green-700 text-green-300 bg-green-900/20"
+                        : "border-amber-600 text-amber-300 bg-amber-900/20"
+                    }`}
+                  >
+                    {healthLabel}
+                  </span>
+                </div>
+                <Link
+                  href="/monitoring"
+                  className="mt-2 inline-flex text-xs text-zinc-300 hover:text-white underline underline-offset-4"
+                >
+                  Zum Monitoring →
+                </Link>
+              </div>
+            </>
+          ) : null}
         </aside>
 
         <div className="grid gap-6 md:grid-cols-2">
-          <div className="card p-6 flex flex-col gap-2">
-            <div className="flex items-start justify-between gap-3">
-              <h2 className="text-xl font-semibold text-zinc-100">{welcomeTile.title}</h2>
-              {isAdmin ? <span className="text-[11px] text-zinc-500">Admin editierbar</span> : null}
-            </div>
-            <p className="text-zinc-400 text-sm leading-relaxed whitespace-pre-wrap">{welcomeTile.body}</p>
-            {isAdmin ? (
-              <form action={updateWelcomeTile} className="mt-3 grid gap-2">
-                <input
-                  name="title"
-                  defaultValue={welcomeTile.title}
-                  className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200"
-                />
-                <textarea
-                  name="body"
-                  defaultValue={welcomeTile.body}
-                  rows={4}
-                  className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200"
-                />
-                <button
-                  type="submit"
-                  className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-900"
-                >
-                  Speichern
-                </button>
-              </form>
-            ) : null}
-          </div>
-
-          {isAdmin ? (
-            <div className="card p-6 flex flex-col gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-zinc-100">System-Health</h3>
-                <p className="text-zinc-400 text-sm leading-relaxed">
-                  Kurzüberblick aus dem Monitoring – nur für Admins.
-                </p>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-                <div className="text-sm text-zinc-200">Status</div>
-                <span
-                  className={`rounded-lg border px-2 py-0.5 text-xs ${
-                    healthStatus === "ok"
-                      ? "border-green-700 text-green-300 bg-green-900/20"
-                      : "border-amber-600 text-amber-300 bg-amber-900/20"
-                  }`}
-                >
-                  {healthLabel}
-                </span>
-              </div>
-              <Link
-                href="/monitoring"
-                className="text-sm text-zinc-200 hover:text-white underline underline-offset-4"
-              >
-                Zum Monitoring →
-              </Link>
-            </div>
-          ) : null}
+          <WelcomeTileCard tile={welcomeTile} isAdmin={isAdmin} onSave={updateWelcomeTile} />
         </div>
-
-        {isAdmin ? (
-          <div className="card p-6 flex flex-col gap-3">
-            <div>
-              <h3 className="text-lg font-semibold text-zinc-100">System-Health</h3>
-              <p className="text-zinc-400 text-sm leading-relaxed">
-                Kurzüberblick aus dem Monitoring – nur für Admins.
-              </p>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-              <div className="text-sm text-zinc-200">Status</div>
-              <span
-                className={`rounded-lg border px-2 py-0.5 text-xs ${
-                  healthStatus === "ok"
-                    ? "border-green-700 text-green-300 bg-green-900/20"
-                    : "border-amber-600 text-amber-300 bg-amber-900/20"
-                }`}
-              >
-                {healthLabel}
-              </span>
-            </div>
-            <Link
-              href="/monitoring"
-              className="text-sm text-zinc-200 hover:text-white underline underline-offset-4"
-            >
-              Zum Monitoring →
-            </Link>
-          </div>
-        ) : null}
       </section>
     </RoleGate>
   );

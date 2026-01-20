@@ -19,8 +19,55 @@ create table if not exists dashboard_tiles (
   id text primary key,
   title text not null,
   body text not null,
+  title_color text not null default '#f4f4f5',
+  body_color text not null default '#a1a1aa',
+  title_size integer not null default 22,
+  body_size integer not null default 14,
   updated_at timestamptz not null default now()
 );
+
+do $$
+begin
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dashboard_tiles'
+      and column_name = 'title_color'
+  ) then
+    alter table dashboard_tiles add column title_color text not null default '#f4f4f5';
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dashboard_tiles'
+      and column_name = 'body_color'
+  ) then
+    alter table dashboard_tiles add column body_color text not null default '#a1a1aa';
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dashboard_tiles'
+      and column_name = 'title_size'
+  ) then
+    alter table dashboard_tiles add column title_size integer not null default 22;
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dashboard_tiles'
+      and column_name = 'body_size'
+  ) then
+    alter table dashboard_tiles add column body_size integer not null default 14;
+  end if;
+end $$;
 
 -- Fallback: Ergänze fehlende ID-Spalte und Primärschlüssel, falls die Tabelle bereits ohne ID existiert
 do $$
