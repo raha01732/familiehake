@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
+import { applyRateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,10 @@ function ymd(date = new Date()) {
 }
 
 export async function POST(req: Request) {
+  // @ts-ignore NextRequest kompatibel: Runtime liefert kompatibles Objekt
+  const rl = await applyRateLimit(req as any, "api:upload");
+  if (rl instanceof NextResponse) return rl;
+
   const { userId } = auth();
   if (!userId) {
     // Wenn der Upload über ein <form> ohne JS kommt, ist ein Redirect UX-freundlicher

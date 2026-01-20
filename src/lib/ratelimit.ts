@@ -1,3 +1,4 @@
+// src/lib/ratelimit.ts
 // Optionaler Upstash-Ratelimiter. Wenn ENV fehlt, wird "allow" zurückgegeben.
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";

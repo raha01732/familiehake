@@ -1,13 +1,19 @@
+// src/app/api/shares/revoke/route.ts
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
 import { getSessionInfo } from "@/lib/auth";
+import { applyRateLimit } from "@/lib/ratelimit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  // @ts-ignore NextRequest kompatibel: Runtime liefert kompatibles Objekt
+  const rl = await applyRateLimit(req as any, "api:shares:revoke");
+  if (rl instanceof NextResponse) return rl;
+
   const { userId } = auth();
   if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
