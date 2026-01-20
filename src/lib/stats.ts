@@ -1,5 +1,6 @@
 // src/lib/stats.ts
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getCachedJson, setCachedJson } from "@/lib/redis";
 import { isShareActive } from "@/lib/share";
 
 type FileMetaRow = {
@@ -71,6 +72,10 @@ function safeReduceBytes(rows: FileMetaRow[]): {
 
 export async function getStorageUsageSummary(): Promise<StorageUsageSummary> {
   try {
+    const cacheKey = "cache:stats:storage";
+    const cached = await getCachedJson<StorageUsageSummary>(cacheKey);
+    if (cached) return cached;
+
     const sb = createAdminClient();
     const [{ data: fileRows }, { data: shareRows }] = await Promise.all([
       sb
@@ -134,7 +139,7 @@ export async function getStorageUsageSummary(): Promise<StorageUsageSummary> {
       };
     });
 
-    return {
+    const summary = {
       totalFiles: base.totalFiles,
       totalBytes: base.totalBytes,
       trashedFiles: base.trashedFiles,
@@ -145,6 +150,8 @@ export async function getStorageUsageSummary(): Promise<StorageUsageSummary> {
       expiringSoon,
       recentShares,
     };
+    await setCachedJson(cacheKey, summary, 60);
+    return summary;
   } catch {
     return {
       totalFiles: 0,
@@ -162,6 +169,10 @@ export async function getStorageUsageSummary(): Promise<StorageUsageSummary> {
 
 export async function getJournalSummary(): Promise<JournalSummary> {
   try {
+    const cacheKey = "cache:stats:journal";
+    const cached = await getCachedJson<JournalSummary>(cacheKey);
+    if (cached) return cached;
+
     const sb = createAdminClient();
     const [{ count }, { data }] = await Promise.all([
       sb.from("journal_entries").select("id", { head: true, count: "exact" }),
@@ -174,10 +185,12 @@ export async function getJournalSummary(): Promise<JournalSummary> {
 
     const lastUpdatedAt = (data?.[0] as JournalRow | undefined)?.updated_at ?? null;
 
-    return {
+    const summary = {
       totalEntries: count ?? 0,
       lastUpdatedAt,
     };
+    await setCachedJson(cacheKey, summary, 60);
+    return summary;
   } catch {
     return {
       totalEntries: 0,

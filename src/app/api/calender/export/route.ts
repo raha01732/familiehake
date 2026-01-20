@@ -1,9 +1,14 @@
-import { NextResponse } from "next/server";
+// src/app/api/calender/export/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { toICS } from "@/lib/ics";
+import { applyRateLimit } from "@/lib/ratelimit";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const rl = await applyRateLimit(req, "api:calender:export");
+  if (rl instanceof NextResponse) return rl;
+
   const { userId } = auth();
   if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
