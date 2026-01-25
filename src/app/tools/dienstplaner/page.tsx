@@ -41,6 +41,12 @@ type DienstplanShift = {
   raw_input: string | null;
 };
 
+type DienstplanPauseRule = {
+  id: number;
+  min_minutes: number;
+  pause_minutes: number;
+};
+
 type DienstplanAvailability = {
   employee_id: number;
   availability_date: string;
@@ -109,7 +115,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     .lte("availability_date", end.toISOString().slice(0, 10));
   const { data: pauseRules } = await sb
     .from("dienstplan_pause_rules")
-    .select("min_minutes, pause_minutes")
+    .select("id, min_minutes, pause_minutes")
     .order("min_minutes");
   const { data: weekdayRequirements } = await sb
     .from("dienstplan_weekday_requirements")
@@ -130,7 +136,10 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     availabilityMap.set(`${entry.employee_id}-${entry.availability_date}`, entry);
   }
 
-  const pauseRuleList = (pauseRules as PauseRule[] | null) ?? [];
+  const pauseRuleList = ((pauseRules as DienstplanPauseRule[] | null) ?? []).map((rule) => ({
+    min_minutes: rule.min_minutes,
+    pause_minutes: rule.pause_minutes,
+  })) satisfies PauseRule[];
   const employeeTotals = new Map<number, number>();
   for (const shift of (shifts as DienstplanShift[] | null) ?? []) {
     const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRuleList);
@@ -157,7 +166,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     <section className="p-6 flex flex-col gap-6">
       <SettingsPanel
         employees={(employees as DienstplanEmployee[] | null) ?? []}
-        pauseRules={(pauseRules as PauseRule[] | null) ?? []}
+        pauseRules={(pauseRules as DienstplanPauseRule[] | null) ?? []}
         weekdayRequirements={(weekdayRequirements as WeekdayRequirement[] | null) ?? []}
         isAdmin={isAdmin}
       />
