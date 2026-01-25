@@ -30,6 +30,7 @@ type DienstplanEmployee = {
   name: string;
   position: string | null;
   monthly_hours: number;
+  user_id: string | null;
 };
 
 type DienstplanShift = {
