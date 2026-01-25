@@ -26,6 +26,12 @@ export const TOOL_LINKS: NavLink[] = [
     description: "Kinovorstellungen Wochenplan",
   },
   {
+    routeKey: "tools/dienstplaner",
+    href: "/tools/dienstplaner",
+    label: "Dienstplaner",
+    description: "Schichten, Mitarbeiter & Monatsplanung",
+  },
+  {
     routeKey: "tools/calender",
     href: "/tools/calender",
     label: "Kalender",
