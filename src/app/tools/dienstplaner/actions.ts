@@ -174,3 +174,80 @@ export async function deletePauseRuleAction(formData: FormData) {
   revalidatePath(SETTINGS_PATH);
   revalidatePath(PLAN_PATH);
 }
+
+export async function saveAvailabilityAction(formData: FormData) {
+  const employeeId = Number(formData.get("employee_id"));
+  const availabilityDate = String(formData.get("availability_date") || "");
+  const status = String(formData.get("status") || "").trim();
+  const fixedStart = String(formData.get("fixed_start") || "").trim();
+  const fixedEnd = String(formData.get("fixed_end") || "").trim();
+  if (!employeeId || !availabilityDate) return;
+
+  const sb = createAdminClient();
+  const normalizedStatus = status || null;
+  const normalizedStart = status === "fix" && fixedStart ? fixedStart : null;
+  const normalizedEnd = status === "fix" && fixedEnd ? fixedEnd : null;
+
+  if (!normalizedStatus && !normalizedStart && !normalizedEnd) {
+    await sb.from("dienstplan_availability").delete().eq("employee_id", employeeId).eq("availability_date", availabilityDate);
+    revalidatePath(PLAN_PATH);
+    return;
+  }
+
+  await sb.from("dienstplan_availability").upsert(
+    {
+      employee_id: employeeId,
+      availability_date: availabilityDate,
+      status: normalizedStatus,
+      fixed_start: normalizedStart,
+      fixed_end: normalizedEnd,
+    },
+    { onConflict: "employee_id,availability_date" }
+  );
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function saveWeekdayRequirementAction(formData: FormData) {
+  const weekday = Number(formData.get("weekday"));
+  const requiredShifts = Number(formData.get("required_shifts"));
+  if (Number.isNaN(weekday) || weekday < 0 || weekday > 6 || Number.isNaN(requiredShifts) || requiredShifts < 0) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_weekday_requirements").upsert(
+    {
+      weekday,
+      required_shifts: requiredShifts,
+    },
+    { onConflict: "weekday" }
+  );
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function saveDateRequirementAction(formData: FormData) {
+  const date = String(formData.get("requirement_date") || "");
+  const requiredShifts = Number(formData.get("required_shifts"));
+  if (!date || Number.isNaN(requiredShifts) || requiredShifts < 0) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_date_requirements").upsert(
+    {
+      requirement_date: date,
+      required_shifts: requiredShifts,
+    },
+    { onConflict: "requirement_date" }
+  );
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function clearDateRequirementAction(formData: FormData) {
+  const date = String(formData.get("requirement_date") || "");
+  if (!date) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_date_requirements").delete().eq("requirement_date", date);
+
+  revalidatePath(PLAN_PATH);
+}
