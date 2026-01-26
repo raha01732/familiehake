@@ -251,3 +251,64 @@ export async function clearDateRequirementAction(formData: FormData) {
 
   revalidatePath(PLAN_PATH);
 }
+
+export async function upsertPositionRequirementAction(formData: FormData) {
+  const requirementDate = String(formData.get("requirement_date") || "").trim();
+  const position = String(formData.get("position") || "").trim();
+  const startTime = String(formData.get("start_time") || "").trim();
+  const endTime = String(formData.get("end_time") || "").trim();
+  const note = String(formData.get("note") || "").trim();
+  const originalPosition = String(formData.get("original_position") || "").trim();
+  const originalStartTime = String(formData.get("original_start_time") || "").trim();
+  const originalEndTime = String(formData.get("original_end_time") || "").trim();
+
+  if (!requirementDate || !position || !startTime || !endTime) return;
+
+  const sb = createAdminClient();
+  const hasOriginalKey = originalPosition && originalStartTime && originalEndTime;
+  const keyChanged =
+    hasOriginalKey &&
+    (originalPosition !== position || originalStartTime !== startTime || originalEndTime !== endTime);
+
+  if (keyChanged) {
+    await sb
+      .from("dienstplan_position_requirements")
+      .delete()
+      .eq("requirement_date", requirementDate)
+      .eq("position", originalPosition)
+      .eq("start_time", originalStartTime)
+      .eq("end_time", originalEndTime);
+  }
+
+  await sb.from("dienstplan_position_requirements").upsert(
+    {
+      requirement_date: requirementDate,
+      position,
+      start_time: startTime,
+      end_time: endTime,
+      note: note || null,
+    },
+    { onConflict: "requirement_date,position,start_time,end_time" }
+  );
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function deletePositionRequirementAction(formData: FormData) {
+  const requirementDate = String(formData.get("requirement_date") || "").trim();
+  const position = String(formData.get("position") || "").trim();
+  const startTime = String(formData.get("start_time") || "").trim();
+  const endTime = String(formData.get("end_time") || "").trim();
+  if (!requirementDate || !position || !startTime || !endTime) return;
+
+  const sb = createAdminClient();
+  await sb
+    .from("dienstplan_position_requirements")
+    .delete()
+    .eq("requirement_date", requirementDate)
+    .eq("position", position)
+    .eq("start_time", startTime)
+    .eq("end_time", endTime);
+
+  revalidatePath(PLAN_PATH);
+}
