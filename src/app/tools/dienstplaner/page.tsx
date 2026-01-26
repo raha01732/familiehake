@@ -4,7 +4,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import AvailabilityInput from "./AvailabilityInput";
-import SettingsPanel from "./SettingsPanel";
+import SettingsPanelToggle from "./SettingsPanelToggle";
 import ShiftInput from "./ShiftInput";
 import {
   bulkSaveShiftsAction,
@@ -164,12 +164,6 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
 
   return (
     <section className="p-6 flex flex-col gap-6">
-      <SettingsPanel
-        employees={(employees as DienstplanEmployee[] | null) ?? []}
-        pauseRules={(pauseRules as DienstplanPauseRule[] | null) ?? []}
-        weekdayRequirements={(weekdayRequirements as WeekdayRequirement[] | null) ?? []}
-        isAdmin={isAdmin}
-      />
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -218,6 +212,12 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
           )}
         </div>
       </header>
+      <SettingsPanelToggle
+        employees={(employees as DienstplanEmployee[] | null) ?? []}
+        pauseRules={(pauseRules as DienstplanPauseRule[] | null) ?? []}
+        weekdayRequirements={(weekdayRequirements as WeekdayRequirement[] | null) ?? []}
+        isAdmin={isAdmin}
+      />
 
       <div className="overflow-x-auto border border-zinc-800 rounded-xl">
         <table className="min-w-max w-full text-sm text-zinc-200">

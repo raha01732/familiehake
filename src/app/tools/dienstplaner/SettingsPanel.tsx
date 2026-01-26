@@ -59,7 +59,7 @@ export default function SettingsPanel({
   const isReadOnly = !isAdmin;
 
   return (
-    <div className="relative sticky top-6 z-20">
+    <div className="relative">
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 backdrop-blur p-6 flex flex-col gap-8 shadow-xl">
         <header className="flex flex-col gap-2">
           <h2 className="text-xl font-semibold text-zinc-100">Einstellungen</h2>
