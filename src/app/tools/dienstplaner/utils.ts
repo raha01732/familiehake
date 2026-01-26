@@ -4,20 +4,6 @@ export type PauseRule = {
   pause_minutes: number;
 };
 
-type ParsedShift = {
-  rawInput: string;
-  startTime: string | null;
-  endTime: string | null;
-};
-
-const TIME_RANGE_REGEX = /^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/;
-
-function normalizeTime(hours: number, minutes: number) {
-  const safeHours = Math.min(Math.max(hours, 0), 23);
-  const safeMinutes = Math.min(Math.max(minutes, 0), 59);
-  return `${String(safeHours).padStart(2, "0")}:${String(safeMinutes).padStart(2, "0")}`;
-}
-
 function parseTimeValue(value: string) {
   const [hoursStr, minutesStr] = value.split(":");
   const hours = Number(hoursStr);
@@ -25,39 +11,6 @@ function parseTimeValue(value: string) {
   if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
   return { hours, minutes };
-}
-
-export function parseShiftInput(value: string): ParsedShift | null {
-  const rawInput = value.trim();
-  if (!rawInput) return null;
-
-  const match = rawInput.match(TIME_RANGE_REGEX);
-  if (!match) {
-    return { rawInput, startTime: null, endTime: null };
-  }
-
-  const startHours = Number(match[1]);
-  const startMinutes = Number(match[2]);
-  const endHours = Number(match[3]);
-  const endMinutes = Number(match[4]);
-
-  if ([startHours, startMinutes, endHours, endMinutes].some((val) => Number.isNaN(val))) {
-    return { rawInput, startTime: null, endTime: null };
-  }
-
-  const startTime = normalizeTime(startHours, startMinutes);
-  const endTime = normalizeTime(endHours, endMinutes);
-
-  return { rawInput, startTime, endTime };
-}
-
-export function formatShiftValue(startTime: string | null, endTime: string | null, rawInput?: string | null) {
-  if (rawInput?.trim()) return rawInput;
-  if (!startTime || !endTime) return "";
-
-  const normalizedStart = startTime.slice(0, 5);
-  const normalizedEnd = endTime.slice(0, 5);
-  return `${normalizedStart}-${normalizedEnd}`;
 }
 
 export function calculateShiftMinutes(
