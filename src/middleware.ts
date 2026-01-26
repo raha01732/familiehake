@@ -95,7 +95,7 @@ const fallbackMiddleware = (req: NextRequest) => {
   return withSecurityHeaders(NextResponse.next());
 };
 
-const clerkEnabledMiddleware = clerkMiddleware((auth, req) => {
+const clerkEnabledMiddleware = clerkMiddleware(async (auth, req) => {
   const preview = handlePreviewProtection(req);
   if (preview) return withSecurityHeaders(preview);
 
@@ -106,7 +106,8 @@ const clerkEnabledMiddleware = clerkMiddleware((auth, req) => {
     return withSecurityHeaders(NextResponse.next());
   }
 
-  auth().protect();
+  const authState = await auth();
+  authState.protect();
 
   return withSecurityHeaders(NextResponse.next());
 });
