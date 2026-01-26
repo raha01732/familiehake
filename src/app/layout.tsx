@@ -3,6 +3,7 @@ import React from "react";
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import CommandMenu from "@/components/CommandMenu";
 import Header from "@/components/Header";
@@ -79,6 +80,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           shell
         )}
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
