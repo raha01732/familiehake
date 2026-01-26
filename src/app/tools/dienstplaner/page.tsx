@@ -10,9 +10,11 @@ import {
   bulkSaveShiftsAction,
   clearDateRequirementAction,
   clearMonthAction,
+  deletePositionRequirementAction,
   saveAvailabilityAction,
   saveDateRequirementAction,
   saveShiftAction,
+  upsertPositionRequirementAction,
 } from "./actions";
 import {
   calculateShiftMinutes,
@@ -65,6 +67,14 @@ type DateRequirement = {
   required_shifts: number;
 };
 
+type PositionRequirement = {
+  requirement_date: string;
+  position: string;
+  start_time: string;
+  end_time: string;
+  note: string | null;
+};
+
 function getMonthFromSearch(searchParams?: { month?: string }) {
   const now = new Date();
   const param = searchParams?.month;
@@ -86,6 +96,11 @@ function buildDaysInMonth(date: Date) {
     days.push(new Date(Date.UTC(year, month, day)));
   }
   return { start, end, days };
+}
+
+function toTimeInputValue(value: string | null) {
+  if (!value) return "";
+  return value.length >= 5 ? value.slice(0, 5) : value;
 }
 
 export default async function DienstplanerPage({ searchParams }: { searchParams?: { month?: string } }) {
@@ -125,6 +140,12 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     .select("requirement_date, required_shifts")
     .gte("requirement_date", start.toISOString().slice(0, 10))
     .lte("requirement_date", end.toISOString().slice(0, 10));
+  const { data: positionRequirements } = await sb
+    .from("dienstplan_position_requirements")
+    .select("requirement_date, position, start_time, end_time, note")
+    .gte("requirement_date", start.toISOString().slice(0, 10))
+    .lte("requirement_date", end.toISOString().slice(0, 10))
+    .order("start_time");
 
   const shiftMap = new Map<string, DienstplanShift>();
   for (const shift of (shifts as DienstplanShift[] | null) ?? []) {
@@ -160,6 +181,13 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
   const dateRequirementMap = new Map<string, number>();
   for (const rule of (dateRequirements as DateRequirement[] | null) ?? []) {
     dateRequirementMap.set(rule.requirement_date, rule.required_shifts);
+  }
+
+  const positionRequirementMap = new Map<string, PositionRequirement[]>();
+  for (const requirement of (positionRequirements as PositionRequirement[] | null) ?? []) {
+    const list = positionRequirementMap.get(requirement.requirement_date) ?? [];
+    list.push(requirement);
+    positionRequirementMap.set(requirement.requirement_date, list);
   }
 
   return (
@@ -224,6 +252,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
           <thead className="text-xs text-zinc-400 uppercase bg-zinc-900/60">
             <tr>
               <th className="py-3 px-4 text-left">Datum</th>
+              <th className="py-3 px-4 text-left min-w-[260px]">Bemerkung/Bedarf</th>
               {(employees as DienstplanEmployee[] | null)?.map((employee) => (
                 <th key={employee.id} className="py-3 px-4 text-left min-w-[160px]">
                   <div className="font-semibold text-zinc-100">{employee.name}</div>
@@ -242,6 +271,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
               let dayTotalMinutes = 0;
               const requiredShifts =
                 dateRequirementMap.get(dateKey) ?? weekdayRequirementMap.get(day.getUTCDay()) ?? 0;
+              const positionRequirementsForDay = positionRequirementMap.get(dateKey) ?? [];
 
               return (
                 <tr key={dateKey} className="border-t border-zinc-800 align-top">
@@ -274,6 +304,97 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                     </details>
                     <div className="text-[11px] text-zinc-500 mt-2">
                       Bedarf: {requiredShifts} Schicht{requiredShifts === 1 ? "" : "en"}
+                    </div>
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="flex flex-col gap-3">
+                      {positionRequirementsForDay.map((requirement) => (
+                        <div
+                          key={`${requirement.position}-${requirement.start_time}-${requirement.end_time}`}
+                          className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2"
+                        >
+                          <form action={upsertPositionRequirementAction} className="flex flex-col gap-2">
+                            <input type="hidden" name="requirement_date" value={dateKey} />
+                            <input type="hidden" name="original_position" value={requirement.position} />
+                            <input type="hidden" name="original_start_time" value={requirement.start_time} />
+                            <input type="hidden" name="original_end_time" value={requirement.end_time} />
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                name="position"
+                                defaultValue={requirement.position}
+                                placeholder="Position"
+                                className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                              />
+                              <input
+                                name="note"
+                                defaultValue={requirement.note ?? ""}
+                                placeholder="Bemerkung"
+                                className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                name="start_time"
+                                type="time"
+                                defaultValue={toTimeInputValue(requirement.start_time)}
+                                className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                              />
+                              <input
+                                name="end_time"
+                                type="time"
+                                defaultValue={toTimeInputValue(requirement.end_time)}
+                                className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button type="submit" className="text-[11px] text-emerald-400 hover:text-emerald-300">
+                                Speichern
+                              </button>
+                            </div>
+                          </form>
+                          <form action={deletePositionRequirementAction} className="mt-1">
+                            <input type="hidden" name="requirement_date" value={dateKey} />
+                            <input type="hidden" name="position" value={requirement.position} />
+                            <input type="hidden" name="start_time" value={requirement.start_time} />
+                            <input type="hidden" name="end_time" value={requirement.end_time} />
+                            <button type="submit" className="text-[11px] text-amber-400 hover:text-amber-300">
+                              Eintrag löschen
+                            </button>
+                          </form>
+                        </div>
+                      ))}
+                      <div className="rounded-lg border border-dashed border-zinc-800 p-2">
+                        <form action={upsertPositionRequirementAction} className="flex flex-col gap-2">
+                          <input type="hidden" name="requirement_date" value={dateKey} />
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              name="position"
+                              placeholder="Position"
+                              className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                            />
+                            <input
+                              name="note"
+                              placeholder="Bemerkung"
+                              className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              name="start_time"
+                              type="time"
+                              className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                            />
+                            <input
+                              name="end_time"
+                              type="time"
+                              className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                            />
+                          </div>
+                          <button type="submit" className="text-[11px] text-emerald-400 hover:text-emerald-300">
+                            Bedarf hinzufügen
+                          </button>
+                        </form>
+                      </div>
                     </div>
                   </td>
                   {(employees as DienstplanEmployee[] | null)?.map((employee) => {
@@ -325,6 +446,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
             })}
             <tr className="border-t border-zinc-800 bg-zinc-900/60">
               <td className="py-3 px-4 text-zinc-300 font-medium">Monatssumme</td>
+              <td className="py-3 px-4" />
               {(employees as DienstplanEmployee[] | null)?.map((employee) => {
                 const totalMinutes = employeeTotals.get(employee.id) ?? 0;
                 return (

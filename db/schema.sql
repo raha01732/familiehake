@@ -207,6 +207,18 @@ create table if not exists dienstplan_shifts (
   unique (employee_id, shift_date)
 );
 
+-- Dienstplaner: Positionsbezogener Tagesbedarf
+create table if not exists dienstplan_position_requirements (
+  requirement_date date not null,
+  position text not null,
+  start_time time not null,
+  end_time time not null,
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (requirement_date, position, start_time, end_time)
+);
+
 -- Dienstplaner: Verfügbarkeiten
 create table if not exists dienstplan_availability (
   employee_id bigint not null references dienstplan_employees(id) on delete cascade,
