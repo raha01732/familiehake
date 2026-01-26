@@ -73,7 +73,7 @@ async function getHealth(): Promise<HealthPayload | null> {
 
 async function fetchAuditEvents(): Promise<AuditEvent[]> {
   try {
-    const sb = createClient();
+    const sb = await createClient();
     const { data } = await sb
       .from("audit_events")
       .select("ts, action, actor_email, target, detail")
