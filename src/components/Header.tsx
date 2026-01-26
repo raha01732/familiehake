@@ -22,7 +22,7 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
   if (!clerkEnabled) {
     return (
       <header className="sticky top-0 z-[520] border-b border-white/10 bg-slate-950/60 backdrop-blur-2xl">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-4">
+        <div className="mx-auto w-full max-w-[1800px] px-4 py-4 flex items-center gap-4">
           <Link href="/" className="group inline-flex items-center gap-2 text-sm font-semibold tracking-tight text-slate-100">
             <span className="h-9 w-9 rounded-2xl bg-gradient-to-br from-cyan-400/80 to-sky-600/90 grid place-items-center shadow-lg shadow-cyan-500/20 transition group-hover:scale-105">
               FH
@@ -58,7 +58,7 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
 
   return (
     <header className="sticky top-0 z-[520] border-b border-white/10 bg-slate-950/60 backdrop-blur-2xl">
-      <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-4">
+      <div className="mx-auto w-full max-w-[1800px] px-4 py-4 flex items-center gap-4">
         <Link href="/" className="group inline-flex items-center gap-2 text-sm font-semibold tracking-tight text-slate-100">
           <span className="h-9 w-9 rounded-2xl bg-gradient-to-br from-cyan-400/80 to-sky-600/90 grid place-items-center shadow-lg shadow-cyan-500/20 transition group-hover:scale-105">
             FH

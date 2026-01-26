@@ -64,7 +64,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <>
       <div className="absolute inset-0 -z-10 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-20" aria-hidden />
       <Header clerkEnabled={isClerkEnabled} signInUrl={clerkSignInUrl} />
-      <main className="max-w-6xl mx-auto w-full px-4 pb-16 pt-8">{children}</main>
+      <main className="mx-auto w-full max-w-[1800px] px-4 pb-16 pt-8">{children}</main>
       {isClerkEnabled ? <CommandMenu /> : null}
     </>
   );
