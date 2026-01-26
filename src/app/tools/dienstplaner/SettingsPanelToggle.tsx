@@ -53,16 +53,31 @@ export default function SettingsPanelToggle({
           {isOpen ? "Einstellungen schließen" : "Einstellungen öffnen"}
         </button>
       </div>
-      {isOpen && (
-        <div id={panelId}>
-          <SettingsPanel
-            employees={employees}
-            pauseRules={pauseRules}
-            weekdayRequirements={weekdayRequirements}
-            isAdmin={isAdmin}
-          />
+      {isOpen ? (
+        <div className="fixed inset-0 z-[100]" id={panelId}>
+          <div className="absolute inset-0 bg-black/60" />
+          <div className="relative mx-auto mt-24 w-full max-w-lg card p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <div className="text-sm font-semibold text-zinc-100">Einstellungen bearbeiten</div>
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="text-xs rounded-lg border border-zinc-700 text-zinc-300 px-2 py-1 hover:bg-zinc-800/60"
+              >
+                Schließen
+              </button>
+            </div>
+            <div className="p-5">
+              <SettingsPanel
+                employees={employees}
+                pauseRules={pauseRules}
+                weekdayRequirements={weekdayRequirements}
+                isAdmin={isAdmin}
+              />
+            </div>
+          </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
