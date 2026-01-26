@@ -1,4 +1,4 @@
-// src/app/api/files/get/route.ts
+// /workspace/familiehake/src/app/api/files/get/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "supabase not configured" });
   }
 
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
   const path = new URL(req.url).searchParams.get("path");

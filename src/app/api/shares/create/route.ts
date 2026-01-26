@@ -1,4 +1,4 @@
-// src/app/api/shares/create/route.ts
+// /workspace/familiehake/src/app/api/shares/create/route.ts
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     // Wenn applyRateLimit eine NextResponse (429) zurückgegeben hat:
     if (rl instanceof NextResponse) return rl;
 
-    const { userId } = auth();
+    const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     }

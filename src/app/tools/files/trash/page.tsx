@@ -1,6 +1,6 @@
-/**src/app/tools/files/trash/page.tsx**/
+// /workspace/familiehake/src/app/tools/files/trash/page.tsx
 
-import  RoleGate from "@/components/RoleGate";
+import RoleGate from "@/components/RoleGate";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -37,7 +37,7 @@ function fmtSize(bytes: number) {
 
 async function restoreFileAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
   const id = formData.get("id") as string;
   if (!id) return;
@@ -57,7 +57,7 @@ async function restoreFileAction(formData: FormData) {
 
 async function hardDeleteFileAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
   const id = formData.get("id") as string;
   if (!id) return;
@@ -88,7 +88,7 @@ async function hardDeleteFileAction(formData: FormData) {
 
 async function restoreFolderAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
   const folderId = formData.get("folderId") as string;
   if (!folderId) return;
@@ -108,7 +108,7 @@ async function restoreFolderAction(formData: FormData) {
 
 async function hardDeleteFolderAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
   const folderId = formData.get("folderId") as string;
   if (!folderId) return;
@@ -137,7 +137,7 @@ async function hardDeleteFolderAction(formData: FormData) {
 /* ======= Page ======= */
 
 export default async function TrashPage() {
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) {
     return (
       <RoleGate routeKey="tools/files">

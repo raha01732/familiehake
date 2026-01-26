@@ -1,3 +1,4 @@
+// /workspace/familiehake/src/app/tools/files/page.tsx
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
@@ -137,7 +138,7 @@ async function listSharesForFiles(userId: string, fileIds: string[]) {
 
 async function createFolderAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
   const name = (formData.get("name") as string)?.trim();
   const parentId = (formData.get("parentId") as string) || null;
@@ -160,7 +161,7 @@ async function createFolderAction(formData: FormData) {
 
 async function renameFolderAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
   const folderId = String(formData.get("folderId") || "");
   const name = (formData.get("name") as string)?.trim();
@@ -185,7 +186,7 @@ async function renameFolderAction(formData: FormData) {
 
 async function moveFolderAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
   const folderId = String(formData.get("folderId") || "");
   const destId = (String(formData.get("destId") || "") || null) as string | null;
@@ -209,7 +210,7 @@ async function moveFolderAction(formData: FormData) {
 
 async function softDeleteFolderAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
   const folderId = String(formData.get("folderId") || "");
   if (!folderId) return;
@@ -237,7 +238,7 @@ async function softDeleteFolderAction(formData: FormData) {
 
 async function moveFileAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
   const fileId = String(formData.get("fileId") || "");
   const destId = (String(formData.get("destId") || "") || null) as string | null;
@@ -262,7 +263,7 @@ async function moveFileAction(formData: FormData) {
 
 async function softDeleteFileAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
   const id = String(formData.get("id") || "");
   if (!id) return;
@@ -292,7 +293,7 @@ async function softDeleteFileAction(formData: FormData) {
 
 async function hardDeleteFileAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
 
   const id = String(formData.get("id") || "");
@@ -325,7 +326,7 @@ async function hardDeleteFileAction(formData: FormData) {
 
 async function createShareAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
 
   const fileId = String(formData.get("fileId") || "");
@@ -394,7 +395,7 @@ async function createShareAction(formData: FormData) {
 
 async function revokeShareAction(formData: FormData) {
   "use server";
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return;
 
   const shareId = String(formData.get("shareId") || "");
@@ -427,7 +428,7 @@ async function revokeShareAction(formData: FormData) {
 /* ======================== Page ======================== */
 
 export default async function FilesPage({ searchParams }: { searchParams?: { folder?: string } }) {
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) {
     return (
       <RoleGate routeKey="tools/files">
