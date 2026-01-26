@@ -1,3 +1,4 @@
+// /workspace/familiehake/src/app/tools/system/page.tsx
 import RoleGate from "@/components/RoleGate";
 import { env } from "@/lib/env";
 import { fetchSentryStats } from "@/lib/sentry-metrics";
@@ -7,7 +8,7 @@ export const metadata = { title: "Systemübersicht" };
 
 async function getHealth() {
   try {
-    const h = headers();
+    const h = await headers();
     const host = h.get("x-forwarded-host") ?? h.get("host");
     const proto = h.get("x-forwarded-proto") ?? "https";
     if (!host) return null;

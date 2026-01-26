@@ -1,4 +1,4 @@
-// src/app/monitoring/page.tsx
+// /workspace/familiehake/src/app/monitoring/page.tsx
 import RoleGate from "@/components/RoleGate";
 import { getPermissionOverview } from "@/lib/access-db";
 import { ACCESS_LABELS } from "@/lib/rbac";
@@ -54,7 +54,7 @@ type SentryStats = Awaited<ReturnType<typeof fetchSentryStats>>;
 
 async function getHealth(): Promise<HealthPayload | null> {
   try {
-    const h = headers();
+    const h = await headers();
     const host = h.get("x-forwarded-host") ?? h.get("host");
     const proto = h.get("x-forwarded-proto") ?? "https";
     if (!host) return null;
