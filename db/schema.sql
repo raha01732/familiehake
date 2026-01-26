@@ -207,6 +207,105 @@ create table if not exists dienstplan_shifts (
   unique (employee_id, shift_date)
 );
 
+-- Dienstplaner: Verfügbarkeiten
+create table if not exists dienstplan_availability (
+  employee_id bigint not null references dienstplan_employees(id) on delete cascade,
+  availability_date date not null,
+  status text default null,
+  fixed_start time,
+  fixed_end time,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (employee_id, availability_date)
+);
+
+-- Dienstplaner: Anforderungen pro Wochentag
+create table if not exists dienstplan_weekday_requirements (
+  weekday smallint not null,
+  required_shifts integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (weekday)
+);
+
+-- Dienstplaner: Anforderungen pro Datum
+create table if not exists dienstplan_date_requirements (
+  requirement_date date not null,
+  required_shifts integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (requirement_date)
+);
+
+-- Fallbacks: Primärschlüssel und Defaults ergänzen
+do $$
+begin
+  if not exists (
+    select 1
+    from information_schema.table_constraints tc
+    join information_schema.key_column_usage kcu
+      on tc.constraint_name = kcu.constraint_name
+     and tc.table_schema = kcu.table_schema
+     and tc.table_name = kcu.table_name
+    where tc.table_schema = 'public'
+      and tc.table_name = 'dienstplan_availability'
+      and tc.constraint_type = 'PRIMARY KEY'
+      and kcu.column_name in ('employee_id', 'availability_date')
+  ) then
+    alter table dienstplan_availability add primary key (employee_id, availability_date);
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dienstplan_weekday_requirements'
+      and column_name = 'required_shifts'
+  ) then
+    alter table dienstplan_weekday_requirements add column required_shifts integer not null default 0;
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.table_constraints tc
+    join information_schema.key_column_usage kcu
+      on tc.constraint_name = kcu.constraint_name
+     and tc.table_schema = kcu.table_schema
+     and tc.table_name = kcu.table_name
+    where tc.table_schema = 'public'
+      and tc.table_name = 'dienstplan_weekday_requirements'
+      and tc.constraint_type = 'PRIMARY KEY'
+      and kcu.column_name = 'weekday'
+  ) then
+    alter table dienstplan_weekday_requirements add primary key (weekday);
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dienstplan_date_requirements'
+      and column_name = 'required_shifts'
+  ) then
+    alter table dienstplan_date_requirements add column required_shifts integer not null default 0;
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.table_constraints tc
+    join information_schema.key_column_usage kcu
+      on tc.constraint_name = kcu.constraint_name
+     and tc.table_schema = kcu.table_schema
+     and tc.table_name = kcu.table_name
+    where tc.table_schema = 'public'
+      and tc.table_name = 'dienstplan_date_requirements'
+      and tc.constraint_type = 'PRIMARY KEY'
+      and kcu.column_name = 'requirement_date'
+  ) then
+    alter table dienstplan_date_requirements add primary key (requirement_date);
+  end if;
+end $$;
+
 -- Basisrollen anlegen/aktualisieren (User + Admin)
 insert into roles (name, label, rank, is_superadmin)
 values
