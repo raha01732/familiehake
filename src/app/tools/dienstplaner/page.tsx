@@ -18,7 +18,6 @@ import {
   formatDateLabel,
   formatMinutesAsHours,
   formatMonthLabel,
-  formatShiftValue,
   type PauseRule,
 } from "./utils";
 
@@ -37,7 +36,6 @@ type DienstplanShift = {
   shift_date: string;
   start_time: string | null;
   end_time: string | null;
-  raw_input: string | null;
 };
 
 type DienstplanPauseRule = {
@@ -112,7 +110,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
   const { data: employees } = await sb.from("dienstplan_employees").select("*").order("name");
   const { data: shifts } = await sb
     .from("dienstplan_shifts")
-    .select("employee_id, shift_date, start_time, end_time, raw_input")
+    .select("employee_id, shift_date, start_time, end_time")
     .gte("shift_date", start.toISOString().slice(0, 10))
     .lte("shift_date", end.toISOString().slice(0, 10));
   const { data: availability } = await sb
@@ -281,12 +279,6 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                       dayTotalMinutes += summary.workMinutes;
                     }
 
-                    const cellValue = formatShiftValue(
-                      shift?.start_time ?? null,
-                      shift?.end_time ?? null,
-                      shift?.raw_input ?? null
-                    );
-
                     return (
                       <td key={`${employee.id}-${dateKey}`} className="py-3 px-4">
                         <AvailabilityInput
@@ -298,9 +290,10 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                           saveAction={saveAvailabilityAction}
                         />
                         <ShiftInput
-                          name={`shift:${employee.id}:${dateKey}`}
+                          baseName={`shift:${employee.id}:${dateKey}`}
                           label={`${employee.name} am ${dateKey}`}
-                          initialValue={cellValue}
+                          initialStart={shift?.start_time ? shift.start_time.slice(0, 5) : ""}
+                          initialEnd={shift?.end_time ? shift.end_time.slice(0, 5) : ""}
                           employeeId={employee.id}
                           date={dateKey}
                           formId="bulk-save"

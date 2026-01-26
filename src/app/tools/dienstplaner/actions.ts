@@ -3,7 +3,6 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { parseShiftInput } from "./utils";
 
 const PLAN_PATH = "/tools/dienstplaner";
 const SETTINGS_PATH = "/tools/dienstplaner/settings";
@@ -24,13 +23,12 @@ function getMonthRange(month: string) {
 export async function saveShiftAction(formData: FormData) {
   const employeeId = Number(formData.get("employee_id"));
   const shiftDate = String(formData.get("shift_date") || "");
-  const value = String(formData.get("value") || "");
+  const startTime = String(formData.get("start_time") || "").trim();
+  const endTime = String(formData.get("end_time") || "").trim();
   if (!employeeId || !shiftDate) return;
 
   const sb = createAdminClient();
-  const parsed = parseShiftInput(value);
-
-  if (!parsed) {
+  if (!startTime || !endTime) {
     await sb.from("dienstplan_shifts").delete().eq("employee_id", employeeId).eq("shift_date", shiftDate);
     revalidatePath(PLAN_PATH);
     return;
@@ -40,9 +38,9 @@ export async function saveShiftAction(formData: FormData) {
     {
       employee_id: employeeId,
       shift_date: shiftDate,
-      start_time: parsed.startTime,
-      end_time: parsed.endTime,
-      raw_input: parsed.rawInput,
+      start_time: startTime,
+      end_time: endTime,
+      raw_input: null,
     },
     { onConflict: "employee_id,shift_date" }
   );
@@ -53,27 +51,38 @@ export async function saveShiftAction(formData: FormData) {
 export async function bulkSaveShiftsAction(formData: FormData) {
   const sb = createAdminClient();
   const entries = Array.from(formData.entries());
+  const shiftEntries = new Map<string, { employeeId: number; date: string; startTime: string; endTime: string }>();
 
   for (const [key, rawValue] of entries) {
     if (!key.startsWith("shift:")) continue;
-    const [, employeeIdStr, date] = key.split(":");
+    const [, employeeIdStr, date, field] = key.split(":");
     const employeeId = Number(employeeIdStr);
-    const value = String(rawValue || "");
-    if (!employeeId || !date) continue;
+    if (!employeeId || !date || (field !== "start" && field !== "end")) continue;
+    const value = String(rawValue || "").trim();
+    const entryKey = `${employeeId}-${date}`;
+    const entry = shiftEntries.get(entryKey) ?? { employeeId, date, startTime: "", endTime: "" };
+    if (field === "start") {
+      entry.startTime = value;
+    }
+    if (field === "end") {
+      entry.endTime = value;
+    }
+    shiftEntries.set(entryKey, entry);
+  }
 
-    const parsed = parseShiftInput(value);
-    if (!parsed) {
-      await sb.from("dienstplan_shifts").delete().eq("employee_id", employeeId).eq("shift_date", date);
+  for (const entry of shiftEntries.values()) {
+    if (!entry.startTime || !entry.endTime) {
+      await sb.from("dienstplan_shifts").delete().eq("employee_id", entry.employeeId).eq("shift_date", entry.date);
       continue;
     }
 
     await sb.from("dienstplan_shifts").upsert(
       {
-        employee_id: employeeId,
-        shift_date: date,
-        start_time: parsed.startTime,
-        end_time: parsed.endTime,
-        raw_input: parsed.rawInput,
+        employee_id: entry.employeeId,
+        shift_date: entry.date,
+        start_time: entry.startTime,
+        end_time: entry.endTime,
+        raw_input: null,
       },
       { onConflict: "employee_id,shift_date" }
     );
