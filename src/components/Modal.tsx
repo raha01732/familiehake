@@ -1,9 +1,7 @@
+// src/components/Modal.tsx
 "use client";
 
-import { useEffect } from "react";
-import React from "react";
-
-
+import React, { useEffect } from "react";
 export function Modal({
   open,
   onClose,
@@ -28,7 +26,7 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative card w-full max-w-lg p-0 overflow-hidden">
+      <div className="relative card w-[min(100%-2rem,960px)] max-w-none p-0 overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
           <div className="text-sm font-semibold text-zinc-100">{title ?? "Bearbeiten"}</div>
           <button
