@@ -1,4 +1,4 @@
-// src/app/admin/users/page.tsx
+// /workspace/familiehake/src/app/admin/users/page.tsx
 
 import RoleGate from "@/components/RoleGate";
 import { clerkClient, auth } from "@clerk/nextjs/server";
@@ -185,7 +185,7 @@ async function assertRoleAssignmentAllowed(
   desiredRoleIds: number[],
   rolesCatalog: DbRole[]
 ) {
-  const { userId: actorId } = auth();
+  const { userId: actorId } = await auth();
   if (!actorId) throw new Error("Forbidden: not authenticated");
 
   const client = await clerkClient();
@@ -360,7 +360,7 @@ async function createUserAction(formData: FormData): Promise<void> {
 
   const rolesCatalog = await fetchRoles();
   const userRole = rolesCatalog.find((role) => role.name === "user");
-  const { userId: actorId } = auth();
+  const { userId: actorId } = await auth();
   const actorAssignments = actorId ? await fetchAssignments([actorId], rolesCatalog) : {};
   const actorRoles = actorAssignments[actorId ?? ""] ?? [];
   const actorIsPrimarySuper = actorId === env().PRIMARY_SUPERADMIN_ID;
@@ -513,7 +513,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
   const roleFilter = (searchParams?.role ?? "all").toLowerCase();
   const editId = searchParams?.edit;
 
-  const { userId: actorId } = auth();
+  const { userId: actorId } = await auth();
   const actorAssignments = actorId ? await fetchAssignments([actorId], rolesCatalog) : {};
   const actorRoles = actorAssignments[actorId ?? ""] ?? [];
   const actorIsPrimarySuper = actorId === env().PRIMARY_SUPERADMIN_ID;
