@@ -1,4 +1,4 @@
-// src/app/dashboard/page.tsx
+// /workspace/familiehake/src/app/dashboard/page.tsx
 import RoleGate from "@/components/RoleGate";
 import WelcomeTileCard, { WelcomeTile } from "@/components/dashboard/WelcomeTileCard";
 import { currentUser } from "@clerk/nextjs/server";
@@ -53,7 +53,7 @@ function wtDebug(tag: string, payload?: Record<string, any>) {
 
 async function getHealthSummary(): Promise<HealthSummary | null> {
   try {
-    const h = headers();
+    const h = await headers();
     const host = h.get("x-forwarded-host") ?? h.get("host");
     const proto = h.get("x-forwarded-proto") ?? "https";
     if (!host) return null;
