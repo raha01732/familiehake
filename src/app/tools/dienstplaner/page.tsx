@@ -4,17 +4,14 @@ import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import AvailabilityInput from "./AvailabilityInput";
+import DayRequirementCell from "./DayRequirementCell";
 import SettingsPanelToggle from "./SettingsPanelToggle";
 import ShiftInput from "./ShiftInput";
 import {
   bulkSaveShiftsAction,
-  clearDateRequirementAction,
   clearMonthAction,
-  deletePositionRequirementAction,
   saveAvailabilityAction,
-  saveDateRequirementAction,
   saveShiftAction,
-  upsertPositionRequirementAction,
 } from "./actions";
 import {
   calculateShiftMinutes,
@@ -96,11 +93,6 @@ function buildDaysInMonth(date: Date) {
     days.push(new Date(Date.UTC(year, month, day)));
   }
   return { start, end, days };
-}
-
-function toTimeInputValue(value: string | null) {
-  if (!value) return "";
-  return value.length >= 5 ? value.slice(0, 5) : value;
 }
 
 export default async function DienstplanerPage({ searchParams }: { searchParams?: { month?: string } }) {
@@ -275,128 +267,12 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
 
               return (
                 <tr key={dateKey} className="border-t border-zinc-800 align-top">
-                  <td className="py-3 px-4 text-zinc-300 whitespace-nowrap">
-                    <details className="group">
-                      <summary className="cursor-pointer list-none">
-                        <span className="font-medium">{formatDateLabel(day)}</span>
-                      </summary>
-                      <div className="mt-2 flex flex-col gap-2 text-[11px] text-zinc-400">
-                        <form action={saveDateRequirementAction} className="flex items-center gap-2">
-                          <input type="hidden" name="requirement_date" value={dateKey} />
-                          <input
-                            name="required_shifts"
-                            type="number"
-                            min="0"
-                            defaultValue={requiredShifts}
-                            className="w-16 bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
-                          />
-                          <button type="submit" className="text-[11px] text-emerald-400 hover:text-emerald-300">
-                            Bedarf speichern
-                          </button>
-                        </form>
-                        <form action={clearDateRequirementAction}>
-                          <input type="hidden" name="requirement_date" value={dateKey} />
-                          <button type="submit" className="text-[11px] text-amber-400 hover:text-amber-300">
-                            Auf Grundregel zurücksetzen
-                          </button>
-                        </form>
-                      </div>
-                    </details>
-                    <div className="text-[11px] text-zinc-500 mt-2">
-                      Bedarf: {requiredShifts} Schicht{requiredShifts === 1 ? "" : "en"}
-                    </div>
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="flex flex-col gap-3">
-                      {positionRequirementsForDay.map((requirement) => (
-                        <div
-                          key={`${requirement.position}-${requirement.start_time}-${requirement.end_time}`}
-                          className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2"
-                        >
-                          <form action={upsertPositionRequirementAction} className="flex flex-col gap-2">
-                            <input type="hidden" name="requirement_date" value={dateKey} />
-                            <input type="hidden" name="original_position" value={requirement.position} />
-                            <input type="hidden" name="original_start_time" value={requirement.start_time} />
-                            <input type="hidden" name="original_end_time" value={requirement.end_time} />
-                            <div className="grid grid-cols-2 gap-2">
-                              <input
-                                name="position"
-                                defaultValue={requirement.position}
-                                placeholder="Position"
-                                className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
-                              />
-                              <input
-                                name="note"
-                                defaultValue={requirement.note ?? ""}
-                                placeholder="Bemerkung"
-                                className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
-                              />
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              <input
-                                name="start_time"
-                                type="time"
-                                defaultValue={toTimeInputValue(requirement.start_time)}
-                                className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
-                              />
-                              <input
-                                name="end_time"
-                                type="time"
-                                defaultValue={toTimeInputValue(requirement.end_time)}
-                                className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
-                              />
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button type="submit" className="text-[11px] text-emerald-400 hover:text-emerald-300">
-                                Speichern
-                              </button>
-                            </div>
-                          </form>
-                          <form action={deletePositionRequirementAction} className="mt-1">
-                            <input type="hidden" name="requirement_date" value={dateKey} />
-                            <input type="hidden" name="position" value={requirement.position} />
-                            <input type="hidden" name="start_time" value={requirement.start_time} />
-                            <input type="hidden" name="end_time" value={requirement.end_time} />
-                            <button type="submit" className="text-[11px] text-amber-400 hover:text-amber-300">
-                              Eintrag löschen
-                            </button>
-                          </form>
-                        </div>
-                      ))}
-                      <div className="rounded-lg border border-dashed border-zinc-800 p-2">
-                        <form action={upsertPositionRequirementAction} className="flex flex-col gap-2">
-                          <input type="hidden" name="requirement_date" value={dateKey} />
-                          <div className="grid grid-cols-2 gap-2">
-                            <input
-                              name="position"
-                              placeholder="Position"
-                              className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
-                            />
-                            <input
-                              name="note"
-                              placeholder="Bemerkung"
-                              className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
-                            />
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <input
-                              name="start_time"
-                              type="time"
-                              className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
-                            />
-                            <input
-                              name="end_time"
-                              type="time"
-                              className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
-                            />
-                          </div>
-                          <button type="submit" className="text-[11px] text-emerald-400 hover:text-emerald-300">
-                            Bedarf hinzufügen
-                          </button>
-                        </form>
-                      </div>
-                    </div>
-                  </td>
+                  <DayRequirementCell
+                    dateKey={dateKey}
+                    dateLabel={formatDateLabel(day)}
+                    requiredShifts={requiredShifts}
+                    positionRequirementsForDay={positionRequirementsForDay}
+                  />
                   {(employees as DienstplanEmployee[] | null)?.map((employee) => {
                     const shift = shiftMap.get(`${employee.id}-${dateKey}`);
                     const availabilityEntry = availabilityMap.get(`${employee.id}-${dateKey}`);
