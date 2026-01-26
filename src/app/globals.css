@@ -64,10 +64,16 @@
     border-color: hsl(var(--border));
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
   }
 }
 
 .card {
-  @apply bg-slate-950/70 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl text-slate-100;
+  background-color: rgb(2 6 23 / 0.7);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 1rem;
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  color: rgb(241 245 249);
 }
