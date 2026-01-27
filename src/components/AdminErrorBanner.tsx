@@ -44,6 +44,7 @@ const createId = () => {
 
 export default function AdminErrorBanner({ isAdmin }: AdminErrorBannerProps) {
   const [errors, setErrors] = useState<LoggedError[]>([]);
+  const [expanded, setExpanded] = useState(false);
   const lastSignatureRef = useRef<string | null>(null);
   const lastTimestampRef = useRef<number>(0);
 
@@ -177,24 +178,37 @@ export default function AdminErrorBanner({ isAdmin }: AdminErrorBannerProps) {
   if (!isAdmin || !hasErrors) return null;
 
   return (
-    <div className="sticky top-0 z-[600] w-full bg-red-950/90 px-4 py-3 text-red-50 shadow-lg shadow-red-950/30 backdrop-blur">
+    <div className="sticky top-0 z-[600] w-full border-b border-red-500/40 bg-red-950/90 px-4 py-3 text-red-50 shadow-lg shadow-red-950/30 backdrop-blur">
       <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-3">
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold">Admin-Fehlerprotokoll</p>
-            <p className="text-xs text-red-200">Es werden alle Fehlermeldungen dieser Sitzung angezeigt.</p>
+            <p className="text-xs text-red-200">
+              {errors.length} Fehler in dieser Sitzung {expanded ? "sichtbar" : "vorhanden"}.
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setErrors([])}
-            className="rounded-full border border-red-300/60 px-3 py-1 text-xs text-red-100 hover:border-red-200 hover:text-red-50"
-          >
-            Liste leeren
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setExpanded((prev) => !prev)}
+              className="rounded-full border border-red-300/60 px-3 py-1 text-xs text-red-100 hover:border-red-200 hover:text-red-50"
+            >
+              {expanded ? "Details ausblenden" : "Details anzeigen"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setErrors([])}
+              className="rounded-full border border-red-300/60 px-3 py-1 text-xs text-red-100 hover:border-red-200 hover:text-red-50"
+            >
+              Liste leeren
+            </button>
+          </div>
         </div>
-        <ul className="divide-y divide-red-500/30 rounded-lg border border-red-500/40 bg-red-950/60 px-3">
-          {renderedErrors}
-        </ul>
+        {expanded ? (
+          <ul className="divide-y divide-red-500/30 rounded-lg border border-red-500/40 bg-red-950/60 px-3">
+            {renderedErrors}
+          </ul>
+        ) : null}
       </div>
     </div>
   );
