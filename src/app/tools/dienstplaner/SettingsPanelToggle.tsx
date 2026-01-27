@@ -18,15 +18,32 @@ type PauseRule = {
   pause_minutes: number;
 };
 
+type ShiftTrack = {
+  track_key: string;
+  label: string;
+  start_time: string;
+  end_time: string;
+};
+
 type WeekdayRequirement = {
   weekday: number;
   required_shifts: number;
+};
+
+type WeekdayPositionRequirement = {
+  id: number;
+  weekday: number;
+  track_key: string;
+  position: string;
+  note: string | null;
 };
 
 type SettingsPanelToggleProps = {
   employees: DienstplanEmployee[];
   pauseRules: PauseRule[];
   weekdayRequirements: WeekdayRequirement[];
+  shiftTracks: ShiftTrack[];
+  weekdayPositionRequirements: WeekdayPositionRequirement[];
   isAdmin: boolean;
 };
 
@@ -34,6 +51,8 @@ export default function SettingsPanelToggle({
   employees,
   pauseRules,
   weekdayRequirements,
+  shiftTracks,
+  weekdayPositionRequirements,
   isAdmin,
 }: SettingsPanelToggleProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -56,7 +75,7 @@ export default function SettingsPanelToggle({
       {isOpen ? (
         <div className="fixed inset-0 z-[100]" id={panelId}>
           <div className="absolute inset-0 bg-black/60" />
-          <div className="relative mx-auto mt-24 w-full max-w-lg card p-0 overflow-hidden">
+          <div className="relative mx-auto mt-16 w-[min(96vw,1120px)] max-w-5xl card p-0 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
               <div className="text-sm font-semibold text-zinc-100">Einstellungen bearbeiten</div>
               <button
@@ -72,6 +91,8 @@ export default function SettingsPanelToggle({
                 employees={employees}
                 pauseRules={pauseRules}
                 weekdayRequirements={weekdayRequirements}
+                shiftTracks={shiftTracks}
+                weekdayPositionRequirements={weekdayPositionRequirements}
                 isAdmin={isAdmin}
               />
             </div>

@@ -234,6 +234,69 @@ export async function saveWeekdayRequirementAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
+export async function saveShiftTrackAction(formData: FormData) {
+  const trackKey = String(formData.get("track_key") || "").trim();
+  const startTime = String(formData.get("start_time") || "").trim();
+  const endTime = String(formData.get("end_time") || "").trim();
+  if (!trackKey || !startTime || !endTime) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_shift_tracks").update({ start_time: startTime, end_time: endTime }).eq("track_key", trackKey);
+
+  revalidatePath(PLAN_PATH);
+  revalidatePath(SETTINGS_PATH);
+}
+
+export async function createWeekdayPositionRequirementAction(formData: FormData) {
+  const weekday = Number(formData.get("weekday"));
+  const trackKey = String(formData.get("track_key") || "").trim();
+  const position = String(formData.get("position") || "").trim();
+  const note = String(formData.get("note") || "").trim();
+  if (Number.isNaN(weekday) || weekday < 0 || weekday > 6 || !trackKey || !position) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_weekday_position_requirements").insert({
+    weekday,
+    track_key: trackKey,
+    position,
+    note: note || null,
+  });
+
+  revalidatePath(PLAN_PATH);
+  revalidatePath(SETTINGS_PATH);
+}
+
+export async function updateWeekdayPositionRequirementAction(formData: FormData) {
+  const id = Number(formData.get("id"));
+  const weekday = Number(formData.get("weekday"));
+  const trackKey = String(formData.get("track_key") || "").trim();
+  const position = String(formData.get("position") || "").trim();
+  const note = String(formData.get("note") || "").trim();
+  if (!id || Number.isNaN(weekday) || weekday < 0 || weekday > 6 || !trackKey || !position) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_weekday_position_requirements").update({
+    weekday,
+    track_key: trackKey,
+    position,
+    note: note || null,
+  }).eq("id", id);
+
+  revalidatePath(PLAN_PATH);
+  revalidatePath(SETTINGS_PATH);
+}
+
+export async function deleteWeekdayPositionRequirementAction(formData: FormData) {
+  const id = Number(formData.get("id"));
+  if (!id) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_weekday_position_requirements").delete().eq("id", id);
+
+  revalidatePath(PLAN_PATH);
+  revalidatePath(SETTINGS_PATH);
+}
+
 export async function saveDateRequirementAction(formData: FormData) {
   const date = String(formData.get("requirement_date") || "");
   const requiredShifts = Number(formData.get("required_shifts"));
@@ -267,6 +330,7 @@ export async function upsertPositionRequirementAction(formData: FormData) {
   const startTime = String(formData.get("start_time") || "").trim();
   const endTime = String(formData.get("end_time") || "").trim();
   const note = String(formData.get("note") || "").trim();
+  const trackKey = String(formData.get("track_key") || "").trim();
   const originalPosition = String(formData.get("original_position") || "").trim();
   const originalStartTime = String(formData.get("original_start_time") || "").trim();
   const originalEndTime = String(formData.get("original_end_time") || "").trim();
@@ -296,6 +360,7 @@ export async function upsertPositionRequirementAction(formData: FormData) {
       start_time: startTime,
       end_time: endTime,
       note: note || null,
+      track_key: trackKey || null,
     },
     { onConflict: "requirement_date,position,start_time,end_time" }
   );
@@ -318,6 +383,68 @@ export async function deletePositionRequirementAction(formData: FormData) {
     .eq("position", position)
     .eq("start_time", startTime)
     .eq("end_time", endTime);
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function clearPositionRequirementsAction(formData: FormData) {
+  const requirementDate = String(formData.get("requirement_date") || "").trim();
+  if (!requirementDate) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_position_requirements").delete().eq("requirement_date", requirementDate);
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function applyWeekdayDefaultsToDateAction(formData: FormData) {
+  const requirementDate = String(formData.get("requirement_date") || "").trim();
+  if (!requirementDate) return;
+
+  const date = new Date(`${requirementDate}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return;
+  const weekday = date.getUTCDay();
+
+  const sb = createAdminClient();
+  const { data: weekdayDefaults } = await sb
+    .from("dienstplan_weekday_position_requirements")
+    .select("weekday, track_key, position, note")
+    .eq("weekday", weekday);
+  const { data: shiftTracks } = await sb.from("dienstplan_shift_tracks").select("track_key, start_time, end_time");
+
+  const trackMap = new Map(
+    ((shiftTracks as { track_key: string; start_time: string; end_time: string }[] | null) ?? []).map((track) => [
+      track.track_key,
+      track,
+    ])
+  );
+
+  const inserts = ((weekdayDefaults as { track_key: string; position: string; note: string | null }[] | null) ?? [])
+    .map((entry) => {
+      const track = trackMap.get(entry.track_key);
+      if (!track) return null;
+      return {
+        requirement_date: requirementDate,
+        position: entry.position,
+        start_time: track.start_time,
+        end_time: track.end_time,
+        note: entry.note ?? null,
+        track_key: entry.track_key,
+      };
+    })
+    .filter(Boolean) as {
+    requirement_date: string;
+    position: string;
+    start_time: string;
+    end_time: string;
+    note: string | null;
+    track_key: string;
+  }[];
+
+  await sb.from("dienstplan_position_requirements").delete().eq("requirement_date", requirementDate);
+  if (inserts.length > 0) {
+    await sb.from("dienstplan_position_requirements").insert(inserts);
+  }
 
   revalidatePath(PLAN_PATH);
 }
