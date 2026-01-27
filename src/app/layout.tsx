@@ -33,7 +33,7 @@ const isClerkEnabled = Boolean(clerkPublishableKey);
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = isClerkEnabled ? await getSessionInfo() : null;
   const user = isClerkEnabled ? await currentUser() : null;
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const presetFromCookie = cookieStore.get(THEME_PRESET_COOKIE)?.value ?? null;
   const activeTheme =
     getThemePresetById(presetFromCookie) ?? (await getActiveTheme(user?.id ?? null));
