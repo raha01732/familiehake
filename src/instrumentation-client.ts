@@ -64,7 +64,6 @@ if (posthogKey) {
     autocapture: true,
     session_recording: {
       maskAllInputs: true,
-      maskAllText: false,
       blockClass: "ph-no-capture",
       maskTextClass: "ph-mask",
     },
