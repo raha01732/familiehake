@@ -1,6 +1,7 @@
+// /workspace/familiehake/src/app/tools/journal/page.tsx
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/browser";
 import { useAuth } from "@clerk/nextjs";
 
@@ -13,13 +14,14 @@ type Row = {
 };
 
 export default function JournalPage() {
-  const sb = createClient();
+  const sb = useMemo(() => createClient(), []);
   const { userId } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, startSaving] = useTransition();
 
   useEffect(() => {
+    if (!sb) return;
     (async () => {
       const { data } = await sb
         .from("journal_entries")
@@ -31,6 +33,7 @@ export default function JournalPage() {
   }, [sb]);
 
   async function createEntry() {
+    if (!sb) return;
     const title = `Eintrag ${new Date().toLocaleDateString()}`;
     const { data, error } = await sb
       .from("journal_entries")
@@ -47,6 +50,7 @@ export default function JournalPage() {
   }
 
   async function saveRow(row: Row) {
+    if (!sb) return;
     startSaving(async () => {
       await sb
         .from("journal_entries")
