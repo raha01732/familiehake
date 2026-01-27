@@ -1,4 +1,4 @@
-// src/app/api/calender/export/route.ts
+// /workspace/familiehake/src/app/api/calender/export/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const rl = await applyRateLimit(req, "api:calender:export");
   if (rl instanceof NextResponse) return rl;
 
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
   const sb = createAdminClient();

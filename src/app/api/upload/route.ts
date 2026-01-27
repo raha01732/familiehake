@@ -1,4 +1,4 @@
-/**src/app/api/upload/route.ts**/
+// /workspace/familiehake/src/app/api/upload/route.ts
 
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   const rl = await applyRateLimit(req as any, "api:upload");
   if (rl instanceof NextResponse) return rl;
 
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) {
     // Wenn der Upload über ein <form> ohne JS kommt, ist ein Redirect UX-freundlicher
     return NextResponse.redirect(new URL("/", req.url), 302);

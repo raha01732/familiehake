@@ -1,4 +1,4 @@
-// src/app/api/shares/revoke/route.ts
+// /workspace/familiehake/src/app/api/shares/revoke/route.ts
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const rl = await applyRateLimit(req as any, "api:shares:revoke");
   if (rl instanceof NextResponse) return rl;
 
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
   const { isSuperAdmin } = await getSessionInfo();
