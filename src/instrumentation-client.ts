@@ -1,9 +1,10 @@
+// /workspace/familiehake/src/instrumentation-client.ts
 // This file configures the initialization of Sentry on the client.
 // The added config here will be used whenever a users loads a page in their browser.
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
-import posthog from 'posthog-js';
+import posthog from "posthog-js";
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -53,7 +54,24 @@ Sentry.init({
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
 
-posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
-  api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-  defaults: '2025-11-30'
-})
+const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://app.posthog.com";
+
+if (posthogKey) {
+  posthog.init(posthogKey, {
+    api_host: posthogHost,
+    capture_pageview: false,
+    autocapture: true,
+    session_recording: {
+      maskAllInputs: true,
+      maskAllText: false,
+      blockClass: "ph-no-capture",
+      maskTextClass: "ph-mask",
+    },
+    loaded: (posthogClient) => {
+      posthogClient.register({
+        stack: ["Supabase", "Clerk", "Upstash", "Sentry", "Vercel"],
+      });
+    },
+  });
+}
