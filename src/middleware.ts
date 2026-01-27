@@ -113,10 +113,13 @@ const clerkEnabledMiddleware = clerkMiddleware(async (auth, req) => {
 
   // ✅ FIX: protect() gibt es bei deinem auth()-Typ nicht.
   // Stattdessen: wenn nicht eingeloggt -> redirect to sign-in
-  const { userId } = auth();
-  if (!userId) {
-    return withSecurityHeaders(auth().redirectToSignIn({ returnBackUrl: req.url }));
-  }
+  const authState = await auth();
+const userId = authState.userId;
+
+if (!userId) {
+  return withSecurityHeaders(authState.redirectToSignIn({ returnBackUrl: req.url }));
+}
+
 
   return withSecurityHeaders(NextResponse.next());
 });
