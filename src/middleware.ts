@@ -2,6 +2,7 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { Buffer } from "buffer";
 
 /** Öffentliche Routen (ohne Login erreichbar) */
 const isPublicRoute = createRouteMatcher([
@@ -10,6 +11,9 @@ const isPublicRoute = createRouteMatcher([
   "/sign-up(.*)",
   "/api/health",
   "/api/keepalive",
+
+  // ✅ wichtig: Sentry-Tunnel muss öffentlich sein, sonst 500/redirect beim Feedback
+  "/api/sentry-tunnel",
 ]);
 
 const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
@@ -55,6 +59,7 @@ function withSecurityHeaders(res: NextResponse) {
       "style-src 'self' 'unsafe-inline';",
       "font-src 'self' data:;",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de;",
+      // Hinweis: 'self' deckt deinen Tunnel /api/sentry-tunnel ab
       "connect-src 'self' https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de https://*.supabase.co https://*.ingest.sentry.io;",
       "frame-ancestors 'none';",
       "frame-src https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de;",
@@ -106,8 +111,12 @@ const clerkEnabledMiddleware = clerkMiddleware(async (auth, req) => {
     return withSecurityHeaders(NextResponse.next());
   }
 
-  const authState = await auth();
-  authState.protect();
+  // ✅ FIX: protect() gibt es bei deinem auth()-Typ nicht.
+  // Stattdessen: wenn nicht eingeloggt -> redirect to sign-in
+  const { userId } = auth();
+  if (!userId) {
+    return withSecurityHeaders(auth().redirectToSignIn({ returnBackUrl: req.url }));
+  }
 
   return withSecurityHeaders(NextResponse.next());
 });
