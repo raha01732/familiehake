@@ -2,10 +2,10 @@
 "use client";
 
 import * as Sentry from "@sentry/nextjs";
-import Error from "next/error";
+import NextError from "next/error";
 import { useEffect } from "react";
 
-export default function GlobalError({ error }: { error: Error }) {
+export default function GlobalError({ error }: { error: Error & { digest?: string } }) {
   useEffect(() => {
     Sentry.captureException(error);
     void fetch("/api/errors/critical", {
@@ -26,7 +26,7 @@ export default function GlobalError({ error }: { error: Error }) {
   return (
     <html>
       <body>
-        <Error statusCode={0} />
+        <NextError statusCode={0} />
       </body>
     </html>
   );
