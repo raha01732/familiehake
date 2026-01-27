@@ -1,6 +1,7 @@
+// /workspace/familiehake/src/app/tools/calender/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/browser";
 
@@ -14,11 +15,12 @@ type Row = {
 };
 
 export default function CalendarPage() {
-  const sb = createClient();
+  const sb = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<Row[]>([]);
   const [form, setForm] = useState<Partial<Row>>({ title: "", starts_at: "", ends_at: "", location: "", description: "" });
 
   useEffect(() => {
+    if (!sb) return;
     (async () => {
       const { data } = await sb
         .from("calendar_events")
@@ -29,6 +31,7 @@ export default function CalendarPage() {
   }, [sb]);
 
   async function addEvent() {
+    if (!sb) return;
     if (!form.title || !form.starts_at || !form.ends_at) return;
     const { data } = await sb
       .from("calendar_events")
