@@ -13,6 +13,7 @@ export type ThemePreset = {
 const THEME_CACHE_TTL_SECONDS = 60 * 60 * 6;
 const USER_THEME_CACHE_TTL_SECONDS = 60 * 60 * 12;
 const DEFAULT_PRESET_ID = "dark";
+export const THEME_PRESET_COOKIE = "themePreset";
 
 const FALLBACK_PRESETS: ThemePreset[] = [
   {
@@ -54,25 +55,25 @@ const FALLBACK_PRESETS: ThemePreset[] = [
     label: "Hell",
     description: "Helles Layout mit klaren Oberflächen und weichen Akzenten.",
     cssVars: {
-      "--background": "210 40% 98%",
-      "--foreground": "222 47% 12%",
+      "--background": "210 50% 98%",
+      "--foreground": "222 40% 10%",
       "--card": "0 0% 100%",
-      "--card-foreground": "222 47% 12%",
+      "--card-foreground": "222 40% 12%",
       "--popover": "210 40% 99%",
-      "--popover-foreground": "222 47% 12%",
-      "--primary": "199 89% 40%",
+      "--popover-foreground": "222 40% 12%",
+      "--primary": "196 88% 38%",
       "--primary-foreground": "210 40% 8%",
-      "--secondary": "210 30% 92%",
-      "--secondary-foreground": "222 47% 12%",
-      "--muted": "210 28% 94%",
-      "--muted-foreground": "215 18% 40%",
-      "--accent": "189 90% 40%",
+      "--secondary": "210 24% 90%",
+      "--secondary-foreground": "222 40% 12%",
+      "--muted": "210 24% 92%",
+      "--muted-foreground": "215 20% 32%",
+      "--accent": "186 88% 40%",
       "--accent-foreground": "210 40% 10%",
       "--destructive": "0 72% 50%",
       "--destructive-foreground": "0 0% 98%",
-      "--border": "214 25% 85%",
-      "--input": "214 25% 88%",
-      "--ring": "199 89% 40%",
+      "--border": "214 20% 80%",
+      "--input": "214 20% 86%",
+      "--ring": "196 88% 38%",
       "--chart-1": "199 89% 48%",
       "--chart-2": "170 72% 44%",
       "--chart-3": "31 89% 61%",
@@ -196,4 +197,9 @@ export function getThemeCssVars(preset: ThemePreset) {
 
 export function getThemeValue(preset: ThemePreset, key: string, fallback: string) {
   return preset.cssVars[key] ?? fallback;
+}
+
+export function getThemePresetById(presetId?: string | null) {
+  if (!presetId) return null;
+  return FALLBACK_PRESETS.find((preset) => preset.id === presetId) ?? null;
 }

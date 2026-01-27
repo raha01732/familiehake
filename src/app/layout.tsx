@@ -11,7 +11,8 @@ import AdminErrorBanner from "@/components/AdminErrorBanner";
 import * as Sentry from '@sentry/nextjs';
 import { getSessionInfo } from "@/lib/auth";
 import { currentUser } from "@clerk/nextjs/server";
-import { getActiveTheme, getThemeCssVars, getThemeValue } from "@/lib/theme";
+import { cookies } from "next/headers";
+import { getActiveTheme, getThemeCssVars, getThemePresetById, getThemeValue, THEME_PRESET_COOKIE } from "@/lib/theme";
 
 export function generateMetadata(): Metadata {
   return {
@@ -32,7 +33,10 @@ const isClerkEnabled = Boolean(clerkPublishableKey);
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = isClerkEnabled ? await getSessionInfo() : null;
   const user = isClerkEnabled ? await currentUser() : null;
-  const activeTheme = await getActiveTheme(user?.id ?? null);
+  const cookieStore = cookies();
+  const presetFromCookie = cookieStore.get(THEME_PRESET_COOKIE)?.value ?? null;
+  const activeTheme =
+    getThemePresetById(presetFromCookie) ?? (await getActiveTheme(user?.id ?? null));
   const themeVars = getThemeCssVars(activeTheme);
   const clerkAppearance = {
     variables: {
