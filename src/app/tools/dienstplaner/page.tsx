@@ -57,6 +57,21 @@ type WeekdayRequirement = {
   required_shifts: number;
 };
 
+type ShiftTrack = {
+  track_key: string;
+  label: string;
+  start_time: string;
+  end_time: string;
+};
+
+type WeekdayPositionRequirement = {
+  id: number;
+  weekday: number;
+  track_key: string;
+  position: string;
+  note: string | null;
+};
+
 type DateRequirement = {
   requirement_date: string;
   required_shifts: number;
@@ -65,6 +80,7 @@ type DateRequirement = {
 type PositionRequirement = {
   requirement_date: string;
   position: string;
+  track_key: string | null;
   start_time: string;
   end_time: string;
   note: string | null;
@@ -130,9 +146,18 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     .select("requirement_date, required_shifts")
     .gte("requirement_date", start.toISOString().slice(0, 10))
     .lte("requirement_date", end.toISOString().slice(0, 10));
+  const { data: shiftTracks } = await sb
+    .from("dienstplan_shift_tracks")
+    .select("track_key, label, start_time, end_time")
+    .order("track_key");
+  const { data: weekdayPositionRequirements } = await sb
+    .from("dienstplan_weekday_position_requirements")
+    .select("id, weekday, track_key, position, note")
+    .order("weekday")
+    .order("track_key");
   const { data: positionRequirements } = await sb
     .from("dienstplan_position_requirements")
-    .select("requirement_date, position, start_time, end_time, note")
+    .select("requirement_date, position, track_key, start_time, end_time, note")
     .gte("requirement_date", start.toISOString().slice(0, 10))
     .lte("requirement_date", end.toISOString().slice(0, 10))
     .order("start_time");
@@ -171,6 +196,13 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
   const dateRequirementMap = new Map<string, number>();
   for (const rule of (dateRequirements as DateRequirement[] | null) ?? []) {
     dateRequirementMap.set(rule.requirement_date, rule.required_shifts);
+  }
+
+  const weekdayPositionRequirementMap = new Map<number, WeekdayPositionRequirement[]>();
+  for (const requirement of (weekdayPositionRequirements as WeekdayPositionRequirement[] | null) ?? []) {
+    const list = weekdayPositionRequirementMap.get(requirement.weekday) ?? [];
+    list.push(requirement);
+    weekdayPositionRequirementMap.set(requirement.weekday, list);
   }
 
   const positionRequirementMap = new Map<string, PositionRequirement[]>();
@@ -234,6 +266,8 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
         employees={(employees as DienstplanEmployee[] | null) ?? []}
         pauseRules={(pauseRules as DienstplanPauseRule[] | null) ?? []}
         weekdayRequirements={(weekdayRequirements as WeekdayRequirement[] | null) ?? []}
+        shiftTracks={(shiftTracks as ShiftTrack[] | null) ?? []}
+        weekdayPositionRequirements={(weekdayPositionRequirements as WeekdayPositionRequirement[] | null) ?? []}
         isAdmin={isAdmin}
       />
 
@@ -241,8 +275,8 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
         <table className="min-w-max w-full text-sm text-zinc-200">
           <thead className="text-xs text-zinc-400 uppercase bg-zinc-900/60">
             <tr>
-              <th className="py-3 px-4 text-left">Datum</th>
-              <th className="py-3 px-4 text-left min-w-[260px]">Bemerkung/Bedarf</th>
+              <th className="py-3 pl-4 pr-2 text-left w-[190px]">Datum</th>
+              <th className="py-3 pl-2 pr-4 text-left min-w-[220px]">Bemerkung/Bedarf</th>
               {(employees as DienstplanEmployee[] | null)?.map((employee) => (
                 <th key={employee.id} className="py-3 px-4 text-left min-w-[160px]">
                   <div className="font-semibold text-zinc-100">{employee.name}</div>
@@ -262,6 +296,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
               const requiredShifts =
                 dateRequirementMap.get(dateKey) ?? weekdayRequirementMap.get(day.getUTCDay()) ?? 0;
               const positionRequirementsForDay = positionRequirementMap.get(dateKey) ?? [];
+              const weekdayPositionDefaults = weekdayPositionRequirementMap.get(day.getUTCDay()) ?? [];
 
               return (
                 <tr key={dateKey} className="border-t border-zinc-800 align-top">
@@ -270,6 +305,8 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                     dateLabel={formatDateLabel(day)}
                     requiredShifts={requiredShifts}
                     positionRequirementsForDay={positionRequirementsForDay}
+                    shiftTracks={(shiftTracks as ShiftTrack[] | null) ?? []}
+                    weekdayPositionRequirements={weekdayPositionDefaults}
                   />
                   {(employees as DienstplanEmployee[] | null)?.map((employee) => {
                     const shift = shiftMap.get(`${employee.id}-${dateKey}`);
