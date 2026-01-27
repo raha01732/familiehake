@@ -1,4 +1,4 @@
-// src/app/layout.tsx
+// /workspace/familiehake/src/app/layout.tsx
 import React from "react";
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
@@ -61,12 +61,17 @@ const isClerkEnabled = Boolean(clerkPublishableKey);
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const shell = (
-    <>
-      <div className="absolute inset-0 -z-10 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-20" aria-hidden />
+    <div className="relative flex min-h-screen flex-col">
+      <div
+        className="pointer-events-none absolute inset-0 -z-10 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-20"
+        aria-hidden
+      />
       <Header clerkEnabled={isClerkEnabled} signInUrl={clerkSignInUrl} />
-      <main className="mx-auto w-full max-w-[1800px] px-4 pb-16 pt-8">{children}</main>
+      <main className="mx-auto flex w-full max-w-[1800px] flex-1 flex-col px-4 pb-16 pt-8">
+        {children}
+      </main>
       {isClerkEnabled ? <CommandMenu /> : null}
-    </>
+    </div>
   );
 
   return (

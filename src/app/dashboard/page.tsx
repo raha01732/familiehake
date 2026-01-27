@@ -266,11 +266,11 @@ export default async function DashboardPage() {
 
   return (
     <RoleGate routeKey="dashboard">
-      <section className="grid gap-6 lg:grid-cols-[240px_1fr]">
-        <aside className="card p-4 flex flex-col gap-4">
-          <div>
+      <section className="grid items-start gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="card flex flex-col gap-5 p-4 lg:sticky lg:top-24">
+          <div className="space-y-3">
             <div className="text-xs uppercase tracking-wide text-zinc-500">Tools</div>
-            <nav className="mt-2 flex flex-col gap-1">
+            <nav className="flex flex-col gap-1">
               {toolLinks.length === 0 ? (
                 <span className="text-xs text-zinc-500">Keine Tools freigeschaltet</span>
               ) : (
@@ -288,10 +288,10 @@ export default async function DashboardPage() {
           </div>
           {adminLinks.length > 0 && (
             <>
-              <div className="text-zinc-600 text-xs">----</div>
-              <div>
+              <div className="h-px w-full bg-white/10" aria-hidden />
+              <div className="space-y-3">
                 <div className="text-xs uppercase tracking-wide text-zinc-500">Admin</div>
-                <nav className="mt-2 flex flex-col gap-1">
+                <nav className="flex flex-col gap-1">
                   {adminLinks.map((link) => (
                     <Link
                       key={link.routeKey}
@@ -307,10 +307,10 @@ export default async function DashboardPage() {
           )}
           {isAdmin ? (
             <>
-              <div className="text-zinc-600 text-xs">----</div>
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3">
+              <div className="h-px w-full bg-white/10" aria-hidden />
+              <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-950/70 p-3">
                 <div className="text-xs uppercase tracking-wide text-zinc-500">System-Health</div>
-                <div className="mt-2 flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
                   <div className="text-sm text-zinc-200">Status</div>
                   <span
                     className={`rounded-lg border px-2 py-0.5 text-xs ${
@@ -324,7 +324,7 @@ export default async function DashboardPage() {
                 </div>
                 <Link
                   href="/monitoring"
-                  className="mt-2 inline-flex text-xs text-zinc-300 hover:text-white underline underline-offset-4"
+                  className="inline-flex text-xs text-zinc-300 underline underline-offset-4 hover:text-white"
                 >
                   Zum Monitoring →
                 </Link>
