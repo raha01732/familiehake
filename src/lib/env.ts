@@ -1,4 +1,4 @@
-// src/lib/env.ts
+// /workspace/familiehake/src/lib/env.ts
 import { z } from "zod";
 const schema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url(),
@@ -18,6 +18,8 @@ const schema = z.object({
   SENTRY_PROJECT_SLUG: z.string().optional(),
   UPSTASH_REDIS_REST_URL: z.string().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+  NEXT_PUBLIC_POSTHOG_KEY: z.string().optional(),
+  NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
 });
 
 type Env = z.infer<typeof schema>;

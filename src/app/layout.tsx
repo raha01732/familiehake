@@ -8,6 +8,7 @@ import "./globals.css";
 import CommandMenu from "@/components/CommandMenu";
 import Header from "@/components/Header";
 import AdminErrorBanner from "@/components/AdminErrorBanner";
+import PostHogProvider from "@/components/PostHogProvider";
 import * as Sentry from '@sentry/nextjs';
 import { getSessionInfo } from "@/lib/auth";
 import { currentUser } from "@clerk/nextjs/server";
@@ -91,6 +92,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       {isClerkEnabled ? <CommandMenu /> : null}
     </div>
   );
+  const analyticsShell = <PostHogProvider>{shell}</PostHogProvider>;
 
   return (
     <html
@@ -101,10 +103,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="min-h-screen antialiased bg-[radial-gradient(circle_at_20%_20%,rgba(var(--accent-glow-1),0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(var(--accent-glow-2),0.12),transparent_40%),radial-gradient(circle_at_50%_60%,rgba(var(--accent-glow-3),0.18),transparent_45%)]">
         {isClerkEnabled ? (
           <ClerkProvider appearance={clerkAppearance} publishableKey={clerkPublishableKey} signInUrl={clerkSignInUrl}>
-            {shell}
+            {analyticsShell}
           </ClerkProvider>
         ) : (
-          shell
+          analyticsShell
         )}
         <Analytics />
         <SpeedInsights />
