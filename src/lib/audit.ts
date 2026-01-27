@@ -1,3 +1,4 @@
+// /workspace/familiehake/src/lib/audit.ts
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -34,6 +35,9 @@ export const AUDIT_ACTIONS = [
 
   // Dashboard
   "dashboard_welcome_update",
+
+  // Errors
+  "critical_error",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

@@ -7,7 +7,9 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import CommandMenu from "@/components/CommandMenu";
 import Header from "@/components/Header";
+import AdminErrorBanner from "@/components/AdminErrorBanner";
 import * as Sentry from '@sentry/nextjs';
+import { getSessionInfo } from "@/lib/auth";
 
 export function generateMetadata(): Metadata {
   return {
@@ -59,13 +61,18 @@ const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const clerkSignInUrl = "https://accounts.familiehake.de/sign-in";
 const isClerkEnabled = Boolean(clerkPublishableKey);
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const session = isClerkEnabled ? await getSessionInfo() : null;
+  const isAdmin = Boolean(
+    session && session.signedIn && (session.isSuperAdmin || session.roles.some((role) => role.name === "admin"))
+  );
   const shell = (
     <div className="relative flex min-h-screen flex-col">
       <div
         className="pointer-events-none absolute inset-0 -z-10 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-20"
         aria-hidden
       />
+      <AdminErrorBanner isAdmin={isAdmin} />
       <Header clerkEnabled={isClerkEnabled} signInUrl={clerkSignInUrl} />
       <main className="mx-auto flex w-full max-w-[1800px] flex-1 flex-col px-4 pb-16 pt-8">
         {children}
