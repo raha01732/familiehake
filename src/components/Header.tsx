@@ -1,4 +1,4 @@
-// src/components/Header.tsx
+// /workspace/familiehake/src/components/Header.tsx
 "use client";
 
 import Link from "next/link";
@@ -21,10 +21,10 @@ type HeaderProps = {
 export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) {
   if (!clerkEnabled) {
     return (
-      <header className="sticky top-0 z-[520] border-b border-white/10 bg-slate-950/60 backdrop-blur-2xl">
+      <header className="sticky top-0 z-[520] border-b border-white/10 bg-[hsl(var(--background)/0.6)] backdrop-blur-2xl">
         <div className="mx-auto w-full max-w-[1800px] px-4 py-4 flex items-center gap-4">
           <Link href="/" className="group inline-flex items-center gap-2 text-sm font-semibold tracking-tight text-slate-100">
-            <span className="h-9 w-9 rounded-2xl bg-gradient-to-br from-cyan-400/80 to-sky-600/90 grid place-items-center shadow-lg shadow-cyan-500/20 transition group-hover:scale-105">
+            <span className="brand-badge h-9 w-9 rounded-2xl grid place-items-center shadow-lg transition group-hover:scale-105">
               FH
             </span>
             <span className="hidden sm:block">FamilyHake</span>
@@ -57,10 +57,10 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
   }
 
   return (
-    <header className="sticky top-0 z-[520] border-b border-white/10 bg-slate-950/60 backdrop-blur-2xl">
+    <header className="sticky top-0 z-[520] border-b border-white/10 bg-[hsl(var(--background)/0.6)] backdrop-blur-2xl">
       <div className="mx-auto w-full max-w-[1800px] px-4 py-4 flex items-center gap-4">
         <Link href="/" className="group inline-flex items-center gap-2 text-sm font-semibold tracking-tight text-slate-100">
-          <span className="h-9 w-9 rounded-2xl bg-gradient-to-br from-cyan-400/80 to-sky-600/90 grid place-items-center shadow-lg shadow-cyan-500/20 transition group-hover:scale-105">
+          <span className="brand-badge h-9 w-9 rounded-2xl grid place-items-center shadow-lg transition group-hover:scale-105">
             FH
           </span>
           <span className="hidden sm:block">FamilyHake</span>
@@ -94,7 +94,7 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
             <SignedOut>
               {signInUrl ? (
                 <Link href={signInUrl}>
-                  <button className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow-lg shadow-cyan-500/10 transition hover:-translate-y-[1px] hover:border-cyan-300/60 hover:bg-cyan-500/20">
+                  <button className="rounded-full border border-white/10 bg-[hsl(var(--background)/0.5)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[hsl(var(--foreground))] shadow-lg shadow-black/10 transition hover:-translate-y-[1px] hover:border-white/30 hover:bg-[hsl(var(--primary)/0.2)]">
                     Anmelden
                   </button>
                 </Link>
@@ -104,7 +104,7 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
                   forceRedirectUrl="/dashboard"
                   signUpForceRedirectUrl="/dashboard"
                 >
-                  <button className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow-lg shadow-cyan-500/10 transition hover:-translate-y-[1px] hover:border-cyan-300/60 hover:bg-cyan-500/20">
+                  <button className="rounded-full border border-white/10 bg-[hsl(var(--background)/0.5)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[hsl(var(--foreground))] shadow-lg shadow-black/10 transition hover:-translate-y-[1px] hover:border-white/30 hover:bg-[hsl(var(--primary)/0.2)]">
                     Anmelden
                   </button>
                 </SignInButton>

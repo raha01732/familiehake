@@ -28,7 +28,10 @@
     --chart-3: 31 89% 61%;
     --chart-4: 145 63% 53%;
     --chart-5: 25 86% 55%;
-    --radius: 0.75rem
+    --accent-glow-1: 14 165 233;
+    --accent-glow-2: 56 189 248;
+    --accent-glow-3: 34 211 238;
+    --radius: 0.75rem;
   }
   .dark {
     --background: 222 47% 11%;
@@ -54,7 +57,10 @@
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%
+    --chart-5: 340 75% 55%;
+    --accent-glow-1: 14 165 233;
+    --accent-glow-2: 56 189 248;
+    --accent-glow-3: 34 211 238;
   }
 }
 
@@ -82,10 +88,25 @@
 }
 
 .card {
-  background-color: rgb(2 6 23 / 0.7);
+  background-color: hsl(var(--card) / 0.7);
   backdrop-filter: blur(24px);
-  border: 1px solid rgb(255 255 255 / 0.1);
+  border: 1px solid hsl(var(--border) / 0.6);
   border-radius: 1rem;
   box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);
-  color: rgb(241 245 249);
+  color: hsl(var(--card-foreground));
+}
+
+.brand-badge {
+  background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
+  box-shadow: 0 18px 35px -16px rgba(var(--accent-glow-1), 0.55);
+  color: hsl(var(--primary-foreground));
+}
+
+.brand-button {
+  background-image: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--accent)));
+  color: hsl(var(--primary-foreground));
+}
+
+.brand-button:hover {
+  filter: brightness(1.05);
 }
