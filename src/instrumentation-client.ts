@@ -55,11 +55,11 @@ Sentry.init({
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
 
 const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://app.posthog.com";
+const posthogHost = '/ph'
 
 if (posthogKey) {
   posthog.init(posthogKey, {
-    api_host: '/ph',
+    api_host: posthogHost,
     ui_host: 'https://eu.posthog.com',
     capture_pageview: false,
     autocapture: true,
