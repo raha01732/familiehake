@@ -59,7 +59,8 @@ const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://app.posthog
 
 if (posthogKey) {
   posthog.init(posthogKey, {
-    api_host: posthogHost,
+    api_host: '/ph',
+    ui_host: 'https://eu.posthog.com',
     capture_pageview: false,
     autocapture: true,
     session_recording: {
