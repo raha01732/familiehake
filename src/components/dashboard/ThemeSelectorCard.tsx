@@ -42,7 +42,7 @@ async function updateThemePreference(formData: FormData) {
       return;
     }
 
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     cookieStore.set(THEME_PRESET_COOKIE, presetId, {
       httpOnly: true,
       sameSite: "lax",
