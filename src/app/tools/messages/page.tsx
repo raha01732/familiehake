@@ -1,4 +1,4 @@
-// src/app/tools/messages/page.tsx
+// /workspace/familiehake/src/app/tools/messages/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -11,7 +11,7 @@ type Msg = { id: string; sender_id: string; recipient_id: string; ciphertext: st
 type RevealFn = (ciphertext: string) => Promise<string>;
 
 export default function MessagesPage() {
-  const sb = createClient();
+  const sb = useMemo(() => createClient(), []);
   const { userId } = useAuth();
   const { user } = useUser();
   const [privPEM, setPrivPEM] = useState<string | null>(null);
@@ -26,6 +26,7 @@ export default function MessagesPage() {
 
   // RSA-Schlüssel erzeugen & öffentlichen Schlüssel publizieren
   async function ensureKey() {
+    if (!sb) return;
     if (privPEM) return;
     const kp = await generateRSA();
     localStorage.setItem("e2e_private_pem", kp.privatePEM);
@@ -34,6 +35,7 @@ export default function MessagesPage() {
   }
 
   async function loadChat(peerId: string) {
+    if (!sb) return;
     if (!peerId) return;
     const { data } = await sb
       .from("messages")
@@ -46,6 +48,7 @@ export default function MessagesPage() {
   }
 
   async function send() {
+    if (!sb) return;
     if (!plain.trim() || !recipientId) return;
 
     // Public Key des Empfängers holen
