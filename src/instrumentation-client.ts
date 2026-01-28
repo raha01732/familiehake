@@ -1,9 +1,33 @@
 // /workspace/familiehake/src/instrumentation-client.ts
-// This file configures the initialization of Sentry on the client.
+// This file configures the initialization of Sentry and PostHog on the client.
 // The added config here will be used whenever a users loads a page in their browser.
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
+import posthog from "posthog-js";
+
+const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "/ph";
+
+if (posthogKey) {
+  posthog.init(posthogKey, {
+    api_host: posthogHost,
+    ui_host: "https://eu.posthog.com",
+    defaults: "2025-11-30",
+    capture_pageview: false,
+    autocapture: true,
+    session_recording: {
+      maskAllInputs: true,
+      blockClass: "ph-no-capture",
+      maskTextClass: "ph-mask",
+    },
+    loaded: (posthogClient) => {
+      posthogClient.register({
+        stack: ["Supabase", "Clerk", "Upstash", "Sentry", "Vercel"],
+      });
+    },
+  });
+}
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -30,7 +54,6 @@ Sentry.init({
       hideToolText: "Schwärzen",
       removeHighlightText: "Entfernen",
     }),
-  
   ],
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
