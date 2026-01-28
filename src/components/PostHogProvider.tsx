@@ -8,7 +8,9 @@ import posthog from "posthog-js";
 import { useUser } from "@clerk/nextjs";
 import { EXPERIMENTS, FUNNELS, trackEvent, trackFunnelStep } from "@/lib/posthog-client";
 
+let isPostHogInitialized = false;
 const stackTools = ["Supabase", "Clerk", "Upstash", "Sentry", "Vercel"] as const;
+const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 
 type PostHogProviderProps = {
   children: ReactNode;
@@ -86,6 +88,29 @@ function PostHogPageView() {
 }
 
 export default function PostHogProvider({ children }: PostHogProviderProps) {
+  useEffect(() => {
+    if (isPostHogInitialized || !posthogKey) return;
+
+    posthog.init(posthogKey, {
+      api_host: "/ph",
+      ui_host: "https://eu.posthog.com",
+      capture_pageview: false,
+      autocapture: true,
+      session_recording: {
+        maskAllInputs: true,
+        blockClass: "ph-no-capture",
+        maskTextClass: "ph-mask",
+      },
+      loaded: (posthogClient) => {
+        posthogClient.register({
+          stack: stackTools,
+        });
+      },
+    });
+
+    isPostHogInitialized = true;
+  }, []);
+
   return (
     <PostHogReactProvider client={posthog}>
       <PostHogIdentity />

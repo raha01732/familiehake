@@ -4,7 +4,6 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
-import posthog from "posthog-js";
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -53,24 +52,3 @@ Sentry.init({
 });
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
-
-const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-
-if (posthogKey) {
-  posthog.init(posthogKey, {
-    api_host: '/ph',
-    ui_host: 'https://eu.posthog.com',
-    capture_pageview: false,
-    autocapture: true,
-    session_recording: {
-      maskAllInputs: true,
-      blockClass: "ph-no-capture",
-      maskTextClass: "ph-mask",
-    },
-    loaded: (posthogClient) => {
-      posthogClient.register({
-        stack: ["Supabase", "Clerk", "Upstash", "Sentry", "Vercel"],
-      });
-    },
-  });
-}
