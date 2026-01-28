@@ -1,3 +1,4 @@
+// Dateipfad: next.config.mjs
 import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig = {
@@ -20,9 +21,7 @@ const nextConfig = {
   skipTrailingSlashRedirect: true,
 };
 
-module.exports = nextConfig
-
-export default withSentryConfig(nextConfig, {
+const sentryConfig = withSentryConfig(nextConfig, {
   // For all available options, see:
   // https://www.npmjs.com/package/@sentry/webpack-plugin#options
 
@@ -59,3 +58,5 @@ export default withSentryConfig(nextConfig, {
     },
   },
 });
+
+export default sentryConfig;
