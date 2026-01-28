@@ -2,17 +2,36 @@
 import * as Sentry from "@sentry/nextjs";
 
 export async function register() {
-  if (process.env.NEXT_RUNTIME === 'nodejs') {
-    await import('../sentry.server.config');
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    await import("../sentry.server.config");
   }
 
-  if (process.env.NEXT_RUNTIME === 'edge') {
-    await import('../sentry.edge.config');
+  if (process.env.NEXT_RUNTIME === "edge") {
+    await import("../sentry.edge.config");
   }
 }
 
+type RequestInfo = {
+  path: string;
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+};
+
+type ErrorContext = {
+  routerKind: string;
+  routePath: string;
+  routeType: string;
+};
+
 export const onRequestError = async (error: Error, request: Request, context: { [key: string]: unknown }) => {
-  Sentry.captureRequestError(error, request, context);
+  const requestInfo: RequestInfo = {
+    path: new URL(request.url).pathname,
+    method: request.method,
+    headers: Object.fromEntries(request.headers),
+  };
+  const errorContext = context as ErrorContext;
+
+  Sentry.captureRequestError(error, requestInfo, errorContext);
 
   if (process.env.NEXT_RUNTIME !== "nodejs") {
     return;
