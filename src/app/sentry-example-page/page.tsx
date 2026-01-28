@@ -1,3 +1,4 @@
+// /workspace/familiehake/src/app/sentry-example-page/page.tsx
 "use client";
 
 import * as Sentry from "@sentry/nextjs";
@@ -78,8 +79,12 @@ export default function Page() {
                 op: "test",
               },
               async () => {
-                const res = await fetch("/api/sentry-example-api");
-                if (!res.ok) {
+                try {
+                  const res = await fetch("/api/sentry-example-api");
+                  if (!res.ok) {
+                    setHasSentError(true);
+                  }
+                } catch {
                   setHasSentError(true);
                 }
               },

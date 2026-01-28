@@ -16,19 +16,26 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
       userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
       digest: error.digest,
     });
-    void fetch("/api/errors/critical", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: error.message,
-        stack: error.stack ?? null,
-        source: "route-error",
-        severity: "critical",
-        url: typeof window !== "undefined" ? window.location.href : null,
-        timestamp: new Date().toISOString(),
-        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
-      }),
-    });
+    const report = async () => {
+      try {
+        await fetch("/api/errors/critical", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: error.message,
+            stack: error.stack ?? null,
+            source: "route-error",
+            severity: "critical",
+            url: typeof window !== "undefined" ? window.location.href : null,
+            timestamp: new Date().toISOString(),
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+          }),
+        });
+      } catch {
+        // ignore
+      }
+    };
+    void report();
   }, [error]);
   return (
     <html>
