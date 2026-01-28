@@ -6,7 +6,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { PostHogProvider as PostHogReactProvider } from "posthog-js/react";
 import posthog from "posthog-js";
 import { useUser } from "@clerk/nextjs";
-import { EXPERIMENTS, FUNNELS, trackEvent, trackFunnelStep } from "@/lib/posthog-client";
+import * as Sentry from "@sentry/nextjs";
+import { EXPERIMENTS, FUNNELS, trackEvent, trackException, trackFunnelStep } from "@/lib/posthog-client";
 
 let isPostHogInitialized = false;
 const stackTools = ["Supabase", "Clerk", "Upstash", "Sentry", "Vercel"] as const;
@@ -87,6 +88,48 @@ function PostHogPageView() {
   return null;
 }
 
+function PostHogErrorTracking() {
+  useEffect(() => {
+    const handleWindowError = (event: ErrorEvent) => {
+      const error = event.error instanceof Error ? event.error : new Error(event.message);
+
+      Sentry.captureException(error);
+      trackException(error, {
+        source: "window.error",
+        severity: "error",
+        url: typeof window !== "undefined" ? window.location.href : null,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+      });
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const error =
+        event.reason instanceof Error
+          ? event.reason
+          : new Error(typeof event.reason === "string" ? event.reason : "Unhandled promise rejection");
+
+      Sentry.captureException(error);
+      trackException(error, {
+        source: "window.unhandledrejection",
+        severity: "error",
+        url: typeof window !== "undefined" ? window.location.href : null,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+        reason: event.reason,
+      });
+    };
+
+    window.addEventListener("error", handleWindowError);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+
+    return () => {
+      window.removeEventListener("error", handleWindowError);
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+    };
+  }, []);
+
+  return null;
+}
+
 export default function PostHogProvider({ children }: PostHogProviderProps) {
   useEffect(() => {
     if (isPostHogInitialized || !posthogKey) return;
@@ -116,6 +159,7 @@ export default function PostHogProvider({ children }: PostHogProviderProps) {
       <PostHogIdentity />
       <PostHogFeatureFlags />
       <PostHogPageView />
+      <PostHogErrorTracking />
       {children}
     </PostHogReactProvider>
   );
