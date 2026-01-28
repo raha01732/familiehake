@@ -4,6 +4,14 @@
 import posthog from "posthog-js";
 
 type EventProperties = Record<string, unknown>;
+type ErrorContext = {
+  source: string;
+  severity?: string;
+  url?: string | null;
+  userAgent?: string | null;
+  digest?: string;
+  reason?: unknown;
+};
 
 export const FEATURE_FLAGS = {
   dashboardRevamp: "ff_dashboard_revamp",
@@ -30,6 +38,16 @@ export type FunnelKey = (typeof FUNNELS)[keyof typeof FUNNELS];
 export function trackEvent(eventName: string, properties: EventProperties = {}) {
   if (typeof window === "undefined") return;
   posthog.capture(eventName, properties);
+}
+
+export function trackException(error: Error, context: ErrorContext) {
+  if (typeof window === "undefined") return;
+  posthog.capture("$exception", {
+    message: error.message,
+    name: error.name,
+    stack: error.stack ?? null,
+    ...context,
+  });
 }
 
 export function trackFunnelStep(funnel: FunnelKey, step: string, properties: EventProperties = {}) {

@@ -4,10 +4,18 @@
 import * as Sentry from "@sentry/nextjs";
 import NextError from "next/error";
 import { useEffect } from "react";
+import { trackException } from "@/lib/posthog-client";
 
 export default function GlobalError({ error }: { error: Error & { digest?: string } }) {
   useEffect(() => {
     Sentry.captureException(error);
+    trackException(error, {
+      source: "global-error",
+      severity: "critical",
+      url: typeof window !== "undefined" ? window.location.href : null,
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+      digest: error.digest,
+    });
     void fetch("/api/errors/critical", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
