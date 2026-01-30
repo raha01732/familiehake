@@ -13,6 +13,7 @@ const stackTools = ["Supabase", "Clerk", "Upstash", "Sentry", "Vercel"] as const
 
 type PostHogProviderProps = {
   children: ReactNode;
+  clerkEnabled?: boolean;
 };
 
 function PostHogIdentity() {
@@ -128,10 +129,10 @@ function PostHogErrorTracking() {
   return null;
 }
 
-export default function PostHogProvider({ children }: PostHogProviderProps) {
+export default function PostHogProvider({ children, clerkEnabled = true }: PostHogProviderProps) {
   return (
     <PostHogReactProvider client={posthog}>
-      <PostHogIdentity />
+      {clerkEnabled ? <PostHogIdentity /> : null}
       <PostHogFeatureFlags />
       <PostHogPageView />
       <PostHogErrorTracking />
