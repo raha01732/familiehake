@@ -24,8 +24,19 @@ type ErrorContext = {
 };
 
 export const onRequestError = async (error: Error, request: Request, context: { [key: string]: unknown }) => {
+  const requestUrl = typeof request?.url === "string" ? request.url : "";
+  let requestPath = "unknown";
+
+  if (requestUrl) {
+    try {
+      requestPath = new URL(requestUrl, "http://localhost").pathname;
+    } catch {
+      requestPath = "unknown";
+    }
+  }
+
   const requestInfo: RequestInfo = {
-    path: new URL(request.url).pathname,
+    path: requestPath,
     method: request.method,
     headers: Object.fromEntries(request.headers),
   };
