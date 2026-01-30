@@ -92,7 +92,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       {isClerkEnabled ? <CommandMenu /> : null}
     </div>
   );
-  const analyticsShell = <PostHogProvider>{shell}</PostHogProvider>;
+  const analyticsShell = <PostHogProvider enableIdentity={isClerkEnabled}>{shell}</PostHogProvider>;
 
   return (
     <html
