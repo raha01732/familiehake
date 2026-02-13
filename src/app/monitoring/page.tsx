@@ -362,7 +362,6 @@ export default async function MonitoringPage() {
                 <div className="mt-4 text-xs text-zinc-400 uppercase tracking-wide">Clerk</div>
                 <div className="mt-1 grid gap-1 text-xs text-zinc-300">
                   <div>Aktive Sessions: {clerkStats?.activeSessions ?? "data unavailable"}</div>
-                  <div>Neue Sign-ins (24h): {clerkStats?.signIns24h ?? "data unavailable"}</div>
                   <div>Ausstehende Einladungen: {clerkStats?.pendingInvitations ?? "data unavailable"}</div>
                   <div>Gesperrte Einladungen: {clerkStats?.revokedInvitations ?? "data unavailable"}</div>
                   {!clerkStats?.available && (
