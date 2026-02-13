@@ -34,6 +34,11 @@ type HealthPayload = {
       tables?: { total: number; reachable: number; errors: string[] };
       heartbeat?: { ok: boolean; last_pinged_at: string | null; info: string | null };
     };
+    upstash?: {
+      ok: boolean;
+      info?: string | null;
+      heartbeat?: { ok: boolean; last_pinged_at: string | null; info: string | null };
+    };
   };
 };
 
@@ -150,6 +155,12 @@ export default async function MonitoringPage() {
       tables?: { total: number; reachable: number; errors: string[] };
       heartbeat?: { ok: boolean; last_pinged_at: string | null; info: string | null };
     }) ?? { ok: false };
+  const upstash =
+    (health?.checks?.upstash as {
+      ok: boolean;
+      info?: string | null;
+      heartbeat?: { ok: boolean; last_pinged_at: string | null; info: string | null };
+    }) ?? { ok: false, info: "unavailable" };
   const srv = serverInfo();
 
   const envGroups = [
@@ -249,6 +260,32 @@ export default async function MonitoringPage() {
                       · Letzter Ping: {formatDate(db.heartbeat.last_pinged_at)}
                     </div>
                   )}
+
+                  <div className="mt-3 grid gap-1">
+                    <div className="text-xs text-zinc-400 uppercase tracking-wide">Upstash</div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-zinc-200 text-sm">Redis Health</div>
+                      <span
+                        className={`px-2 py-0.5 border rounded-lg text-xs font-medium ${
+                          upstash.ok
+                            ? "border-green-700 text-green-300 bg-green-900/20"
+                            : "border-amber-600 text-amber-300 bg-amber-900/20"
+                        }`}
+                      >
+                        {upstash.ok ? "OK" : "Fehler"}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-zinc-500">{upstash.info ?? "–"}</div>
+                    {upstash.heartbeat && (
+                      <div className="text-[11px] text-zinc-400">
+                        <span className="uppercase tracking-wide text-zinc-500">Heartbeat</span>: {" "}
+                        <span className={upstash.heartbeat.ok ? "text-emerald-300" : "text-amber-300"}>
+                          {upstash.heartbeat.info ?? "–"}
+                        </span>{" "}
+                        · Letzter Ping: {formatDate(upstash.heartbeat.last_pinged_at)}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>

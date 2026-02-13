@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const HEARTBEAT_KEY = "ops:heartbeat:upstash";
-const HEARTBEAT_TTL_SECONDS = 60 * 60;
+const HEARTBEAT_TTL_SECONDS = 60 * 60 * 48;
 
 export async function GET(req: NextRequest) {
   if (!isAuthorizedCronRequest(req)) {

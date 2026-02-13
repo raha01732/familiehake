@@ -1,21 +1,32 @@
-// src/app/api/health/route.ts
+// /workspace/familiehake/src/app/api/health/route.ts
 import { NextResponse } from "next/server";
+import { getRedisClient } from "@/lib/redis";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { reportError } from "@/lib/sentry";
 
 export const dynamic = "force-dynamic";
 
+const UPSTASH_HEARTBEAT_KEY = "ops:heartbeat:upstash";
+const UPSTASH_HEARTBEAT_MAX_AGE_MS = 1000 * 60 * 60 * 26;
+
+type HealthChecks = {
+  uptime_s: number;
+  env: Record<string, Record<string, boolean>>;
+  db: {
+    ok: boolean;
+    info: string | null;
+    tables: { total: number; reachable: number; errors: string[] };
+    heartbeat: { ok: boolean; last_pinged_at: string | null; info: string | null };
+  };
+  upstash: {
+    ok: boolean;
+    info: string | null;
+    heartbeat: { ok: boolean; last_pinged_at: string | null; info: string | null };
+  };
+};
+
 export async function GET() {
-  const checks: {
-    uptime_s: number;
-    env: Record<string, Record<string, boolean>>;
-    db: {
-      ok: boolean;
-      info: string | null;
-      tables: { total: number; reachable: number; errors: string[] };
-      heartbeat: { ok: boolean; last_pinged_at: string | null; info: string | null };
-    };
-  } = {
+  const checks: HealthChecks = {
     uptime_s: Math.floor(process.uptime()),
     env: {
       clerk: {
@@ -41,12 +52,18 @@ export async function GET() {
     db: {
       ok: false,
       info: null,
-      tables: { total: 0, reachable: 0, errors: [] as string[] },
+      tables: { total: 0, reachable: 0, errors: [] },
+      heartbeat: { ok: false, last_pinged_at: null, info: null },
+    },
+    upstash: {
+      ok: false,
+      info: null,
       heartbeat: { ok: false, last_pinged_at: null, info: null },
     },
   };
 
   let status: "ok" | "warn" | "degraded" = "ok";
+
   try {
     const sb = createAdminClient();
     const { data: tablesData, error: tablesError } = await sb.rpc("get_public_tables");
@@ -75,7 +92,6 @@ export async function GET() {
     checks.db.tables.total = tableNames.length;
     checks.db.tables.reachable = tableNames.length - errors.length;
     checks.db.tables.errors = errors;
-
     checks.db.ok = errors.length === 0 && tableNames.length > 0;
     checks.db.info = `Tabellen erreichbar: ${checks.db.tables.reachable}/${checks.db.tables.total}`;
 
@@ -86,25 +102,59 @@ export async function GET() {
       const lastPing = heartbeatResult.data?.[0]?.pinged_at ?? null;
       const today = new Date().toISOString().slice(0, 10);
       const lastPingDay = lastPing ? new Date(lastPing).toISOString().slice(0, 10) : null;
-      const ok = lastPingDay === today;
+      const dbHeartbeatOk = lastPingDay === today;
       checks.db.heartbeat.last_pinged_at = lastPing;
-      checks.db.heartbeat.ok = ok;
-      checks.db.heartbeat.info = ok ? "Heartbeat aktuell" : "Kein Heartbeat heute";
+      checks.db.heartbeat.ok = dbHeartbeatOk;
+      checks.db.heartbeat.info = dbHeartbeatOk ? "Heartbeat aktuell" : "Kein Heartbeat heute";
 
-      if (!ok) {
+      if (!dbHeartbeatOk) {
         reportError(new Error("db_heartbeat_missing"), { lastPing, today });
         if (status === "ok") status = "warn";
       }
     }
-  } catch (e: any) {
+  } catch (error: any) {
     checks.db.ok = false;
-    checks.db.info = e?.message ?? "db error";
+    checks.db.info = error?.message ?? "db error";
     status = "degraded";
+  }
+
+  try {
+    const redis = getRedisClient();
+    if (!redis) {
+      checks.upstash.ok = false;
+      checks.upstash.info = "Upstash nicht konfiguriert";
+      checks.upstash.heartbeat.info = "upstash_not_configured";
+      if (status === "ok") status = "warn";
+    } else {
+      const value = await redis.get<string>(UPSTASH_HEARTBEAT_KEY);
+      const now = Date.now();
+      const lastPing = typeof value === "string" ? value : null;
+      const ageMs = lastPing ? now - new Date(lastPing).getTime() : null;
+      const upstashHeartbeatOk = !!lastPing && Number.isFinite(ageMs) && (ageMs as number) <= UPSTASH_HEARTBEAT_MAX_AGE_MS;
+
+      checks.upstash.ok = upstashHeartbeatOk;
+      checks.upstash.info = upstashHeartbeatOk ? "Redis erreichbar" : "Redis Heartbeat veraltet/fehlt";
+      checks.upstash.heartbeat.last_pinged_at = lastPing;
+      checks.upstash.heartbeat.ok = upstashHeartbeatOk;
+      checks.upstash.heartbeat.info = upstashHeartbeatOk
+        ? "Heartbeat aktuell"
+        : "Kein aktueller Upstash-Heartbeat";
+
+      if (!upstashHeartbeatOk && status === "ok") {
+        status = "warn";
+      }
+    }
+  } catch (error) {
+    reportError(error, { check: "upstash_health" });
+    checks.upstash.ok = false;
+    checks.upstash.info = "Upstash Check fehlgeschlagen";
+    checks.upstash.heartbeat.ok = false;
+    checks.upstash.heartbeat.info = "upstash_check_failed";
+    if (status === "ok") status = "warn";
   }
 
   const allEnvOk = Object.values(checks.env).every((service) => Object.values(service).every(Boolean));
   if (!allEnvOk && status === "ok") status = "warn";
 
-  // immer 200, Zustand im Payload
   return NextResponse.json({ status, checks });
 }
