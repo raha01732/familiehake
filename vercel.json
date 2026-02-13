@@ -3,6 +3,18 @@
     {
       "path": "/api/keepalive",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/cache-warmup",
+      "schedule": "5 0 * * *"
+    },
+    {
+      "path": "/api/cron/upstash-heartbeat",
+      "schedule": "10 0 * * *"
+    },
+    {
+      "path": "/api/cron/audit-rollup",
+      "schedule": "15 0 * * *"
     }
   ]
 }
