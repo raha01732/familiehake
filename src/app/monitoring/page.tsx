@@ -2,8 +2,9 @@
 import RoleGate from "@/components/RoleGate";
 import { getPermissionOverview } from "@/lib/access-db";
 import { ACCESS_LABELS } from "@/lib/rbac";
+import { type ClerkStats } from "@/lib/clerk-metrics";
 import { fetchSentryStats } from "@/lib/sentry-metrics";
-import { getStorageUsageSummary, type StorageUsageSummary } from "@/lib/stats";
+import { type StorageUsageSummary } from "@/lib/stats";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { headers } from "next/headers";
@@ -59,6 +60,13 @@ type HeartbeatEvent = {
 
 type SentryStats = Awaited<ReturnType<typeof fetchSentryStats>>;
 
+type MonitoringSummary = {
+  clerkStats: ClerkStats;
+  sentryStats: SentryStats;
+  storage: StorageUsageSummary;
+  generatedAt: string;
+};
+
 async function getHealth(): Promise<HealthPayload | null> {
   try {
     const h = await headers();
@@ -73,6 +81,25 @@ async function getHealth(): Promise<HealthPayload | null> {
     });
     if (!res.ok) return null;
     return (await res.json()) as HealthPayload;
+  } catch {
+    return null;
+  }
+}
+
+async function getMonitoringSummary(): Promise<MonitoringSummary | null> {
+  try {
+    const h = await headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host");
+    const proto = h.get("x-forwarded-proto") ?? "https";
+    if (!host) return null;
+    const base = `${proto}://${host}`;
+    const cookie = h.get("cookie") ?? "";
+    const res = await fetch(`${base}/api/monitoring/summary`, {
+      cache: "no-store",
+      headers: { cookie },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as MonitoringSummary;
   } catch {
     return null;
   }
@@ -132,18 +159,18 @@ function serverInfo() {
 }
 
 export default async function MonitoringPage() {
-  const [healthResult, storageResult, sentryResult, auditResult, heartbeatResult] = await Promise.allSettled([
+  const [healthResult, summaryResult, auditResult, heartbeatResult] = await Promise.allSettled([
     getHealth(),
-    getStorageUsageSummary(),
-    fetchSentryStats(),
+    getMonitoringSummary(),
     fetchAuditEvents(),
     fetchHeartbeatEvents(),
   ]);
 
   const health = healthResult.status === "fulfilled" ? healthResult.value : null;
-  const storage = storageResult.status === "fulfilled" ? storageResult.value : EMPTY_STORAGE;
-  const sentry: SentryStats =
-    sentryResult.status === "fulfilled" ? sentryResult.value : { available: false, error: "unavailable" };
+  const summary = summaryResult.status === "fulfilled" ? summaryResult.value : null;
+  const storage = summary?.storage ?? EMPTY_STORAGE;
+  const sentry: SentryStats = summary?.sentryStats ?? { available: false, error: "data unavailable" };
+  const clerkStats: ClerkStats = summary?.clerkStats ?? { available: false, error: "data unavailable" };
   const auditEvents = auditResult.status === "fulfilled" ? auditResult.value : [];
   const heartbeatEvents = heartbeatResult.status === "fulfilled" ? heartbeatResult.value : [];
 
@@ -328,6 +355,18 @@ export default async function MonitoringPage() {
                   <div>Letztes Release: {sentry?.latestRelease ?? "—"}</div>
                   {!sentry?.available && (
                     <div className="text-[11px] text-amber-300">Sentry API nicht verfügbar oder nicht konfiguriert.</div>
+                  )}
+                </div>
+
+
+                <div className="mt-4 text-xs text-zinc-400 uppercase tracking-wide">Clerk</div>
+                <div className="mt-1 grid gap-1 text-xs text-zinc-300">
+                  <div>Aktive Sessions: {clerkStats?.activeSessions ?? "data unavailable"}</div>
+                  <div>Neue Sign-ins (24h): {clerkStats?.signIns24h ?? "data unavailable"}</div>
+                  <div>Ausstehende Einladungen: {clerkStats?.pendingInvitations ?? "data unavailable"}</div>
+                  <div>Gesperrte Einladungen: {clerkStats?.revokedInvitations ?? "data unavailable"}</div>
+                  {!clerkStats?.available && (
+                    <div className="text-[11px] text-amber-300">Clerk-Daten aktuell nicht verfügbar.</div>
                   )}
                 </div>
               </CardContent>

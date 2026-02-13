@@ -1,5 +1,6 @@
-// src/lib/sentry-metrics.ts
+// /workspace/familiehake/src/lib/sentry-metrics.ts
 import { env } from "@/lib/env";
+import { reportError } from "@/lib/sentry";
 
 type SentryStats = {
   available: boolean;
@@ -84,6 +85,11 @@ export async function fetchSentryStats(): Promise<SentryStats> {
       latestRelease,
     };
   } catch (error: any) {
+    reportError(error, {
+      sentryMetrics: {
+        location: "fetchSentryStats",
+      },
+    });
     return {
       available: false,
       error: error?.message ?? "unknown_error",
