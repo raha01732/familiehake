@@ -9,12 +9,6 @@ type ClerkSession = {
   last_active_at?: number;
 };
 
-type ClerkSignIn = {
-  id: string;
-  status?: string;
-  created_at?: number;
-};
-
 type ClerkInvitation = {
   id: string;
   status?: string;
@@ -23,7 +17,6 @@ type ClerkInvitation = {
 export type ClerkStats = {
   available: boolean;
   activeSessions?: number;
-  signIns24h?: number;
   pendingInvitations?: number;
   revokedInvitations?: number;
   error?: string;
@@ -60,12 +53,6 @@ function isActiveSession(session: ClerkSession) {
   return Date.now() - session.last_active_at < 30 * 60 * 1000;
 }
 
-function isRecentSignIn(signIn: ClerkSignIn, sinceMs: number) {
-  const status = signIn.status ?? "";
-  const createdAt = signIn.created_at ?? 0;
-  return createdAt >= sinceMs && status !== "abandoned";
-}
-
 export async function fetchClerkStats(): Promise<ClerkStats> {
   const cached = await getCachedJson<ClerkStats>(CLERK_CACHE_KEY);
   if (cached) {
@@ -73,22 +60,18 @@ export async function fetchClerkStats(): Promise<ClerkStats> {
   }
 
   try {
-    const since24h = Date.now() - 24 * 60 * 60 * 1000;
-    const [sessions, signIns, invitations] = await Promise.all([
+    const [sessions, invitations] = await Promise.all([
       fetchFromClerk<ClerkSession[]>("/sessions?limit=500&status=active"),
-      fetchFromClerk<ClerkSignIn[]>("/sign_ins?limit=500"),
       fetchFromClerk<ClerkInvitation[]>("/invitations?limit=500"),
     ]);
 
     const activeSessions = sessions.filter(isActiveSession).length;
-    const signIns24h = signIns.filter((entry) => isRecentSignIn(entry, since24h)).length;
     const pendingInvitations = invitations.filter((entry) => entry.status === "pending").length;
     const revokedInvitations = invitations.filter((entry) => entry.status === "revoked").length;
 
     const stats: ClerkStats = {
       available: true,
       activeSessions,
-      signIns24h,
       pendingInvitations,
       revokedInvitations,
     };
