@@ -6,15 +6,15 @@
     },
     {
       "path": "/api/cron/cache-warmup",
-      "schedule": "*/10 * * * *"
+      "schedule": "5 0 * * *"
     },
     {
       "path": "/api/cron/upstash-heartbeat",
-      "schedule": "*/15 * * * *"
+      "schedule": "10 0 * * *"
     },
     {
       "path": "/api/cron/audit-rollup",
-      "schedule": "0 * * * *"
+      "schedule": "15 0 * * *"
     }
   ]
 }
