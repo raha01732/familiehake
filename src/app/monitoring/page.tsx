@@ -33,11 +33,13 @@ type HealthPayload = {
       info?: string;
       tables?: { total: number; reachable: number; errors: string[] };
       heartbeat?: { ok: boolean; last_pinged_at: string | null; info: string | null };
+      force_logout?: { ok: boolean; last_pinged_at: string | null; info: string | null };
     };
     upstash?: {
       ok: boolean;
       info?: string | null;
       heartbeat?: { ok: boolean; last_pinged_at: string | null; info: string | null };
+      force_logout?: { ok: boolean; last_pinged_at: string | null; info: string | null };
     };
   };
 };
@@ -160,6 +162,7 @@ export default async function MonitoringPage() {
       ok: boolean;
       info?: string | null;
       heartbeat?: { ok: boolean; last_pinged_at: string | null; info: string | null };
+      force_logout?: { ok: boolean; last_pinged_at: string | null; info: string | null };
     }) ?? { ok: false, info: "unavailable" };
   const srv = serverInfo();
 
@@ -283,6 +286,15 @@ export default async function MonitoringPage() {
                           {upstash.heartbeat.info ?? "–"}
                         </span>{" "}
                         · Letzter Ping: {formatDate(upstash.heartbeat.last_pinged_at)}
+                      </div>
+                    )}
+                    {upstash.force_logout && (
+                      <div className="text-[11px] text-zinc-400">
+                        <span className="uppercase tracking-wide text-zinc-500">Force Logout</span>: {" "}
+                        <span className={upstash.force_logout.ok ? "text-emerald-300" : "text-amber-300"}>
+                          {upstash.force_logout.info ?? "–"}
+                        </span>{" "}
+                        · Letzter Lauf: {formatDate(upstash.force_logout.last_pinged_at)}
                       </div>
                     )}
                   </div>
