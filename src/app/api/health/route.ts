@@ -7,7 +7,9 @@ import { reportError } from "@/lib/sentry";
 export const dynamic = "force-dynamic";
 
 const UPSTASH_HEARTBEAT_KEY = "ops:heartbeat:upstash";
+const FORCE_LOGOUT_HEARTBEAT_KEY = "ops:heartbeat:force-logout";
 const UPSTASH_HEARTBEAT_MAX_AGE_MS = 1000 * 60 * 60 * 26;
+const FORCE_LOGOUT_HEARTBEAT_MAX_AGE_MS = 1000 * 60 * 60 * 30;
 
 type HealthChecks = {
   uptime_s: number;
@@ -22,6 +24,7 @@ type HealthChecks = {
     ok: boolean;
     info: string | null;
     heartbeat: { ok: boolean; last_pinged_at: string | null; info: string | null };
+    force_logout: { ok: boolean; last_pinged_at: string | null; info: string | null };
   };
 };
 
@@ -59,6 +62,7 @@ export async function GET() {
       ok: false,
       info: null,
       heartbeat: { ok: false, last_pinged_at: null, info: null },
+      force_logout: { ok: false, last_pinged_at: null, info: null },
     },
   };
 
@@ -124,9 +128,13 @@ export async function GET() {
       checks.upstash.ok = false;
       checks.upstash.info = "Upstash nicht konfiguriert";
       checks.upstash.heartbeat.info = "upstash_not_configured";
+      checks.upstash.force_logout.info = "upstash_not_configured";
       if (status === "ok") status = "warn";
     } else {
-      const value = await redis.get<string>(UPSTASH_HEARTBEAT_KEY);
+      const [value, forceLogoutHeartbeat] = await Promise.all([
+        redis.get<string>(UPSTASH_HEARTBEAT_KEY),
+        redis.get<{ finishedAt?: string }>(FORCE_LOGOUT_HEARTBEAT_KEY),
+      ]);
       const now = Date.now();
       const lastPing = typeof value === "string" ? value : null;
       const ageMs = lastPing ? now - new Date(lastPing).getTime() : null;
@@ -140,7 +148,26 @@ export async function GET() {
         ? "Heartbeat aktuell"
         : "Kein aktueller Upstash-Heartbeat";
 
+      const forceLogoutLastPing =
+        typeof forceLogoutHeartbeat === "object" && forceLogoutHeartbeat?.finishedAt
+          ? forceLogoutHeartbeat.finishedAt
+          : null;
+      const forceLogoutAgeMs = forceLogoutLastPing ? now - new Date(forceLogoutLastPing).getTime() : null;
+      const forceLogoutOk =
+        !!forceLogoutLastPing &&
+        Number.isFinite(forceLogoutAgeMs) &&
+        (forceLogoutAgeMs as number) <= FORCE_LOGOUT_HEARTBEAT_MAX_AGE_MS;
+
+      checks.upstash.force_logout.last_pinged_at = forceLogoutLastPing;
+      checks.upstash.force_logout.ok = forceLogoutOk;
+      checks.upstash.force_logout.info = forceLogoutOk
+        ? "Force-Logout Cron aktuell"
+        : "Kein aktueller Force-Logout-Heartbeat";
+
       if (!upstashHeartbeatOk && status === "ok") {
+        status = "warn";
+      }
+      if (!forceLogoutOk && status === "ok") {
         status = "warn";
       }
     }
