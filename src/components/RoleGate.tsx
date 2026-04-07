@@ -1,9 +1,7 @@
 // src/components/RoleGate.tsx
 // Server Component
 import { ReactNode } from "react";
-import { currentUser } from "@clerk/nextjs/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { env } from "@/lib/env";
+import { getSessionInfo } from "@/lib/auth";
 import { getRouteDefaultAccess } from "@/lib/access-map";
 
 /**
@@ -30,12 +28,12 @@ function normalizeRouteKey(key: string) {
 }
 
 export default async function RoleGate({ routeKey, children }: Props) {
-  const user = await currentUser();
-  const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
-  const userId = user?.id ?? null;
+  const session = await getSessionInfo();
+  const role = session.primaryRole?.name?.toLowerCase() ?? "user";
+  const userId = session.userId;
 
   // 1) Superadmin override
-  if (userId && userId === env().PRIMARY_SUPERADMIN_ID) {
+  if (session.isSuperAdmin) {
     return <>{children}</>;
   }
 
@@ -44,58 +42,24 @@ export default async function RoleGate({ routeKey, children }: Props) {
     return <Blocked reason="not_signed_in" role={role} routeKey={routeKey} />;
   }
 
-  // 3) Route-Key normalisieren und beide Varianten prüfen
+  // 3) Route-Key normalisieren und gegen zentrale Permission-Map prüfen
   const key = normalizeRouteKey(routeKey);
-  const variants = [key, `/${key}`]; // tolerant gegenüber führendem Slash
-
-  // 4) DB-Abfrage: hat diese Rolle ausreichend Level auf der Route?
-  const sb = createAdminClient();
-
-  // Wir versuchen beide Varianten; erste passende gewinnt
-  const { data: rules, error } = await sb
-    .from("access_rules")
-    .select("route, role, allowed")
-    .in("route", variants)
-    .eq("role", role);
-
-  if (error) {
-    return (
-      <Blocked
-        reason="db_error"
-        role={role}
-        routeKey={routeKey}
-        debug={{ error: error.message }}
-      />
-    );
+  const allowedBySession = session.permissions[key] ?? session.permissions[`/${key}`];
+  if (allowedBySession) {
+    return <>{children}</>;
   }
 
-  // Keine Regel gefunden? → blocken mit Hinweis auf möglichen Route-Key-Mismatch
-  if (!rules || rules.length === 0) {
-    const fallbackAllowed = getRouteDefaultAccess(key, role);
-    if (fallbackAllowed) {
-      return <>{children}</>;
-    }
-    return (
-      <Blocked
-        reason="no_rule"
-        role={role}
-        routeKey={routeKey}
-        debug={{ triedVariants: variants }}
-      />
-    );
-  }
-
-  const allowed = rules.some((rule) => !!rule.allowed);
-  if (allowed) {
+  const fallbackAllowed = getRouteDefaultAccess(key, role);
+  if (fallbackAllowed) {
     return <>{children}</>;
   }
 
   return (
     <Blocked
-      reason="insufficient_level"
+      reason="no_rule"
       role={role}
       routeKey={routeKey}
-      debug={{ allowed }}
+      debug={{ normalizedRouteKey: key }}
     />
   );
 }
@@ -110,8 +74,7 @@ function Blocked({
   reason:
     | "not_signed_in"
     | "no_rule"
-    | "insufficient_level"
-    | "db_error";
+    | "insufficient_level";
   role: string;
   routeKey: string;
   debug?: Record<string, unknown>;
@@ -120,7 +83,6 @@ function Blocked({
     not_signed_in: "Nicht angemeldet",
     no_rule: "Kein Zugriffseintrag gefunden",
     insufficient_level: "Zugriff verweigert",
-    db_error: "Zugriffsprüfung fehlgeschlagen",
   };
 
   const hints: Record<string, string> = {
@@ -129,8 +91,6 @@ function Blocked({
       "Für diese Route existiert kein Eintrag für deine Rolle. Prüfe den Route-Key in den Einstellungen.",
     insufficient_level:
       "Deine Rolle hat keinen Zugriff auf diese Route.",
-    db_error:
-      "Beim Lesen der Zugriffsregeln ist ein Fehler aufgetreten. Bitte später erneut versuchen.",
   };
 
   return (

@@ -1,10 +1,8 @@
 // /workspace/familiehake/src/app/dashboard/page.tsx
 import RoleGate from "@/components/RoleGate";
 import WelcomeTileCard, { WelcomeTile } from "@/components/dashboard/WelcomeTileCard";
-import { currentUser } from "@clerk/nextjs/server";
 import { logAudit } from "@/lib/audit";
 import { getSessionInfo } from "@/lib/auth";
-import { env } from "@/lib/env";
 import { ADMIN_LINKS, TOOL_LINKS } from "@/lib/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getActiveTheme, getThemePresets } from "@/lib/theme";
@@ -114,14 +112,14 @@ async function getWelcomeTile(): Promise<WelcomeTile> {
 async function updateWelcomeTile(formData: FormData) {
   "use server";
 
-  const user = await currentUser();
-  const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
+  const session = await getSessionInfo();
+  const role = session.primaryRole?.name?.toLowerCase() ?? "user";
   const isAdmin =
-    !!user && (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
+    session.signedIn && (session.isSuperAdmin || session.roles.some((entry) => entry.name === "admin"));
 
   wtDebug("updateWelcomeTile called", {
-    hasUser: !!user,
-    userId: user?.id ?? null,
+    hasUser: session.signedIn,
+    userId: session.userId,
     role,
     isAdmin,
   });
@@ -171,7 +169,7 @@ async function updateWelcomeTile(formData: FormData) {
       tile_id: "welcome",
       title: existing.title,
       body: existing.body,
-      changed_by: user?.id ?? null,
+      changed_by: session.userId,
     });
   } catch (e) {
     console.error("[WELCOME_TILE VERSIONING] insert failed", e);
@@ -203,8 +201,8 @@ async function updateWelcomeTile(formData: FormData) {
 
   await logAudit({
     action: "dashboard_welcome_update",
-    actorUserId: user.id,
-    actorEmail: user.emailAddresses?.[0]?.emailAddress ?? null,
+    actorUserId: session.userId,
+    actorEmail: session.email,
     target: "dashboard_tiles:welcome",
     detail: {
       before: {
@@ -241,28 +239,26 @@ async function updateWelcomeTile(formData: FormData) {
 
 export default async function DashboardPage() {
   // Login-Success (einfachheitshalber bei jedem Dashboard-Aufruf – später optional mit Cookie drosseln)
-  const user = await currentUser();
   const session = await getSessionInfo();
-  const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
   const isAdmin =
-    !!user && (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
+    session.signedIn && (session.isSuperAdmin || session.roles.some((entry) => entry.name === "admin"));
   const health = isAdmin ? await getHealthSummary() : null;
   const healthStatus = (health?.status as "ok" | "warn" | "degraded" | "unreachable") ?? "unreachable";
   const healthLabel = healthStatus === "ok" ? "Keine Fehler" : "Fehler erkannt";
   const welcomeTile = await getWelcomeTile();
   const themePresets = await getThemePresets();
-  const activeTheme = await getActiveTheme(user?.id ?? null);
+  const activeTheme = await getActiveTheme(session.userId);
   const toolLinks = session.signedIn
     ? TOOL_LINKS.filter((link) => session.isSuperAdmin || session.permissions[link.routeKey])
     : [];
   const adminLinks = session.signedIn
     ? ADMIN_LINKS.filter((link) => session.isSuperAdmin || session.permissions[link.routeKey])
     : [];
-  if (user) {
+  if (session.signedIn && session.userId) {
     await logAudit({
       action: "login_success",
-      actorUserId: user.id,
-      actorEmail: user.emailAddresses?.[0]?.emailAddress ?? null,
+      actorUserId: session.userId,
+      actorEmail: session.email,
       target: "/dashboard",
       detail: null,
     });
@@ -339,7 +335,7 @@ export default async function DashboardPage() {
 
         <div className="grid gap-6 md:grid-cols-2">
           <WelcomeTileCard tile={welcomeTile} isAdmin={isAdmin} onSave={updateWelcomeTile} />
-          {user ? <ThemeSelectorCard presets={themePresets} activePresetId={activeTheme.id} /> : null}
+          {session.signedIn ? <ThemeSelectorCard presets={themePresets} activePresetId={activeTheme.id} /> : null}
         </div>
       </section>
     </RoleGate>

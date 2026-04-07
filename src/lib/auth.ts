@@ -1,5 +1,6 @@
 // src/lib/auth.ts
 import { currentUser } from "@clerk/nextjs/server";
+import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   type EffectivePermissions,
@@ -62,7 +63,7 @@ function mapRoleRow(row: any): SessionRole | null {
 }
 
 /** Session + Rollen & Berechtigungen aus Clerk + Supabase holen */
-export async function getSessionInfo(): Promise<SessionInfo> {
+const getSessionInfoCached = cache(async (): Promise<SessionInfo> => {
   const user = await currentUser();
   if (!user) {
     return {
@@ -120,6 +121,11 @@ export async function getSessionInfo(): Promise<SessionInfo> {
     permissions,
     isSuperAdmin,
   };
+});
+
+/** Session + Rollen & Berechtigungen aus Clerk + Supabase holen (request-lokal memoized) */
+export async function getSessionInfo(): Promise<SessionInfo> {
+  return getSessionInfoCached();
 }
 
 export async function canAccess(routeKey: string): Promise<boolean> {
@@ -136,7 +142,7 @@ export async function assertAccessOrThrow(routeKey: string): Promise<void> {
     throw new Error("UNAUTHORIZED_NOT_LOGGED_IN");
   }
   if (session.isSuperAdmin) return;
-  const allowed = await canAccess(routeKey);
+  const allowed = session.permissions[routeKey] ?? false;
   if (!allowed) {
     throw new Error("FORBIDDEN_ROLE");
   }
