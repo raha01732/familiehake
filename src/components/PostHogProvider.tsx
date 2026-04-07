@@ -1,7 +1,7 @@
 // /workspace/familiehake/src/components/PostHogProvider.tsx
 "use client";
 
-import { type ReactNode, useEffect, useMemo } from "react";
+import { Suspense, type ReactNode, useEffect, useMemo } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { PostHogProvider as PostHogReactProvider } from "posthog-js/react";
 import posthog from "posthog-js";
@@ -134,7 +134,9 @@ export default function PostHogProvider({ children, enableIdentity = false }: Po
     <PostHogReactProvider client={posthog}>
       {enableIdentity ? <PostHogIdentity /> : null}
       <PostHogFeatureFlags />
-      <PostHogPageView />
+      <Suspense fallback={null}>
+        <PostHogPageView />
+      </Suspense>
       <PostHogErrorTracking />
       {children}
     </PostHogReactProvider>
