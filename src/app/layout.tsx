@@ -8,6 +8,7 @@ import "./globals.css";
 import PostHogProvider from "@/components/PostHogProvider";
 import DynamicUserChrome from "@/components/layout/DynamicUserChrome";
 import * as Sentry from "@sentry/nextjs";
+import { getSessionInfo } from "@/lib/auth";
 
 export function generateMetadata(): Metadata {
   return {
@@ -59,7 +60,8 @@ const clerkAppearance = {
   },
 } as const;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const session = await getSessionInfo();
   const shell = (
     <div className="relative flex min-h-screen flex-col">
       <div
@@ -70,7 +72,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <main className="mx-auto flex w-full max-w-[1800px] flex-1 flex-col px-4 pb-16 pt-8">{children}</main>
     </div>
   );
-  const analyticsShell = <PostHogProvider enableIdentity={isClerkEnabled}>{shell}</PostHogProvider>;
+  const analyticsShell = <PostHogProvider enableIdentity={session.signedIn}>{shell}</PostHogProvider>;
 
   return (
     <html lang="de" className="bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
