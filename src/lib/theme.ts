@@ -14,6 +14,8 @@ const THEME_CACHE_TTL_SECONDS = 60 * 60 * 6;
 const USER_THEME_CACHE_TTL_SECONDS = 60 * 60 * 12;
 const DEFAULT_PRESET_ID = "dark";
 export const THEME_PRESET_COOKIE = "themePreset";
+const THEME_PRESETS_CACHE_KEY = "theme:presets:v2";
+const USER_THEME_CACHE_KEY_PREFIX = "theme:user:";
 
 const FALLBACK_PRESETS: ThemePreset[] = [
   {
@@ -120,6 +122,8 @@ const FALLBACK_PRESETS: ThemePreset[] = [
   },
 ];
 
+const FALLBACK_PRESET_BY_ID = new Map(FALLBACK_PRESETS.map((preset) => [preset.id, preset]));
+
 function coercePreset(raw: any): ThemePreset | null {
   if (!raw?.id || !raw?.label || !raw?.css_vars) return null;
   const cssVars: Record<string, string> = {};
@@ -138,11 +142,16 @@ function coercePreset(raw: any): ThemePreset | null {
 }
 
 function findFallbackPreset(id?: string | null) {
-  return FALLBACK_PRESETS.find((preset) => preset.id === id) ?? FALLBACK_PRESETS[0];
+  if (!id) return FALLBACK_PRESETS[0];
+  return FALLBACK_PRESET_BY_ID.get(id) ?? FALLBACK_PRESETS[0];
+}
+
+function buildPresetLookup(presets: ThemePreset[]) {
+  return new Map(presets.map((preset) => [preset.id, preset]));
 }
 
 export async function getThemePresets(): Promise<ThemePreset[]> {
-  const cached = await getCachedJson<ThemePreset[]>("theme:presets:v1");
+  const cached = await getCachedJson<ThemePreset[]>(THEME_PRESETS_CACHE_KEY);
   if (cached?.length) return cached;
 
   try {
@@ -154,7 +163,7 @@ export async function getThemePresets(): Promise<ThemePreset[]> {
     }
     const presets = (data ?? []).map(coercePreset).filter(Boolean) as ThemePreset[];
     const resolvedPresets = presets.length ? presets : FALLBACK_PRESETS;
-    await setCachedJson("theme:presets:v1", resolvedPresets, THEME_CACHE_TTL_SECONDS);
+    await setCachedJson(THEME_PRESETS_CACHE_KEY, resolvedPresets, THEME_CACHE_TTL_SECONDS);
     return resolvedPresets;
   } catch (error) {
     Sentry.captureException(error);
@@ -165,14 +174,15 @@ export async function getThemePresets(): Promise<ThemePreset[]> {
 export async function getActiveTheme(userId?: string | null): Promise<ThemePreset> {
   if (!userId) return findFallbackPreset(DEFAULT_PRESET_ID);
 
-  const cached = await getCachedJson<ThemePreset>(`theme:user:${userId}`);
+  const userThemeCacheKey = `${USER_THEME_CACHE_KEY_PREFIX}${userId}`;
+  const cached = await getCachedJson<ThemePreset>(userThemeCacheKey);
   if (cached) return cached;
 
   try {
     const sb = createAdminClient();
     const { data, error } = await sb
       .from("user_theme_preferences")
-      .select("preset_id, theme_presets ( id,label,description,css_vars )")
+      .select("preset_id")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -181,9 +191,12 @@ export async function getActiveTheme(userId?: string | null): Promise<ThemePrese
       return findFallbackPreset(DEFAULT_PRESET_ID);
     }
 
-    const preset = data?.theme_presets ? coercePreset(data.theme_presets) : null;
-    const resolvedPreset = preset ?? findFallbackPreset(data?.preset_id ?? DEFAULT_PRESET_ID);
-    await setCachedJson(`theme:user:${userId}`, resolvedPreset, USER_THEME_CACHE_TTL_SECONDS);
+    const presets = await getThemePresets();
+    const presetById = buildPresetLookup(presets);
+    const resolvedPreset =
+      (data?.preset_id ? presetById.get(data.preset_id) : null) ??
+      findFallbackPreset(data?.preset_id ?? DEFAULT_PRESET_ID);
+    await setCachedJson(userThemeCacheKey, resolvedPreset, USER_THEME_CACHE_TTL_SECONDS);
     return resolvedPreset;
   } catch (error) {
     Sentry.captureException(error);
