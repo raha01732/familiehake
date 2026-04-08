@@ -23,6 +23,34 @@ type ErrorContext = {
   routeType: string;
 };
 
+function toHeaderRecord(headers: unknown): Record<string, string | string[] | undefined> {
+  if (!headers) return {};
+
+  if (typeof Headers !== "undefined" && headers instanceof Headers) {
+    return Object.fromEntries(headers.entries());
+  }
+
+  if (typeof (headers as { entries?: unknown }).entries === "function") {
+    try {
+      return Object.fromEntries((headers as { entries: () => Iterable<[string, string]> }).entries());
+    } catch {
+      return {};
+    }
+  }
+
+  if (typeof headers === "object") {
+    const plainHeaders = headers as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(plainHeaders).map(([key, value]) => [
+        key,
+        value == null ? undefined : Array.isArray(value) ? value.map(String) : String(value),
+      ])
+    );
+  }
+
+  return {};
+}
+
 export const onRequestError = async (error: Error, request: Request, context: { [key: string]: unknown }) => {
   const requestUrl = typeof request?.url === "string" ? request.url : "";
   let requestPath = "unknown";
@@ -38,7 +66,7 @@ export const onRequestError = async (error: Error, request: Request, context: { 
   const requestInfo: RequestInfo = {
     path: requestPath,
     method: request.method,
-    headers: Object.fromEntries(request.headers),
+    headers: toHeaderRecord(request.headers),
   };
   const errorContext = context as ErrorContext;
 

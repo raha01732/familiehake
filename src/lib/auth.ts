@@ -77,50 +77,63 @@ const getSessionInfoCached = cache(async (): Promise<SessionInfo> => {
     };
   }
 
-  const sb = createAdminClient();
-  const { data: roleRows } = await sb
-    .from("user_roles")
-    .select("roles(id, name, label, rank, is_superadmin)")
-    .eq("user_id", user.id);
+  try {
+    const sb = createAdminClient();
+    const { data: roleRows } = await sb
+      .from("user_roles")
+      .select("roles(id, name, label, rank, is_superadmin)")
+      .eq("user_id", user.id);
 
-  let roles: SessionRole[] =
-    roleRows?.map((row) => mapRoleRow((row as any).roles)).filter((r): r is SessionRole => !!r) ?? [];
+    let roles: SessionRole[] =
+      roleRows?.map((row) => mapRoleRow((row as any).roles)).filter((r): r is SessionRole => !!r) ?? [];
 
-  roles = await assignDefaultRoleIfMissing(sb, user.id, roles);
+    roles = await assignDefaultRoleIfMissing(sb, user.id, roles);
 
-  const roleNames = roles.map((r) => r.name);
+    const roleNames = roles.map((r) => r.name);
 
-  let permissions: EffectivePermissions = {};
-  if (roleNames.length > 0) {
-    const { data: permRows } = await sb
-      .from("access_rules")
-      .select("route, allowed, role")
-      .in("role", roleNames);
+    let permissions: EffectivePermissions = {};
+    if (roleNames.length > 0) {
+      const { data: permRows } = await sb
+        .from("access_rules")
+        .select("route, allowed, role")
+        .in("role", roleNames);
 
-    if (Array.isArray(permRows)) {
-      permissions = computeEffectivePermissions(permRows as any);
+      if (Array.isArray(permRows)) {
+        permissions = computeEffectivePermissions(permRows as any);
+      }
     }
+
+    const primaryRole =
+      roles
+        .slice()
+        .sort((a, b) => b.rank - a.rank)[0] ?? null;
+
+    const primarySuperAdminId = env().PRIMARY_SUPERADMIN_ID;
+    const isSuperAdmin =
+      user.id === primarySuperAdminId ||
+      roles.some((r) => r.isSuperAdmin || r.name.toLowerCase() === "superadmin");
+
+    return {
+      signedIn: true,
+      userId: user.id,
+      email: user.primaryEmailAddress?.emailAddress ?? null,
+      roles,
+      primaryRole,
+      permissions,
+      isSuperAdmin,
+    };
+  } catch (error) {
+    console.error("[auth] failed to load roles/permissions", error);
+    return {
+      signedIn: true,
+      userId: user.id,
+      email: user.primaryEmailAddress?.emailAddress ?? null,
+      roles: [],
+      primaryRole: null,
+      permissions: {},
+      isSuperAdmin: false,
+    };
   }
-
-  const primaryRole =
-    roles
-      .slice()
-      .sort((a, b) => b.rank - a.rank)[0] ?? null;
-
-  const primarySuperAdminId = env().PRIMARY_SUPERADMIN_ID;
-  const isSuperAdmin =
-    user.id === primarySuperAdminId ||
-    roles.some((r) => r.isSuperAdmin || r.name.toLowerCase() === "superadmin");
-
-  return {
-    signedIn: true,
-    userId: user.id,
-    email: user.primaryEmailAddress?.emailAddress ?? null,
-    roles,
-    primaryRole,
-    permissions,
-    isSuperAdmin,
-  };
 });
 
 /** Session + Rollen & Berechtigungen aus Clerk + Supabase holen (request-lokal memoized) */
