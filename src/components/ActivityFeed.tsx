@@ -1,7 +1,7 @@
 // /workspace/familiehake/src/components/ActivityFeed.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 
 type AuditRow = {
@@ -19,23 +19,33 @@ export default function ActivityFeed({
   initial: AuditRow[];
   debug?: boolean;
 }) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey);
+  const missingEnvMessage =
+    "Realtime disabled: NEXT_PUBLIC_SUPABASE_URL oder NEXT_PUBLIC_SUPABASE_ANON_KEY fehlt.";
+
   const [items, setItems] = useState<AuditRow[]>(initial);
-  const [rtStatus, setRtStatus] = useState<string>("init");
-  const [rtError, setRtError] = useState<string | null>(null);
+  const [rtState, setRtState] = useReducer(
+    (state: { status: string; error: string | null }, next: Partial<{ status: string; error: string | null }>) => ({
+      ...state,
+      ...next,
+    }),
+    {
+      status: hasSupabaseEnv ? "init" : "env_missing",
+      error: hasSupabaseEnv ? null : missingEnvMessage,
+    }
+  );
 
   const sbRef = useRef<ReturnType<typeof createBrowserClient> | null>(null);
 
   useEffect(() => {
     // ===================== MINI-DEBUG START =====================
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!url || !anon) {
-      const msg =
-        "Realtime disabled: NEXT_PUBLIC_SUPABASE_URL oder NEXT_PUBLIC_SUPABASE_ANON_KEY fehlt.";
-      console.warn("[ActivityFeed MINI-DEBUG]", msg, { url: !!url, anon: !!anon });
-      setRtStatus("env_missing");
-      setRtError(msg);
+    if (!hasSupabaseEnv) {
+      console.warn("[ActivityFeed MINI-DEBUG]", missingEnvMessage, {
+        url: !!supabaseUrl,
+        anon: !!supabaseAnonKey,
+      });
       return;
     }
 
@@ -51,15 +61,14 @@ export default function ActivityFeed({
         globalWS: typeof WS,
         userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "n/a",
       });
-      setRtStatus("ws_missing");
-      setRtError(msg);
+      setRtState({ status: "ws_missing", error: msg });
       return;
     }
     // ===================== MINI-DEBUG END =====================
 
     try {
       // ✅ WebSocket explizit an Supabase durchreichen (damit Realtime nicht "raten" muss)
-      const sb = createBrowserClient(url, anon, {
+      const sb = createBrowserClient(supabaseUrl!, supabaseAnonKey!, {
         realtime: { WebSocket: WS } as any,
       } as any);
 
@@ -76,13 +85,13 @@ export default function ActivityFeed({
               setItems((prev) => [row, ...prev].slice(0, 100));
             } catch (e: any) {
               console.error("[ActivityFeed] payload handling failed", e);
-              setRtError(e?.message ?? "payload_handling_failed");
+              setRtState({ error: e?.message ?? "payload_handling_failed" });
             }
           }
         );
 
       channel.subscribe((status) => {
-        setRtStatus(String(status));
+        setRtState({ status: String(status) });
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           console.warn("[ActivityFeed] realtime subscribe status:", status);
         }
@@ -97,10 +106,9 @@ export default function ActivityFeed({
       };
     } catch (e: any) {
       console.error("[ActivityFeed] createBrowserClient failed", e);
-      setRtStatus("client_create_failed");
-      setRtError(e?.message ?? "createBrowserClient_failed");
+      setRtState({ status: "client_create_failed", error: e?.message ?? "createBrowserClient_failed" });
     }
-  }, []);
+  }, [hasSupabaseEnv, missingEnvMessage, supabaseAnonKey, supabaseUrl]);
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
@@ -108,12 +116,12 @@ export default function ActivityFeed({
         <div className="border-b border-zinc-800 bg-zinc-950/40 p-3 text-[11px] text-zinc-300">
           <div>
             <span className="text-zinc-500">Realtime status:</span>{" "}
-            <span className="font-mono">{rtStatus}</span>
+            <span className="font-mono">{rtState.status}</span>
           </div>
-          {rtError && (
+          {rtState.error && (
             <div className="mt-1 whitespace-pre-wrap text-amber-300">
               <span className="text-zinc-500">Realtime error:</span>{" "}
-              <span className="font-mono">{rtError}</span>
+              <span className="font-mono">{rtState.error}</span>
             </div>
           )}
         </div>

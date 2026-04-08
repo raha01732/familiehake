@@ -1,4 +1,4 @@
-// src/components/dashboard/WelcomeTileCard.tsx
+// /workspace/familiehake/src/components/dashboard/WelcomeTileCard.tsx
 "use client";
 
 import { useState } from "react";
@@ -15,6 +15,7 @@ export type WelcomeTile = {
 type Props = {
   tile: WelcomeTile;
   isAdmin: boolean;
+  // eslint-disable-next-line no-unused-vars
   onSave: (formData: FormData) => Promise<void>;
 };
 

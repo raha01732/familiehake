@@ -1,4 +1,4 @@
-// src/app/tools/dienstplaner/AvailabilityInput.tsx
+// /workspace/familiehake/src/app/tools/dienstplaner/AvailabilityInput.tsx
 "use client";
 
 import { useState, useTransition } from "react";
@@ -9,6 +9,7 @@ type AvailabilityInputProps = {
   initialStatus: string | null;
   initialFixedStart: string | null;
   initialFixedEnd: string | null;
+  // eslint-disable-next-line no-unused-vars
   saveAction: (formData: FormData) => Promise<void>;
 };
 

@@ -9,6 +9,7 @@ import PostHogProvider from "@/components/PostHogProvider";
 import DynamicUserChrome from "@/components/layout/DynamicUserChrome";
 import * as Sentry from "@sentry/nextjs";
 import { getSessionInfo } from "@/lib/auth";
+import { env } from "@/lib/env";
 
 export function generateMetadata(): Metadata {
   return {
@@ -20,8 +21,9 @@ export function generateMetadata(): Metadata {
   };
 }
 
-const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-const clerkSignInUrl = "https://accounts.familiehake.de/sign-in";
+const configuration = env();
+const clerkPublishableKey = configuration.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const clerkSignInUrl = configuration.NEXT_PUBLIC_CLERK_SIGN_IN_URL ?? "/sign-in";
 const isClerkEnabled = Boolean(clerkPublishableKey);
 const clerkAppearance = {
   variables: {

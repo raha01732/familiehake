@@ -14,15 +14,13 @@ export default function MessagesPage() {
   const sb = useMemo(() => createClient(), []);
   const { userId } = useAuth();
   const { user } = useUser();
-  const [privPEM, setPrivPEM] = useState<string | null>(null);
+  const [privPEM, setPrivPEM] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("e2e_private_pem");
+  });
   const [recipientId, setRecipientId] = useState<string>("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [plain, setPlain] = useState("");
-
-  // Private Key lokal laden (nur Client)
-  useEffect(() => {
-    setPrivPEM(localStorage.getItem("e2e_private_pem"));
-  }, []);
 
   // RSA-Schlüssel erzeugen & öffentlichen Schlüssel publizieren
   async function ensureKey() {

@@ -9,7 +9,7 @@ const isPublicRoute = createRouteMatcher([
   "/",
   "/sign-in(.*)",
   "/sign-up(.*)",
-  "/api/health",
+  "/api/health(.*)",
   "/api/keepalive",
 
   // ✅ wichtig: Sentry-Tunnel muss öffentlich sein, sonst 500/redirect beim Feedback
@@ -17,6 +17,7 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const clerkSignInUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL ?? "/sign-in";
 const isClerkEnabled = Boolean(clerkPublishableKey);
 
 /** Optional: IP-Denylist (kommasepariert) */
@@ -118,7 +119,9 @@ const clerkEnabledMiddleware = clerkMiddleware(async (auth, req) => {
   const userId = authState.userId;
 
   if (!userId) {
-    return withSecurityHeaders(authState.redirectToSignIn({ returnBackUrl: req.url }));
+    const signInUrl = new URL(clerkSignInUrl, req.url);
+    signInUrl.searchParams.set("redirect_url", req.url);
+    return withSecurityHeaders(NextResponse.redirect(signInUrl));
   }
 
 
