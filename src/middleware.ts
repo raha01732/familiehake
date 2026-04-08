@@ -19,6 +19,7 @@ const isPublicRoute = createRouteMatcher([
 const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const clerkSignInUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL ?? "/sign-in";
 const isClerkEnabled = Boolean(clerkPublishableKey);
+const hasRelativeSignInPath = clerkSignInUrl.startsWith("/");
 
 /** Optional: IP-Denylist (kommasepariert) */
 const BLOCKED_IPS = (process.env.BLOCKED_IPS ?? "")
@@ -92,6 +93,13 @@ function checkIpBlock(req: NextRequest) {
   return null;
 }
 
+function isClerkSignInRoute(req: NextRequest) {
+  if (!hasRelativeSignInPath) return false;
+  const pathname = new URL(req.url).pathname;
+  const normalizedSignInPath = clerkSignInUrl.replace(/\/+$/, "") || "/";
+  return pathname === normalizedSignInPath || pathname.startsWith(`${normalizedSignInPath}/`);
+}
+
 const fallbackMiddleware = (req: NextRequest) => {
   const preview = handlePreviewProtection(req);
   if (preview) return withSecurityHeaders(preview);
@@ -109,7 +117,7 @@ const clerkEnabledMiddleware = clerkMiddleware(async (auth, req) => {
   const ipBlock = checkIpBlock(req);
   if (ipBlock) return withSecurityHeaders(ipBlock);
 
-  if (isPublicRoute(req)) {
+  if (isPublicRoute(req) || isClerkSignInRoute(req)) {
     return withSecurityHeaders(NextResponse.next());
   }
 
