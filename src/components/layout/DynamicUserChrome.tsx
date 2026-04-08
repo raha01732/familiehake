@@ -1,5 +1,4 @@
 // /workspace/familiehake/src/components/layout/DynamicUserChrome.tsx
-import { cookies } from "next/headers";
 import AdminErrorBanner from "@/components/AdminErrorBanner";
 import CommandMenu from "@/components/CommandMenu";
 import Header from "@/components/Header";
@@ -30,8 +29,6 @@ export default async function DynamicUserChrome({
   const session = await getSessionInfo();
   const isSignedIn = Boolean(session?.signedIn);
   const activeTheme = getThemePresetById("dark");
-  const cookieStore = await cookies();
-  cookieStore.delete("themePreset");
   if (!activeTheme) {
     return <Header clerkEnabled={isSignedIn} signInUrl={signInUrl} />;
   }
