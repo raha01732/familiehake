@@ -124,6 +124,8 @@ const getSessionInfoCached = cache(async (): Promise<SessionInfo> => {
     };
   } catch (error) {
     console.error("[auth] failed to load roles/permissions", error);
+    const primarySuperAdminId = env().PRIMARY_SUPERADMIN_ID;
+    const isSuperAdmin = user.id === primarySuperAdminId;
     return {
       signedIn: true,
       userId: user.id,
@@ -131,7 +133,7 @@ const getSessionInfoCached = cache(async (): Promise<SessionInfo> => {
       roles: [],
       primaryRole: null,
       permissions: {},
-      isSuperAdmin: false,
+      isSuperAdmin,
     };
   }
 });
