@@ -4,12 +4,7 @@ import AdminErrorBanner from "@/components/AdminErrorBanner";
 import CommandMenu from "@/components/CommandMenu";
 import Header from "@/components/Header";
 import { getSessionInfo } from "@/lib/auth";
-import {
-  getActiveTheme,
-  getThemeCssVars,
-  getThemePresetById,
-  THEME_PRESET_COOKIE,
-} from "@/lib/theme";
+import { getThemeCssVars, getThemePresetById } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
 
@@ -34,10 +29,12 @@ export default async function DynamicUserChrome({
 
   const session = await getSessionInfo();
   const isSignedIn = Boolean(session?.signedIn);
+  const activeTheme = getThemePresetById("dark");
   const cookieStore = await cookies();
-  const presetFromCookie = cookieStore.get(THEME_PRESET_COOKIE)?.value ?? null;
-  const cookiePreset = getThemePresetById(presetFromCookie);
-  const activeTheme = cookiePreset ?? (await getActiveTheme(isSignedIn ? session.userId : null));
+  cookieStore.delete("themePreset");
+  if (!activeTheme) {
+    return <Header clerkEnabled={isSignedIn} signInUrl={signInUrl} />;
+  }
   const themeCssVars = getThemeCssVars(activeTheme);
   const isAdmin = Boolean(
     isSignedIn && (session.isSuperAdmin || session.roles.some((role) => role.name === "admin"))

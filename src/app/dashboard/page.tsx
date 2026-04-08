@@ -5,11 +5,9 @@ import { logAudit } from "@/lib/audit";
 import { getSessionInfo } from "@/lib/auth";
 import { ADMIN_LINKS, TOOL_LINKS } from "@/lib/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getActiveTheme, getThemePresets } from "@/lib/theme";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import Link from "next/link";
-import ThemeSelectorCard from "@/components/dashboard/ThemeSelectorCard";
 
 export const metadata = { title: "Dashboard | Private Tools" };
 
@@ -246,8 +244,6 @@ export default async function DashboardPage() {
   const healthStatus = (health?.status as "ok" | "warn" | "degraded" | "unreachable") ?? "unreachable";
   const healthLabel = healthStatus === "ok" ? "Keine Fehler" : "Fehler erkannt";
   const welcomeTile = await getWelcomeTile();
-  const themePresets = await getThemePresets();
-  const activeTheme = await getActiveTheme(session.userId);
   const toolLinks = session.signedIn
     ? TOOL_LINKS.filter((link) => session.isSuperAdmin || session.permissions[link.routeKey])
     : [];
@@ -335,7 +331,6 @@ export default async function DashboardPage() {
 
         <div className="grid gap-6 md:grid-cols-2">
           <WelcomeTileCard tile={welcomeTile} isAdmin={isAdmin} onSave={updateWelcomeTile} />
-          {session.signedIn ? <ThemeSelectorCard presets={themePresets} activePresetId={activeTheme.id} /> : null}
         </div>
       </section>
     </RoleGate>
