@@ -43,7 +43,17 @@ const createId = () => {
 };
 
 export default function AdminErrorBanner({ isAdmin }: AdminErrorBannerProps) {
-  const [errors, setErrors] = useState<LoggedError[]>([]);
+  const [errors, setErrors] = useState<LoggedError[]>(() => {
+    if (typeof window === "undefined") return [];
+    const stored = sessionStorage.getItem(STORAGE_KEY);
+    if (!stored) return [];
+    try {
+      const parsed = JSON.parse(stored) as LoggedError[];
+      return Array.isArray(parsed) ? parsed.slice(0, MAX_ENTRIES) : [];
+    } catch {
+      return [];
+    }
+  });
   const [expanded, setExpanded] = useState(false);
   const lastSignatureRef = useRef<string | null>(null);
   const lastTimestampRef = useRef<number>(0);
@@ -87,21 +97,6 @@ export default function AdminErrorBanner({ isAdmin }: AdminErrorBannerProps) {
   );
 
   const hasErrors = errors.length > 0;
-
-  useEffect(() => {
-    if (!isAdmin) return;
-    const stored = sessionStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as LoggedError[];
-        if (Array.isArray(parsed)) {
-          setErrors(parsed.slice(0, MAX_ENTRIES));
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }, [isAdmin]);
 
   useEffect(() => {
     if (!isAdmin) return;

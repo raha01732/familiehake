@@ -2,8 +2,9 @@
 import { z } from "zod";
 const schema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url(),
-  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1),
-  CLERK_SECRET_KEY: z.string().min(1),
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1).optional(),
+  CLERK_SECRET_KEY: z.string().min(1).optional(),
+  NEXT_PUBLIC_CLERK_SIGN_IN_URL: z.string().min(1).optional(),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
@@ -34,6 +35,16 @@ export function env() {
     const issues = parsed.error.issues.map(i => `- ${i.path.join(".")}: ${i.message}`).join("\n");
     throw new Error(`❌ Environment variables invalid/missing:\n${issues}`);
   }
-  _env = parsed.data;
+  const data = parsed.data;
+  const hasPublishableKey = Boolean(data.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+  const hasSecretKey = Boolean(data.CLERK_SECRET_KEY);
+
+  if (hasPublishableKey !== hasSecretKey) {
+    throw new Error(
+      "❌ Clerk-Konfiguration unvollständig: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY und CLERK_SECRET_KEY müssen entweder beide gesetzt oder beide leer sein."
+    );
+  }
+
+  _env = data;
   return _env;
 }
