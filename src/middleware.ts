@@ -63,7 +63,7 @@ function withSecurityHeaders(res: NextResponse) {
       // Hinweis: 'self' deckt deinen Tunnel /api/sentry-tunnel ab
       "connect-src 'self' https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de https://*.supabase.co https://*.ingest.sentry.io;",
       "frame-ancestors 'none';",
-      "frame-src https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de;",
+      "frame-src https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de https://vercel.live;",
       "base-uri 'self';",
       "form-action 'self' https://*.clerk.com https://clerk.familiehake.de;",
     ].join(" ")
