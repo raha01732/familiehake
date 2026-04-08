@@ -58,7 +58,8 @@ function withSecurityHeaders(res: NextResponse) {
       "img-src 'self' data: blob: https://images.clerk.dev https://img.clerk.com https://clerk.familiehake.de;",
       "style-src 'self' 'unsafe-inline';",
       "font-src 'self' data:;",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de;",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de https://vercel.live;",
+      "worker-src 'self' blob:;",
       // Hinweis: 'self' deckt deinen Tunnel /api/sentry-tunnel ab
       "connect-src 'self' https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de https://*.supabase.co https://*.ingest.sentry.io;",
       "frame-ancestors 'none';",
@@ -114,11 +115,11 @@ const clerkEnabledMiddleware = clerkMiddleware(async (auth, req) => {
   // ✅ FIX: protect() gibt es bei deinem auth()-Typ nicht.
   // Stattdessen: wenn nicht eingeloggt -> redirect to sign-in
   const authState = await auth();
-const userId = authState.userId;
+  const userId = authState.userId;
 
-if (!userId) {
-  return withSecurityHeaders(authState.redirectToSignIn({ returnBackUrl: req.url }));
-}
+  if (!userId) {
+    return withSecurityHeaders(authState.redirectToSignIn({ returnBackUrl: req.url }));
+  }
 
 
   return withSecurityHeaders(NextResponse.next());
