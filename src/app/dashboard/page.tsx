@@ -65,46 +65,51 @@ async function getHealthSummary(): Promise<HealthSummary | null> {
 }
 
 async function getWelcomeTile(): Promise<WelcomeTile> {
-  const sb = createAdminClient();
+  try {
+    const sb = createAdminClient();
 
-  const { data, error } = await sb
-    .from("dashboard_tiles")
-    .select("title,body,title_color,body_color,title_size,body_size")
-    .eq("id", "welcome")
-    .maybeSingle();
+    const { data, error } = await sb
+      .from("dashboard_tiles")
+      .select("title,body,title_color,body_color,title_size,body_size")
+      .eq("id", "welcome")
+      .maybeSingle();
 
-  wtDebug("getWelcomeTile result", {
-    hasData: !!data,
-    titleLen: data?.title ? String(data.title).length : 0,
-    bodyLen: data?.body ? String(data.body).length : 0,
-    error: error
-      ? { message: error.message, code: (error as any).code, details: (error as any).details }
-      : null,
-  });
+    wtDebug("getWelcomeTile result", {
+      hasData: !!data,
+      titleLen: data?.title ? String(data.title).length : 0,
+      bodyLen: data?.body ? String(data.body).length : 0,
+      error: error
+        ? { message: error.message, code: (error as any).code, details: (error as any).details }
+        : null,
+    });
 
-  if (!data?.title && !data?.body) {
-    wtDebug("getWelcomeTile fallback_used", { reason: "no_title_and_no_body" });
+    if (!data?.title && !data?.body) {
+      wtDebug("getWelcomeTile fallback_used", { reason: "no_title_and_no_body" });
+      return DEFAULT_WELCOME_TILE;
+    }
+
+    return {
+      title: data.title ?? DEFAULT_WELCOME_TILE.title,
+      body: data.body ?? DEFAULT_WELCOME_TILE.body,
+      titleColor: normalizeColor(data.title_color, DEFAULT_WELCOME_TILE.titleColor),
+      bodyColor: normalizeColor(data.body_color, DEFAULT_WELCOME_TILE.bodyColor),
+      titleSize: normalizeFontSize(
+        data.title_size ? String(data.title_size) : null,
+        DEFAULT_WELCOME_TILE.titleSize,
+        14,
+        40
+      ),
+      bodySize: normalizeFontSize(
+        data.body_size ? String(data.body_size) : null,
+        DEFAULT_WELCOME_TILE.bodySize,
+        12,
+        24
+      ),
+    };
+  } catch (error) {
+    console.error("[dashboard] failed to load welcome tile", error);
     return DEFAULT_WELCOME_TILE;
   }
-
-  return {
-    title: data.title ?? DEFAULT_WELCOME_TILE.title,
-    body: data.body ?? DEFAULT_WELCOME_TILE.body,
-    titleColor: normalizeColor(data.title_color, DEFAULT_WELCOME_TILE.titleColor),
-    bodyColor: normalizeColor(data.body_color, DEFAULT_WELCOME_TILE.bodyColor),
-    titleSize: normalizeFontSize(
-      data.title_size ? String(data.title_size) : null,
-      DEFAULT_WELCOME_TILE.titleSize,
-      14,
-      40
-    ),
-    bodySize: normalizeFontSize(
-      data.body_size ? String(data.body_size) : null,
-      DEFAULT_WELCOME_TILE.bodySize,
-      12,
-      24
-    ),
-  };
 }
 
 async function updateWelcomeTile(formData: FormData) {
