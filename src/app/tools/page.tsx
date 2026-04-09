@@ -1,8 +1,9 @@
-// src/app/tools/page.tsx
+// /workspace/familiehake/src/app/tools/page.tsx
 import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { env } from "@/lib/env";
 import { TOOL_LINKS } from "@/lib/navigation";
+import { PreviewPlaceholder } from "@/components/PreviewNotice";
 import { getAllowedRoutesForRole, LEVEL_NONE, LEVEL_READ, normalizeRouteKey } from "@/lib/route-access";
 
 export const metadata = { title: "Werkzeuge" };
@@ -40,6 +41,11 @@ export default async function ToolsPage() {
         <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">Werkzeuge</h1>
         <p className="text-sm text-zinc-400">Module, die deiner Rolle freigeschaltet sind.</p>
       </header>
+      <PreviewPlaceholder
+        title="Werkzeug-Übersicht im Preview-Modus"
+        description="Die Detailseiten sind in Preview absichtlich reduziert. Echte Daten aus externen Services werden nur in Production geladen."
+        fields={["Datenbank-Inhalte", "Integrationen", "Live-Statusdaten"]}
+      />
 
       {visible.length === 0 ? (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">

@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
 import Link from "next/link";
+import { isPreviewEnvironment } from "@/lib/env";
+import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
 export const metadata = { title: "Papierkorb" };
 
@@ -137,6 +139,18 @@ async function hardDeleteFolderAction(formData: FormData) {
 /* ======= Page ======= */
 
 export default async function TrashPage() {
+  if (isPreviewEnvironment()) {
+    return (
+      <RoleGate routeKey="tools/files">
+        <PreviewPlaceholder
+          title="Papierkorb (Preview)"
+          description="Gelöschte Dateien und Wiederherstellungen sind in Preview deaktiviert."
+          fields={["Gelöschte Dateien", "Gelöschte Ordner", "Wiederherstellungsaktionen"]}
+        />
+      </RoleGate>
+    );
+  }
+
   const { userId } = await auth();
   if (!userId) {
     return (

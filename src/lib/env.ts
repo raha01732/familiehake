@@ -37,6 +37,14 @@ type Env = z.infer<typeof baseSchema> &
 
 let _env: Env | null = null;
 
+export function isPreviewEnvironment() {
+  return process.env.VERCEL_ENV === "preview";
+}
+
+export function isProductionEnvironment() {
+  return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+}
+
 export function env() {
   if (_env) return _env;
   const parsed = baseSchema.safeParse(process.env);
@@ -46,7 +54,7 @@ export function env() {
     throw new Error(`❌ Environment variables invalid/missing:\n${issues}`);
   }
   const data = parsed.data as Record<string, string | undefined>;
-  const isProduction = process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+  const isProduction = isProductionEnvironment();
 
   const missingRequired = requiredInProduction.filter((key) => !data[key]);
   if (isProduction && missingRequired.length > 0) {

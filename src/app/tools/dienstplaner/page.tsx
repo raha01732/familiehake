@@ -1,8 +1,9 @@
-// src/app/tools/dienstplaner/page.tsx
+// /workspace/familiehake/src/app/tools/dienstplaner/page.tsx
 import Link from "next/link";
 import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { env } from "@/lib/env";
+import { env, isPreviewEnvironment } from "@/lib/env";
+import { PreviewPlaceholder } from "@/components/PreviewNotice";
 import AvailabilityInput from "./AvailabilityInput";
 import DayRequirementCell from "./DayRequirementCell";
 import SettingsPanelToggle from "./SettingsPanelToggle";
@@ -117,6 +118,18 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
 
   const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase() || "user";
   const isAdmin = role === "admin" || user.id === env().PRIMARY_SUPERADMIN_ID;
+
+  if (isPreviewEnvironment()) {
+    return (
+      <section className="p-6">
+        <PreviewPlaceholder
+          title="Dienstplaner (Preview)"
+          description="Schicht- und Mitarbeiterdaten sind in der Preview deaktiviert."
+          fields={["Mitarbeiter", "Schichtplanung", "Verfügbarkeiten"]}
+        />
+      </section>
+    );
+  }
 
   const monthDate = getMonthFromSearch(searchParams);
   const { start, end, days } = buildDaysInMonth(monthDate);

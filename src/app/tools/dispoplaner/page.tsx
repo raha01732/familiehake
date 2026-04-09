@@ -1,8 +1,9 @@
-// src/app/tools/dispoplaner/page.tsx
+// /workspace/familiehake/src/app/tools/dispoplaner/page.tsx
 import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { env } from "@/lib/env";
+import { env, isPreviewEnvironment } from "@/lib/env";
 import { addMovieAction, addShowAction, deleteMovieAction, updateMovieAction } from "./actions";
+import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
 export const metadata = { title: "Dispoplaner" };
 
@@ -14,6 +15,18 @@ export default async function DispoplanerPage() {
 
   const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase() || "user";
   const isAdmin = role === "admin" || user.id === env().PRIMARY_SUPERADMIN_ID;
+
+  if (isPreviewEnvironment()) {
+    return (
+      <section className="p-6">
+        <PreviewPlaceholder
+          title="Dispoplaner (Preview)"
+          description="In Preview sind Film- und Vorstellungsdaten deaktiviert. Produktionsdaten werden nur in der Live-Umgebung geladen."
+          fields={["Filmliste", "Vorstellungen", "Planungsaktionen"]}
+        />
+      </section>
+    );
+  }
 
   const sb = createAdminClient();
   const { data: movies } = await sb.from("movies").select("*").order("title");

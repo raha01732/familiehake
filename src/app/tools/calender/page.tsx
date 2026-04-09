@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/browser";
+import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
 type Row = {
   id: string;
@@ -15,6 +16,7 @@ type Row = {
 };
 
 export default function CalendarPage() {
+  const isPreview = process.env.NEXT_PUBLIC_VERCEL_ENV === "preview";
   const sb = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<Row[]>([]);
   const [form, setForm] = useState<Partial<Row>>({ title: "", starts_at: "", ends_at: "", location: "", description: "" });
@@ -46,6 +48,18 @@ export default function CalendarPage() {
       .single();
     if (data) setRows((r) => [...r, data]);
     setForm({ title: "", starts_at: "", ends_at: "", location: "", description: "" });
+  }
+
+  if (isPreview) {
+    return (
+      <section className="p-6">
+        <PreviewPlaceholder
+          title="Kalender (Preview)"
+          description="Kalendertermine werden in der Preview nicht aus externen Datenquellen geladen."
+          fields={["Termine", "Exportdaten", "Kalender-Integrationen"]}
+        />
+      </section>
+    );
   }
 
   return (

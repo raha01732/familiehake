@@ -5,12 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { createClient } from "@/lib/supabase/browser";
 import { decryptWith, encryptFor, generateRSA, importPrivateKey, importPublicKey } from "@/lib/crypto";
+import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
 type Msg = { id: string; sender_id: string; recipient_id: string; ciphertext: string; created_at: string };
 // eslint-disable-next-line no-unused-vars
 type RevealFn = (ciphertext: string) => Promise<string>;
 
 export default function MessagesPage() {
+  const isPreview = process.env.NEXT_PUBLIC_VERCEL_ENV === "preview";
   const sb = useMemo(() => createClient(), []);
   const { userId } = useAuth();
   const { user } = useUser();
@@ -96,6 +98,18 @@ export default function MessagesPage() {
     return (
       <section className="p-6">
         <div className="text-sm text-zinc-400">Bitte anmelden.</div>
+      </section>
+    );
+  }
+
+  if (isPreview) {
+    return (
+      <section className="p-6">
+        <PreviewPlaceholder
+          title="Nachrichten (Preview)"
+          description="E2E-Nachrichten und Schlüsselverwaltung sind in Preview nur als Demo sichtbar."
+          fields={["Unterhaltungen", "Schlüsselmaterial", "Sende-/Empfangsdaten"]}
+        />
       </section>
     );
   }
