@@ -39,11 +39,14 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
   }, [error]);
   return (
     <html>
-      <body className="p-8">
-        <div className="card p-6">
-          <h2 className="text-zinc-100 text-xl font-semibold mb-2">Es ist ein Fehler aufgetreten</h2>
-          <p className="text-zinc-400 text-sm mb-4">Bitte versuche es erneut. Der Fehler wurde protokolliert.</p>
-          <button onClick={reset} className="rounded-xl border border-zinc-700 text-zinc-200 text-sm px-3 py-2">
+      <body className="bg-[hsl(var(--background))] p-8">
+        <div className="card max-w-2xl p-8">
+          <h2 className="mb-2 text-xl font-semibold text-slate-900">Es ist ein Fehler aufgetreten</h2>
+          <p className="mb-4 text-sm text-slate-700">Bitte versuche es erneut. Der Fehler wurde protokolliert.</p>
+          <button
+            onClick={reset}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
+          >
             Neu laden
           </button>
         </div>

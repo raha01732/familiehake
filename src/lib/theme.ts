@@ -12,7 +12,7 @@ export type ThemePreset = {
 
 const THEME_CACHE_TTL_SECONDS = 60 * 60 * 6;
 const USER_THEME_CACHE_TTL_SECONDS = 60 * 60 * 12;
-const DEFAULT_PRESET_ID = "dark";
+const DEFAULT_PRESET_ID = "light";
 export const THEME_PRESET_COOKIE = "themePreset";
 const THEME_PRESETS_CACHE_KEY = "theme:presets:v2";
 const USER_THEME_CACHE_KEY_PREFIX = "theme:user:";
@@ -142,8 +142,12 @@ function coercePreset(raw: any): ThemePreset | null {
 }
 
 function findFallbackPreset(id?: string | null) {
-  if (!id) return FALLBACK_PRESETS[0];
-  return FALLBACK_PRESET_BY_ID.get(id) ?? FALLBACK_PRESETS[0];
+  const resolvedId = id ?? DEFAULT_PRESET_ID;
+  return (
+    FALLBACK_PRESET_BY_ID.get(resolvedId) ??
+    FALLBACK_PRESET_BY_ID.get(DEFAULT_PRESET_ID) ??
+    FALLBACK_PRESETS[0]
+  );
 }
 
 function buildPresetLookup(presets: ThemePreset[]) {

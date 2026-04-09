@@ -3,7 +3,7 @@ import AdminErrorBanner from "@/components/AdminErrorBanner";
 import CommandMenu from "@/components/CommandMenu";
 import Header from "@/components/Header";
 import { getSessionInfo } from "@/lib/auth";
-import { getThemeCssVars, getThemePresetById } from "@/lib/theme";
+import { getActiveTheme, getThemeCssVars } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
 
@@ -18,24 +18,16 @@ function cssVarsToString(vars: Record<string, string>) {
     .join(" ");
 }
 
-export default async function DynamicUserChrome({
-  clerkEnabled,
-  signInUrl,
-}: DynamicUserChromeProps) {
+export default async function DynamicUserChrome({ clerkEnabled, signInUrl }: DynamicUserChromeProps) {
   if (!clerkEnabled) {
     return <Header clerkEnabled={false} signInUrl={signInUrl} />;
   }
 
   const session = await getSessionInfo();
   const isSignedIn = Boolean(session?.signedIn);
-  const activeTheme = getThemePresetById("dark");
-  if (!activeTheme) {
-    return <Header clerkEnabled={isSignedIn} signInUrl={signInUrl} />;
-  }
+  const activeTheme = await getActiveTheme(session.userId ?? null);
   const themeCssVars = getThemeCssVars(activeTheme);
-  const isAdmin = Boolean(
-    isSignedIn && (session.isSuperAdmin || session.roles.some((role) => role.name === "admin"))
-  );
+  const isAdmin = Boolean(isSignedIn && (session.isSuperAdmin || session.roles.some((role) => role.name === "admin")));
 
   return (
     <>
