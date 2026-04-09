@@ -552,3 +552,22 @@ as $$
     and table_type = 'BASE TABLE'
   order by table_name;
 $$;
+
+create table if not exists tool_status (
+  route_key text primary key,
+  enabled boolean not null default true,
+  maintenance_message text,
+  updated_at timestamptz not null default now()
+);
+
+insert into tool_status (route_key, enabled, maintenance_message)
+values
+  ('tools/files', true, null),
+  ('tools/journal', true, null),
+  ('tools/dispoplaner', true, null),
+  ('tools/dienstplaner', true, null),
+  ('tools/calender', true, null),
+  ('tools/messages', true, null),
+  ('tools/storage', true, null),
+  ('tools/system', true, null)
+on conflict (route_key) do nothing;

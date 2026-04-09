@@ -4,6 +4,9 @@ import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env, isPreviewEnvironment } from "@/lib/env";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
+import { getSessionInfo } from "@/lib/auth";
+import { getToolStatusMap } from "@/lib/tool-status";
+import ToolMaintenanceNotice from "@/components/ToolMaintenanceNotice";
 import AvailabilityInput from "./AvailabilityInput";
 import DayRequirementCell from "./DayRequirementCell";
 import SettingsPanelToggle from "./SettingsPanelToggle";
@@ -111,6 +114,12 @@ function buildDaysInMonth(date: Date) {
 }
 
 export default async function DienstplanerPage({ searchParams }: { searchParams?: { month?: string } }) {
+  const [session, toolStatusMap] = await Promise.all([getSessionInfo(), getToolStatusMap()]);
+  const toolStatus = toolStatusMap["tools/dienstplaner"];
+  if (toolStatus && !toolStatus.enabled && !session.isSuperAdmin) {
+    return <ToolMaintenanceNotice message={toolStatus.maintenanceMessage} />;
+  }
+
   const user = await currentUser();
   if (!user) {
     return <section className="p-6 text-zinc-400">Bitte melde dich an, um den Dienstplaner zu nutzen.</section>;
