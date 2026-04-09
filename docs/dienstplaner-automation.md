@@ -3,6 +3,7 @@
 
 ## Was bereits umgesetzt wurde
 - **Automatischer Monatsvorschlag** direkt in der Dienstplaner-UI (Button `Auto-Plan erstellen`).
+- **Admin-Guard aktiv**: Die Auto-Planung ist serverseitig nur für Admins/Superadmin erlaubt.
 - **Fairness-Heuristik**: Mitarbeitende mit weniger erfüllten Sollstunden werden bevorzugt.
 - **Verfügbarkeiten berücksichtigt**:
   - `F`, `K` werden ausgeschlossen.
@@ -12,6 +13,7 @@
   - Tages-Overrides (`dienstplan_position_requirements`) haben Vorrang.
   - Sonst Wochentags-Grundregeln (`dienstplan_weekday_position_requirements`).
   - Sonst Fallback auf numerischen Tagesbedarf mit Schienenrotation.
+- **Datensicherheit**: Wenn keine Schichten generiert werden können, bleibt der bestehende Monatsplan unverändert.
 
 ## Empfohlene nächste Integrationen (kostenbewusst)
 

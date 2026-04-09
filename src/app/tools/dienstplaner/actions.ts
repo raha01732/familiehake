@@ -2,7 +2,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { env } from "@/lib/env";
 import { generateAutoPlanSlots, type AutoPlanSlot, type PauseRule } from "./utils";
 
 const PLAN_PATH = "/tools/dienstplaner";
@@ -29,6 +31,19 @@ function buildMonthDays(startDate: string, endDate: string) {
     days.push(cursor.toISOString().slice(0, 10));
   }
   return days;
+}
+
+async function assertAdminForDienstplanAutomation() {
+  const user = await currentUser();
+  if (!user) {
+    throw new Error("UNAUTHORIZED_NOT_LOGGED_IN");
+  }
+
+  const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase() || "user";
+  const isAdmin = role === "admin" || user.id === env().PRIMARY_SUPERADMIN_ID;
+  if (!isAdmin) {
+    throw new Error("FORBIDDEN_ADMIN_ONLY");
+  }
 }
 
 export async function saveShiftAction(formData: FormData) {
@@ -118,6 +133,8 @@ export async function clearMonthAction(formData: FormData) {
 }
 
 export async function autoGenerateMonthPlanAction(formData: FormData) {
+  await assertAdminForDienstplanAutomation();
+
   const month = String(formData.get("month") || "");
   const range = getMonthRange(month);
   if (!range) return;
@@ -237,6 +254,10 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
     slots,
     pauseRules,
   });
+
+  if (generatedShifts.length === 0) {
+    return;
+  }
 
   await sb.from("dienstplan_shifts").delete().gte("shift_date", range.start).lte("shift_date", range.end);
   if (generatedShifts.length > 0) {

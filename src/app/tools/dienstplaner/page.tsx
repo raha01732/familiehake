@@ -310,18 +310,20 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
               Alles löschen
             </button>
           </form>
-          <form action={autoGenerateMonthPlanAction} className="flex items-center gap-3">
-            <input type="hidden" name="month" value={monthKey} />
-            <button
-              type="submit"
-              className="bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium px-4 py-2 rounded"
-            >
-              Auto-Plan erstellen
-            </button>
-          </form>
+          {isAdmin && (
+            <form action={autoGenerateMonthPlanAction} className="flex items-center gap-3">
+              <input type="hidden" name="month" value={monthKey} />
+              <button
+                type="submit"
+                className="bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium px-4 py-2 rounded"
+              >
+                Auto-Plan erstellen
+              </button>
+            </form>
+          )}
           {!isAdmin && (
             <span className="text-xs text-zinc-500">
-              Du hast nur Lesezugriff auf Einstellungen (Admins können dort Regeln anpassen).
+              Du hast nur Lesezugriff auf Einstellungen und Automatisierung (Admins können Regeln und Auto-Planung anpassen).
             </span>
           )}
         </div>
