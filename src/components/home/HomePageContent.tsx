@@ -267,19 +267,19 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
 
   return (
     <RoleGate routeKey="dashboard">
-      <section className="grid items-start gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <section className="grid items-start gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="card flex flex-col gap-5 p-4 lg:sticky lg:top-24">
           <div className="space-y-3">
-            <div className="text-xs uppercase tracking-wide text-zinc-500">Tools</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Tools</div>
             <nav className="flex flex-col gap-1">
               {toolLinks.length === 0 ? (
-                <span className="text-xs text-zinc-500">Keine Tools freigeschaltet</span>
+                <span className="text-xs text-slate-500">Keine Tools freigeschaltet</span>
               ) : (
                 toolLinks.map((link) => (
                   <Link
                     key={link.routeKey}
                     href={link.href}
-                    className="rounded-md px-2 py-1 text-sm text-zinc-200 hover:bg-zinc-900/60 hover:text-white"
+                    className="rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-blue-50 hover:text-blue-700"
                   >
                     {link.label}
                   </Link>
@@ -289,15 +289,15 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
           </div>
           {adminLinks.length > 0 && (
             <>
-              <div className="h-px w-full bg-white/10" aria-hidden />
+              <div className="h-px w-full bg-slate-200" aria-hidden />
               <div className="space-y-3">
-                <div className="text-xs uppercase tracking-wide text-zinc-500">Admin</div>
+                <div className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Admin</div>
                 <nav className="flex flex-col gap-1">
                   {adminLinks.map((link) => (
                     <Link
                       key={link.routeKey}
                       href={link.href}
-                      className="rounded-md px-2 py-1 text-sm text-zinc-200 hover:bg-zinc-900/60 hover:text-white"
+                      className="rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-blue-50 hover:text-blue-700"
                     >
                       {link.label}
                     </Link>
@@ -308,16 +308,16 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
           )}
           {isAdmin ? (
             <>
-              <div className="h-px w-full bg-white/10" aria-hidden />
-              <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-950/70 p-3">
-                <div className="text-xs uppercase tracking-wide text-zinc-500">System-Health</div>
-                <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-                  <div className="text-sm text-zinc-200">Status</div>
+              <div className="h-px w-full bg-slate-200" aria-hidden />
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-white/90 p-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">System-Health</div>
+                <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-sm text-slate-700">Status</div>
                   <span
                     className={`rounded-lg border px-2 py-0.5 text-xs ${
                       healthStatus === "ok"
-                        ? "border-green-700 text-green-300 bg-green-900/20"
-                        : "border-amber-600 text-amber-300 bg-amber-900/20"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-amber-200 bg-amber-50 text-amber-700"
                     }`}
                   >
                     {healthLabel}
@@ -325,7 +325,7 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
                 </div>
                 <Link
                   href="/monitoring"
-                  className="inline-flex text-xs text-zinc-300 underline underline-offset-4 hover:text-white"
+                  className="inline-flex text-xs font-medium text-blue-700 underline underline-offset-4 hover:text-blue-500"
                 >
                   Zum Monitoring →
                 </Link>
