@@ -15,7 +15,7 @@
     --secondary: 210 35% 94%;
     --secondary-foreground: 222 35% 20%;
     --muted: 210 35% 95%;
-    --muted-foreground: 222 16% 42%;
+    --muted-foreground: 222 20% 34%;
     --accent: 188 83% 43%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84% 57%;
@@ -34,6 +34,13 @@
     --radius: 0.9rem;
     --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
     --font-display: "Plus Jakarta Sans", "Inter", "Segoe UI", system-ui, sans-serif;
+    --legacy-text-strong: 222 47% 11%;
+    --legacy-text-default: 217 33% 17%;
+    --legacy-text-muted: 215 20% 31%;
+    --legacy-text-soft: 215 16% 42%;
+    --legacy-panel-bg: 210 40% 98%;
+    --legacy-panel-bg-strong: 0 0% 100%;
+    --legacy-panel-border: 215 25% 78%;
   }
 
   .dark {
@@ -138,7 +145,41 @@
   border: 1px solid hsl(var(--border) / 0.8);
 }
 
-/* Legacy dark utility compatibility in light cards */
+/* Legacy dark utility compatibility in light mode */
+html:not(.dark) .text-zinc-100 {
+  color: hsl(var(--legacy-text-strong)) !important;
+}
+
+html:not(.dark) .text-zinc-200 {
+  color: hsl(var(--legacy-text-default)) !important;
+}
+
+html:not(.dark) .text-zinc-300 {
+  color: hsl(var(--legacy-text-muted)) !important;
+}
+
+html:not(.dark) .text-zinc-400,
+html:not(.dark) .text-zinc-500,
+html:not(.dark) .text-zinc-600 {
+  color: hsl(var(--legacy-text-soft)) !important;
+}
+
+html:not(.dark) .bg-zinc-900,
+html:not(.dark) .bg-zinc-950,
+html:not(.dark) .bg-zinc-900\/40 {
+  background-color: hsl(var(--legacy-panel-bg)) !important;
+}
+
+html:not(.dark) .bg-zinc-900\/60 {
+  background-color: hsl(var(--legacy-panel-bg-strong)) !important;
+}
+
+html:not(.dark) .border-zinc-700,
+html:not(.dark) .border-zinc-800 {
+  border-color: hsl(var(--legacy-panel-border)) !important;
+}
+
+/* Card-specific compatibility for nested legacy classes */
 .card .text-zinc-100 {
   color: rgb(15 23 42) !important;
 }
