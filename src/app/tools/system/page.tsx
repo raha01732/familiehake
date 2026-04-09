@@ -98,7 +98,7 @@ export default async function SystemOverviewPage() {
             <div>
               <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">Systemübersicht</h1>
               <p className="text-sm text-zinc-400">
-                Verdichtete Runtime-Daten – inspiriert vom Nextcloud-Systembericht.
+                Verdichtete Runtime-Daten – Familie Hake Systembericht.
               </p>
             </div>
             <div className="text-xs text-zinc-500">Status: {status}</div>
