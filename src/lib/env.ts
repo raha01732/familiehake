@@ -1,14 +1,15 @@
 // /workspace/familiehake/src/lib/env.ts
 import { z } from "zod";
-const schema = z.object({
-  NEXT_PUBLIC_APP_URL: z.string().url(),
+
+const baseSchema = z.object({
+  NEXT_PUBLIC_APP_URL: z.string().url().optional(),
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1).optional(),
   CLERK_SECRET_KEY: z.string().min(1).optional(),
   NEXT_PUBLIC_CLERK_SIGN_IN_URL: z.string().min(1).optional(),
-  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-  PRIMARY_SUPERADMIN_ID: z.string().min(1),
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  PRIMARY_SUPERADMIN_ID: z.string().min(1).optional(),
   // Optional
   SENTRY_DSN: z.string().optional(),
   SENTRY_ENVIRONMENT: z.string().optional(),
@@ -23,19 +24,44 @@ const schema = z.object({
   NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
 });
 
-type Env = z.infer<typeof schema>;
+const requiredInProduction = [
+  "NEXT_PUBLIC_APP_URL",
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "PRIMARY_SUPERADMIN_ID",
+] as const;
+
+type Env = z.infer<typeof baseSchema> &
+  Record<(typeof requiredInProduction)[number], string>;
 
 let _env: Env | null = null;
 
 export function env() {
   if (_env) return _env;
-  const parsed = schema.safeParse(process.env);
+  const parsed = baseSchema.safeParse(process.env);
   if (!parsed.success) {
     // Schöne Fehlermeldung mit Liste fehlender Vars
     const issues = parsed.error.issues.map(i => `- ${i.path.join(".")}: ${i.message}`).join("\n");
     throw new Error(`❌ Environment variables invalid/missing:\n${issues}`);
   }
-  const data = parsed.data;
+  const data = parsed.data as Record<string, string | undefined>;
+  const isProduction = process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+
+  const missingRequired = requiredInProduction.filter((key) => !data[key]);
+  if (isProduction && missingRequired.length > 0) {
+    const issues = missingRequired
+      .map((key) => `- ${key}: Missing in production environment`)
+      .join("\n");
+    throw new Error(`❌ Environment variables invalid/missing:\n${issues}`);
+  }
+
+  if (!isProduction && missingRequired.length > 0) {
+    console.warn(
+      `⚠️ Missing env vars in local/preview mode: ${missingRequired.join(", ")}. Features depending on them are disabled.`
+    );
+  }
+
   const hasPublishableKey = Boolean(data.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
   const hasSecretKey = Boolean(data.CLERK_SECRET_KEY);
 
@@ -45,6 +71,6 @@ export function env() {
     );
   }
 
-  _env = data;
+  _env = data as Env;
   return _env;
 }
