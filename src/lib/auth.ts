@@ -78,6 +78,24 @@ const getSessionInfoCached = cache(async (): Promise<SessionInfo> => {
   }
 
   try {
+    const supabaseUrl = env().NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceRoleKey = env().SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
+      console.warn(
+        "[auth] Supabase admin disabled: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing."
+      );
+      const primarySuperAdminId = env().PRIMARY_SUPERADMIN_ID;
+      return {
+        signedIn: true,
+        userId: user.id,
+        email: user.primaryEmailAddress?.emailAddress ?? null,
+        roles: [],
+        primaryRole: null,
+        permissions: {},
+        isSuperAdmin: Boolean(primarySuperAdminId && user.id === primarySuperAdminId),
+      };
+    }
+
     const sb = createAdminClient();
     const { data: roleRows } = await sb
       .from("user_roles")
@@ -110,7 +128,7 @@ const getSessionInfoCached = cache(async (): Promise<SessionInfo> => {
 
     const primarySuperAdminId = env().PRIMARY_SUPERADMIN_ID;
     const isSuperAdmin =
-      user.id === primarySuperAdminId ||
+      (Boolean(primarySuperAdminId) && user.id === primarySuperAdminId) ||
       roles.some((r) => r.isSuperAdmin || r.name.toLowerCase() === "superadmin");
 
     return {
@@ -125,7 +143,7 @@ const getSessionInfoCached = cache(async (): Promise<SessionInfo> => {
   } catch (error) {
     console.error("[auth] failed to load roles/permissions", error);
     const primarySuperAdminId = env().PRIMARY_SUPERADMIN_ID;
-    const isSuperAdmin = user.id === primarySuperAdminId;
+    const isSuperAdmin = Boolean(primarySuperAdminId && user.id === primarySuperAdminId);
     return {
       signedIn: true,
       userId: user.id,

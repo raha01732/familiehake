@@ -33,7 +33,7 @@ const requiredInProduction = [
 ] as const;
 
 type Env = z.infer<typeof baseSchema> &
-  Record<(typeof requiredInProduction)[number], string>;
+  Partial<Record<(typeof requiredInProduction)[number], string>>;
 
 let _env: Env | null = null;
 
