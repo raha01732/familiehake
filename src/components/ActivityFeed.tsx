@@ -105,8 +105,17 @@ export default function ActivityFeed({
         }
       };
     } catch (e: any) {
+      const errorMessage = String(e?.message ?? "createBrowserClient_failed");
+      const isWsUnavailable = errorMessage.toLowerCase().includes("websocket not available");
+      if (isWsUnavailable) {
+        const msg = "Realtime disabled: WebSocket is not available in this browser context.";
+        console.warn("[ActivityFeed]", msg);
+        setRtState({ status: "ws_unavailable", error: msg });
+        return;
+      }
+
       console.error("[ActivityFeed] createBrowserClient failed", e);
-      setRtState({ status: "client_create_failed", error: e?.message ?? "createBrowserClient_failed" });
+      setRtState({ status: "client_create_failed", error: errorMessage });
     }
   }, [hasSupabaseEnv, missingEnvMessage, supabaseAnonKey, supabaseUrl]);
 

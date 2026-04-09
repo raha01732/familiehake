@@ -1,8 +1,8 @@
 // /workspace/familiehake/src/components/PostHogProvider.tsx
 "use client";
 
-import { Suspense, type ReactNode, useEffect, useMemo } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { type ReactNode, useEffect, useMemo } from "react";
+import { usePathname } from "next/navigation";
 import { PostHogProvider as PostHogReactProvider } from "posthog-js/react";
 import posthog from "posthog-js";
 import { useUser } from "@clerk/nextjs";
@@ -68,12 +68,11 @@ function PostHogFeatureFlags() {
 
 function PostHogPageView() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const search = searchParams?.toString();
-  const currentUrl = pathname ? (search ? `${pathname}?${search}` : pathname) : null;
 
   useEffect(() => {
-    if (!currentUrl) return;
+    if (!pathname) return;
+    const search = typeof window !== "undefined" ? window.location.search : "";
+    const currentUrl = search ? `${pathname}${search}` : pathname;
 
     posthog.capture("$pageview", {
       $current_url: currentUrl,
@@ -82,15 +81,29 @@ function PostHogPageView() {
     trackFunnelStep(FUNNELS.navigation, "pageview", {
       path: currentUrl,
     });
-  }, [currentUrl]);
+  }, [pathname]);
 
   return null;
+}
+
+function isIgnorableBrowserError(error: Error, source: "window.error" | "window.unhandledrejection") {
+  const message = String(error.message ?? "").toLowerCase();
+
+  if (message.includes("can't access property \"parentnode\", b is null")) {
+    return true;
+  }
+  if (source === "window.unhandledrejection" && message.includes("websocket not available")) {
+    return true;
+  }
+
+  return false;
 }
 
 function PostHogErrorTracking() {
   useEffect(() => {
     const handleWindowError = (event: ErrorEvent) => {
       const error = event.error instanceof Error ? event.error : new Error(event.message);
+      if (isIgnorableBrowserError(error, "window.error")) return;
 
       Sentry.captureException(error);
       trackException(error, {
@@ -106,6 +119,7 @@ function PostHogErrorTracking() {
         event.reason instanceof Error
           ? event.reason
           : new Error(typeof event.reason === "string" ? event.reason : "Unhandled promise rejection");
+      if (isIgnorableBrowserError(error, "window.unhandledrejection")) return;
 
       Sentry.captureException(error);
       trackException(error, {
@@ -134,9 +148,7 @@ export default function PostHogProvider({ children, enableIdentity = false }: Po
     <PostHogReactProvider client={posthog}>
       {enableIdentity ? <PostHogIdentity /> : null}
       <PostHogFeatureFlags />
-      <Suspense fallback={null}>
-        <PostHogPageView />
-      </Suspense>
+      <PostHogPageView />
       <PostHogErrorTracking />
       {children}
     </PostHogReactProvider>
