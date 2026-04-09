@@ -24,9 +24,7 @@ export default function SignInPage() {
               headerSubtitle: "hidden",
             },
           }}
-          forceRedirectUrl="/dashboard"
           fallbackRedirectUrl="/dashboard"
-          signUpForceRedirectUrl="/dashboard"
           signUpFallbackRedirectUrl="/dashboard"
         />
       </div>
