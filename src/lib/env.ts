@@ -86,7 +86,7 @@ export function env() {
 
   if (hasPublishableKey !== hasSecretKey) {
     throw new Error(
-      "❌ Clerk-Konfiguration unvollständig: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY und CLERK_SECRET_KEY müssen entweder beide gesetzt oder beide leer sein."
+      "❌ Clerk-Konfiguration unvollständig: (NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY oder CLERK_PUBLISHABLE_KEY) und CLERK_SECRET_KEY müssen entweder beide gesetzt oder beide leer sein."
     );
   }
 
