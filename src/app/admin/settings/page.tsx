@@ -2,6 +2,7 @@
 import RoleGate from "@/components/RoleGate";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
 import { checkDatabaseLive } from "@/lib/access-db";
+import { TOOL_LINKS } from "@/lib/navigation";
 import { discoverAppRoutes } from "@/lib/route-discovery";
 import { normalizeRouteKey } from "@/lib/route-access";
 import { env } from "@/lib/env";
@@ -24,6 +25,12 @@ type DbRule = {
   allowed: boolean;
 };
 
+type DbToolStatus = {
+  route_key: string;
+  enabled: boolean | null;
+  maintenance_message: string | null;
+};
+
 /* ===================== Data ===================== */
 
 async function getAdminStatus() {
@@ -42,13 +49,22 @@ async function getData() {
   const sb = createAdminClient();
 
   // IMPORTANT: throwOnError() sorgt dafür, dass Supabase Fehler nicht "verschluckt" werden.
-  const [rolesRes, rulesRes] = await Promise.all([
+  const [rolesRes, rulesRes, toolStatusRes] = await Promise.all([
     sb.from("roles").select("name,label,rank").order("rank", { ascending: false }).throwOnError(),
     sb.from("access_rules").select("route,role,allowed").order("route", { ascending: true }).throwOnError(),
+    sb
+      .from("tool_status")
+      .select("route_key,enabled,maintenance_message")
+      .in(
+        "route_key",
+        TOOL_LINKS.map((link) => link.routeKey)
+      )
+      .throwOnError(),
   ]);
 
   const roleList: DbRole[] = (rolesRes.data ?? []) as unknown as DbRole[];
   const ruleList: DbRule[] = (rulesRes.data ?? []) as unknown as DbRule[];
+  const toolStatusRows: DbToolStatus[] = (toolStatusRes.data ?? []) as unknown as DbToolStatus[];
   const discoveredRoutes = await discoverAppRoutes();
 
   // Matrix: route -> role -> allowed
@@ -77,13 +93,42 @@ async function getData() {
   }
 
   const routes = Array.from(matrix.keys()).sort((a, b) => a.localeCompare(b));
-  return { roles: roleList, routes, matrix };
+  const toolStatusByRoute = new Map(
+    toolStatusRows.map((row) => [
+      row.route_key,
+      {
+        enabled: typeof row.enabled === "boolean" ? row.enabled : true,
+        maintenanceMessage:
+          typeof row.maintenance_message === "string" ? row.maintenance_message : "",
+      },
+    ])
+  );
+
+  const toolStatusList = TOOL_LINKS.map((tool) => {
+    const status = toolStatusByRoute.get(tool.routeKey);
+    return {
+      routeKey: tool.routeKey,
+      label: tool.label,
+      enabled: status?.enabled ?? true,
+      maintenanceMessage: status?.maintenanceMessage ?? "",
+    };
+  });
+
+  return { roles: roleList, routes, matrix, toolStatusList };
 }
 
 /* ===================== Actions ===================== */
 
 function buildFieldName(route: string, role: string) {
   return `access:${route}:${role}`;
+}
+
+function buildToolEnabledFieldName(routeKey: string) {
+  return `toolStatusEnabled:${routeKey}`;
+}
+
+function buildToolMessageFieldName(routeKey: string) {
+  return `toolStatusMessage:${routeKey}`;
 }
 
 async function upsertAccessAction(formData: FormData): Promise<void> {
@@ -183,6 +228,35 @@ async function addRouteAction(formData: FormData): Promise<void> {
   redirect("/admin/settings?added=1");
 }
 
+async function upsertToolStatusAction(formData: FormData): Promise<void> {
+  "use server";
+  const sb = createAdminClient();
+
+  try {
+    const payload = TOOL_LINKS.map((tool) => {
+      const messageRaw = String(formData.get(buildToolMessageFieldName(tool.routeKey)) ?? "").trim();
+      return {
+        route_key: tool.routeKey,
+        enabled: formData.has(buildToolEnabledFieldName(tool.routeKey)),
+        maintenance_message: messageRaw || null,
+      };
+    });
+
+    if (payload.length > 0) {
+      const upsertRes = await sb.from("tool_status").upsert(payload, { onConflict: "route_key" });
+      if (upsertRes.error) throw upsertRes.error;
+    }
+  } catch (error) {
+    console.error("tool_status_save_failed", error);
+    revalidatePath("/admin/settings");
+    const errorDetail = error instanceof Error ? error.message : "unknown_error";
+    redirect(`/admin/settings?error=1&errorDetail=${encodeURIComponent(errorDetail)}`);
+  }
+
+  revalidatePath("/admin/settings");
+  redirect("/admin/settings?toolStatusSaved=1");
+}
+
 /* ===================== Page ===================== */
 
 export default async function AdminSettingsPage({
@@ -190,7 +264,7 @@ export default async function AdminSettingsPage({
 }: {
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
-  const [{ roles, routes, matrix }, { isAdmin }, liveStatus] = await Promise.all([
+  const [{ roles, routes, matrix, toolStatusList }, { isAdmin }, liveStatus] = await Promise.all([
     getData(),
     getAdminStatus(),
     checkDatabaseLive(),
@@ -203,6 +277,10 @@ export default async function AdminSettingsPage({
   const added =
     searchParams?.added === "1" ||
     (Array.isArray(searchParams?.added) && searchParams?.added.includes("1"));
+
+  const toolStatusSaved =
+    searchParams?.toolStatusSaved === "1" ||
+    (Array.isArray(searchParams?.toolStatusSaved) && searchParams?.toolStatusSaved.includes("1"));
 
   const error =
     searchParams?.error === "1" ||
@@ -234,7 +312,7 @@ export default async function AdminSettingsPage({
           </p>
         </header>
 
-        {(saved || added || error) && (
+        {(saved || added || toolStatusSaved || error) && (
           <div
             className={`rounded-xl border p-4 text-sm ${
               error
@@ -244,6 +322,7 @@ export default async function AdminSettingsPage({
           >
             {!error && saved && "Die Zugriffs-Matrix wurde gespeichert."}
             {!error && added && "Die Route wurde hinzugefügt."}
+            {!error && toolStatusSaved && "Der Tool-Status wurde gespeichert."}
             {error && "Es ist ein Fehler aufgetreten."}
             {error && errorDetail && (
               <pre className="mt-3 whitespace-pre-wrap rounded-lg border border-amber-800 bg-amber-900/20 p-3 text-[11px] leading-5 text-amber-100/80">
@@ -334,6 +413,63 @@ export default async function AdminSettingsPage({
               </div>
             </form>
           )}
+        </div>
+
+        {/* Tool-Status */}
+        <div className="card p-6">
+          <div className="text-sm font-medium text-zinc-100 mb-4">Tool-Wartungsmodus</div>
+          <p className="text-xs text-zinc-500 mb-4">
+            Hier steuerst du pro Tool den globalen Status (aktiv/deaktiviert) und optional eine
+            Wartungsmeldung.
+          </p>
+
+          <form action={upsertToolStatusAction} className="flex flex-col gap-4">
+            <div className="overflow-x-auto rounded-xl border border-zinc-800">
+              <table className="min-w-full text-sm">
+                <thead className="bg-zinc-900/60 text-zinc-400">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium">Route</th>
+                    <th className="px-4 py-2 text-left font-medium">Aktiv</th>
+                    <th className="px-4 py-2 text-left font-medium">Wartungsmeldung</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800">
+                  {toolStatusList.map((tool) => (
+                    <tr key={tool.routeKey} className="hover:bg-zinc-900/40">
+                      <td className="px-4 py-2 text-zinc-200 font-medium">/{tool.routeKey}</td>
+                      <td className="px-4 py-2">
+                        <label className="inline-flex items-center gap-2 text-zinc-200">
+                          <input
+                            type="checkbox"
+                            name={buildToolEnabledFieldName(tool.routeKey)}
+                            defaultChecked={tool.enabled}
+                            className="h-4 w-4 rounded border-zinc-700 bg-zinc-950 text-emerald-400"
+                            aria-label={`Tool ${tool.routeKey} aktiv`}
+                          />
+                          <span className="text-xs text-zinc-500">enabled</span>
+                        </label>
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          name={buildToolMessageFieldName(tool.routeKey)}
+                          defaultValue={tool.maintenanceMessage}
+                          placeholder="Optional: Hinweistext bei Deaktivierung"
+                          className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-xs text-zinc-100"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div>
+              <button className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60">
+                Tool-Status speichern
+              </button>
+            </div>
+          </form>
         </div>
       </section>
     </RoleGate>
