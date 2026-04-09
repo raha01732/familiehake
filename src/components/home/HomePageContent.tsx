@@ -1,4 +1,4 @@
-// src/components/home/HomePageContent.tsx
+// /workspace/familiehake/src/components/home/HomePageContent.tsx
 import RoleGate from "@/components/RoleGate";
 import WelcomeTileCard, { WelcomeTile } from "@/components/dashboard/WelcomeTileCard";
 import { logAudit } from "@/lib/audit";
@@ -20,10 +20,10 @@ type HomePageContentProps = {
 const DEFAULT_WELCOME_TILE: WelcomeTile = {
   title: "Willkommen zurück!",
   body: "Schön, dass du da bist. Hier findest du deine freigeschalteten Tools und den Systemstatus.",
-  titleColor: "#f4f4f5",
-  bodyColor: "#a1a1aa",
+  titleColor: "#0f172a",
+  bodyColor: "#334155",
   titleSize: 22,
-  bodySize: 14,
+  bodySize: 16,
 };
 
 const COLOR_PATTERN = /^#([0-9a-fA-F]{3}){1,2}$/;
@@ -31,6 +31,34 @@ const COLOR_PATTERN = /^#([0-9a-fA-F]{3}){1,2}$/;
 function normalizeColor(input: string | null | undefined, fallback: string) {
   if (!input) return fallback;
   return COLOR_PATTERN.test(input) ? input : fallback;
+}
+
+function hexToRgb(input: string) {
+  const normalized = input.replace("#", "");
+  const value =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((segment) => segment + segment)
+          .join("")
+      : normalized;
+
+  if (value.length !== 6) return null;
+  const parsed = Number.parseInt(value, 16);
+  if (Number.isNaN(parsed)) return null;
+  return {
+    r: (parsed >> 16) & 255,
+    g: (parsed >> 8) & 255,
+    b: parsed & 255,
+  };
+}
+
+function normalizeReadableColor(input: string | null | undefined, fallback: string) {
+  const color = normalizeColor(input, fallback);
+  const rgb = hexToRgb(color);
+  if (!rgb) return fallback;
+  const luminance = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+  return luminance > 0.85 ? fallback : color;
 }
 
 function normalizeFontSize(input: string | null | undefined, fallback: number, min: number, max: number) {
@@ -93,8 +121,8 @@ async function getWelcomeTile(): Promise<WelcomeTile> {
     return {
       title: data.title ?? DEFAULT_WELCOME_TILE.title,
       body: data.body ?? DEFAULT_WELCOME_TILE.body,
-      titleColor: normalizeColor(data.title_color, DEFAULT_WELCOME_TILE.titleColor),
-      bodyColor: normalizeColor(data.body_color, DEFAULT_WELCOME_TILE.bodyColor),
+      titleColor: normalizeReadableColor(data.title_color, DEFAULT_WELCOME_TILE.titleColor),
+      bodyColor: normalizeReadableColor(data.body_color, DEFAULT_WELCOME_TILE.bodyColor),
       titleSize: normalizeFontSize(
         data.title_size ? String(data.title_size) : null,
         DEFAULT_WELCOME_TILE.titleSize,
@@ -181,8 +209,8 @@ async function updateWelcomeTile(formData: FormData) {
 
   const title = titleInput || existing.title;
   const body = bodyInput || existing.body;
-  const titleColor = normalizeColor(titleColorInput, existing.titleColor);
-  const bodyColor = normalizeColor(bodyColorInput, existing.bodyColor);
+  const titleColor = normalizeReadableColor(titleColorInput, existing.titleColor);
+  const bodyColor = normalizeReadableColor(bodyColorInput, existing.bodyColor);
   const titleSize = normalizeFontSize(titleSizeInput, existing.titleSize, 14, 40);
   const bodySize = normalizeFontSize(bodySizeInput, existing.bodySize, 12, 24);
 
@@ -267,10 +295,15 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
 
   return (
     <RoleGate routeKey="dashboard">
-      <section className="grid items-start gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="card flex flex-col gap-5 p-4 lg:sticky lg:top-24">
+      <section className="grid items-start gap-8 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="card relative flex flex-col gap-6 overflow-hidden p-5 lg:sticky lg:top-24">
+          <div
+            className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-blue-200/40 blur-2xl"
+            aria-hidden
+          />
           <div className="space-y-3">
-            <div className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Tools</div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Workspace</p>
+            <h2 className="text-xl font-semibold text-slate-900">Deine Schnellnavigation</h2>
             <nav className="flex flex-col gap-1">
               {toolLinks.length === 0 ? (
                 <span className="text-xs text-slate-500">Keine Tools freigeschaltet</span>
@@ -279,9 +312,12 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
                   <Link
                     key={link.routeKey}
                     href={link.href}
-                    className="rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-blue-50 hover:text-blue-700"
+                    className="group rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-white hover:text-slate-900 hover:shadow-sm"
                   >
-                    {link.label}
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-300 transition group-hover:bg-blue-500" />
+                      {link.label}
+                    </span>
                   </Link>
                 ))
               )}
@@ -289,7 +325,7 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
           </div>
           {adminLinks.length > 0 && (
             <>
-              <div className="h-px w-full bg-slate-200" aria-hidden />
+              <div className="h-px w-full bg-slate-200/80" aria-hidden />
               <div className="space-y-3">
                 <div className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Admin</div>
                 <nav className="flex flex-col gap-1">
@@ -297,7 +333,7 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
                     <Link
                       key={link.routeKey}
                       href={link.href}
-                      className="rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-blue-50 hover:text-blue-700"
+                      className="rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-white hover:text-slate-900 hover:shadow-sm"
                     >
                       {link.label}
                     </Link>
@@ -308,11 +344,11 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
           )}
           {isAdmin ? (
             <>
-              <div className="h-px w-full bg-slate-200" aria-hidden />
-              <div className="space-y-3 rounded-xl border border-slate-200 bg-white/90 p-3">
+              <div className="h-px w-full bg-slate-200/80" aria-hidden />
+              <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm">
                 <div className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">System-Health</div>
-                <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <div className="text-sm text-slate-700">Status</div>
+                <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-sm font-medium text-slate-800">Status</div>
                   <span
                     className={`rounded-lg border px-2 py-0.5 text-xs ${
                       healthStatus === "ok"
@@ -334,8 +370,22 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
           ) : null}
         </aside>
 
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_280px]">
           <WelcomeTileCard tile={welcomeTile} isAdmin={isAdmin} onSave={updateWelcomeTile} />
+          <div className="card flex flex-col gap-3 p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Heute im Fokus</p>
+            <h3 className="text-2xl font-semibold text-slate-900">Schnell starten ohne Umwege</h3>
+            <p className="text-sm leading-relaxed text-slate-700">
+              Nutze die Navigation links, um direkt zu Journal, Kalender oder Nachrichten zu springen. Die Oberfläche
+              wurde bewusst heller und klarer gestaltet, damit Inhalte schneller lesbar sind.
+            </p>
+            <Link
+              href="/tools"
+              className="mt-2 inline-flex w-fit items-center rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+            >
+              Zu allen Tools
+            </Link>
+          </div>
         </div>
       </section>
     </RoleGate>

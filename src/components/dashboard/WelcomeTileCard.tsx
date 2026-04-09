@@ -23,9 +23,10 @@ export default function WelcomeTileCard({ tile, isAdmin, onSave }: Props) {
   const [isEditing, setIsEditing] = useState(false);
 
   return (
-    <div className="card p-6 flex flex-col gap-3">
+    <div className="card relative overflow-hidden p-6 flex flex-col gap-4">
+      <div className="pointer-events-none absolute -right-10 -top-10 h-36 w-36 rounded-full bg-cyan-100/80 blur-2xl" />
       <div className="flex items-start justify-between gap-3">
-        <h2 className="font-semibold text-slate-900" style={{ color: tile.titleColor, fontSize: `${tile.titleSize}px` }}>
+        <h2 className="font-semibold leading-tight text-slate-900" style={{ color: tile.titleColor, fontSize: `${tile.titleSize}px` }}>
           {tile.title}
         </h2>
         {isAdmin ? (
@@ -38,12 +39,12 @@ export default function WelcomeTileCard({ tile, isAdmin, onSave }: Props) {
           </button>
         ) : null}
       </div>
-      <p className="whitespace-pre-wrap leading-relaxed text-slate-600" style={{ color: tile.bodyColor, fontSize: `${tile.bodySize}px` }}>
+      <p className="whitespace-pre-wrap leading-relaxed text-slate-700" style={{ color: tile.bodyColor, fontSize: `${tile.bodySize}px` }}>
         {tile.body}
       </p>
 
       {isAdmin && isEditing ? (
-        <form action={onSave} className="mt-2 grid gap-4 rounded-xl border border-slate-200 bg-slate-50/90 p-4">
+        <form action={onSave} className="mt-2 grid gap-4 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
           <div className="grid gap-2">
             <label className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Titel</label>
             <input

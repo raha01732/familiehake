@@ -106,11 +106,13 @@
 }
 
 .card {
-  background-color: hsl(var(--card) / 0.88);
-  backdrop-filter: blur(20px);
-  border: 1px solid hsl(var(--border));
-  border-radius: 1.15rem;
-  box-shadow: 0 20px 45px -30px rgb(15 23 42 / 0.35);
+  background: linear-gradient(160deg, hsl(var(--card) / 0.98), hsl(var(--secondary) / 0.65));
+  backdrop-filter: blur(14px);
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: 1.25rem;
+  box-shadow:
+    0 26px 50px -34px rgb(15 23 42 / 0.35),
+    0 10px 20px -18px rgb(59 130 246 / 0.4);
   color: hsl(var(--card-foreground));
 }
 
@@ -130,6 +132,8 @@
 }
 
 .soft-surface {
-  background: linear-gradient(150deg, hsl(var(--card) / 0.9), hsl(var(--secondary) / 0.75));
-  border: 1px solid hsl(var(--border));
+  background:
+    radial-gradient(circle at 15% 15%, hsl(var(--primary) / 0.18), transparent 45%),
+    linear-gradient(150deg, hsl(var(--card) / 0.95), hsl(var(--secondary) / 0.86));
+  border: 1px solid hsl(var(--border) / 0.8);
 }
