@@ -1,4 +1,4 @@
-// /workspace/familiehake/src/components/Header.tsx
+// src/components/Header.tsx
 "use client";
 
 import Link from "next/link";
@@ -32,7 +32,7 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
 
           <nav className="ml-2 flex items-center gap-1 text-xs sm:text-sm text-slate-200">
             {[
-              { href: "/dashboard", label: "Dashboard" },
+              { href: "/", label: "Start" },
               { href: "/tools", label: "Tools" },
               { href: "/admin", label: "Admin" },
             ].map((item) => (
@@ -68,7 +68,7 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
 
         <nav className="ml-2 flex items-center gap-1 text-xs sm:text-sm text-slate-200">
           {[
-            { href: "/dashboard", label: "Dashboard" },
+            { href: "/", label: "Start" },
             { href: "/tools", label: "Tools" },
             { href: "/admin", label: "Admin" },
           ].map((item) => (
@@ -101,8 +101,8 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
               ) : (
                 <SignInButton
                   mode="modal"
-                  forceRedirectUrl="/dashboard"
-                  signUpForceRedirectUrl="/dashboard"
+                  forceRedirectUrl="/"
+                  signUpForceRedirectUrl="/"
                 >
                   <button className="rounded-full border border-white/10 bg-[hsl(var(--background)/0.5)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[hsl(var(--foreground))] shadow-lg shadow-black/10 transition hover:-translate-y-[1px] hover:border-white/30 hover:bg-[hsl(var(--primary)/0.2)]">
                     Anmelden

@@ -13,7 +13,7 @@ type Item = {
 };
 
 const ROUTES: Item[] = [
-  { label: "Dashboard", href: "/dashboard", kbd: "G D" },
+  { label: "Startseite", href: "/", kbd: "G D" },
   { label: "Admin – Übersicht", href: "/admin", kbd: "G A" },
   { label: "Admin – Einstellungen", href: "/admin/settings" },
   { label: "Admin – Benutzer", href: "/admin/users" },
@@ -30,7 +30,6 @@ export default function CommandMenu() {
   const [q, setQ] = useState("");
   const router = useRouter();
 
-  // ⌘K / Ctrl+K zum Öffnen/Schließen
   useEffect(() => {
     if (!isAdmin) return;
     const onKey = (e: KeyboardEvent) => {
@@ -63,7 +62,6 @@ export default function CommandMenu() {
 
   return (
     <>
-      {/* Kleiner Trigger-Button unten rechts (kannst du auskommentieren, wenn nur Shortcut gewünscht) */}
       <div className="fixed right-4 bottom-4 z-40">
         <button
           type="button"
@@ -84,7 +82,7 @@ export default function CommandMenu() {
         >
           <div
             className="mx-auto mt-24 w-full max-w-xl rounded-2xl border border-slate-200 bg-white/95 shadow-2xl"
-            onClick={(e) => e.stopPropagation()} // Klicks im Panel nicht schließen lassen
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="border-b border-slate-200 p-3">
               <input
