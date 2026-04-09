@@ -1,4 +1,4 @@
-// /workspace/familiehake/src/app/sign-in/[[...sign-in]]/page.tsx
+// src/app/sign-in/[[...sign-in]]/page.tsx
 import { SignIn } from "@clerk/nextjs";
 
 export default function SignInPage() {
@@ -24,8 +24,8 @@ export default function SignInPage() {
               headerSubtitle: "hidden",
             },
           }}
-          fallbackRedirectUrl="/dashboard"
-          signUpFallbackRedirectUrl="/dashboard"
+          fallbackRedirectUrl="/"
+          signUpFallbackRedirectUrl="/"
         />
       </div>
     </div>
