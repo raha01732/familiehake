@@ -4,6 +4,7 @@ import { z } from "zod";
 const baseSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url().optional(),
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1).optional(),
+  CLERK_PUBLISHABLE_KEY: z.string().min(1).optional(),
   CLERK_SECRET_KEY: z.string().min(1).optional(),
   NEXT_PUBLIC_CLERK_SIGN_IN_URL: z.string().min(1).optional(),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
@@ -45,6 +46,16 @@ export function isProductionEnvironment() {
   return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
 }
 
+export function getClerkPublishableKey(input?: {
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?: string;
+  CLERK_PUBLISHABLE_KEY?: string;
+}) {
+  const nextPublicKey =
+    input?.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const clerkKey = input?.CLERK_PUBLISHABLE_KEY ?? process.env.CLERK_PUBLISHABLE_KEY;
+  return nextPublicKey || clerkKey || undefined;
+}
+
 export function env() {
   if (_env) return _env;
   const parsed = baseSchema.safeParse(process.env);
@@ -70,7 +81,7 @@ export function env() {
     );
   }
 
-  const hasPublishableKey = Boolean(data.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+  const hasPublishableKey = Boolean(getClerkPublishableKey(data));
   const hasSecretKey = Boolean(data.CLERK_SECRET_KEY);
 
   if (hasPublishableKey !== hasSecretKey) {

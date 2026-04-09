@@ -9,7 +9,7 @@ import PostHogProvider from "@/components/PostHogProvider";
 import DynamicUserChrome from "@/components/layout/DynamicUserChrome";
 import * as Sentry from "@sentry/nextjs";
 import { getSessionInfo } from "@/lib/auth";
-import { env } from "@/lib/env";
+import { env, getClerkPublishableKey } from "@/lib/env";
 import { PreviewTopBanner } from "@/components/PreviewNotice";
 
 export function generateMetadata(): Metadata {
@@ -23,7 +23,7 @@ export function generateMetadata(): Metadata {
 }
 
 const configuration = env();
-const clerkPublishableKey = configuration.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const clerkPublishableKey = getClerkPublishableKey(configuration);
 const clerkSignInUrl = configuration.NEXT_PUBLIC_CLERK_SIGN_IN_URL ?? "/sign-in";
 const isClerkEnabled = Boolean(clerkPublishableKey);
 const clerkAppearance = {
