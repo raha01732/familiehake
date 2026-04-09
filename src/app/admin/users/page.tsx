@@ -4,6 +4,7 @@ import RoleGate from "@/components/RoleGate";
 import { clerkClient, auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { logAudit } from "@/lib/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DbRole } from "@/lib/access-db";
@@ -15,6 +16,9 @@ type SearchParams = {
   q?: string;
   role?: string;
   edit?: string;
+  status?: string;
+  message?: string;
+  errorCode?: string;
 };
 
 type EmailInfo = {
@@ -346,6 +350,7 @@ async function saveUserAction(formData: FormData): Promise<void> {
   }
 
   revalidatePath("/admin/users");
+  redirect("/admin/users?status=success&message=user_saved");
 }
 
 async function createUserAction(formData: FormData): Promise<void> {
@@ -356,7 +361,9 @@ async function createUserAction(formData: FormData): Promise<void> {
   const username = (formData.get("username") as string)?.trim() || "";
   const password = (formData.get("password") as string)?.trim() || "";
 
-  if (!email) return;
+  if (!email) {
+    redirect("/admin/users?status=error&errorCode=email_missing");
+  }
 
   const rolesCatalog = await fetchRoles();
   const userRole = rolesCatalog.find((role) => role.name === "user");
@@ -374,7 +381,7 @@ async function createUserAction(formData: FormData): Promise<void> {
       target: "user_create",
       detail: { reason: "create_requires_admin" },
     });
-    throw new Error("Forbidden: only admins may create users");
+    redirect("/admin/users?status=error&errorCode=forbidden_create_user");
   }
 
   const client = await clerkClient();
@@ -409,16 +416,21 @@ async function createUserAction(formData: FormData): Promise<void> {
   });
 
   revalidatePath("/admin/users");
+  redirect("/admin/users?status=success&message=user_created");
 }
 
 async function ensureSupabaseUserAction(formData: FormData): Promise<void> {
   "use server";
   const userId = (formData.get("userId") as string) ?? "";
-  if (!userId) return;
+  if (!userId) {
+    redirect("/admin/users?status=error&errorCode=user_id_missing");
+  }
 
   const rolesCatalog = await fetchRoles();
   const userRole = rolesCatalog.find((role) => role.name === "user");
-  if (!userRole) throw new Error("User-Rolle nicht konfiguriert");
+  if (!userRole) {
+    redirect("/admin/users?status=error&errorCode=user_role_missing");
+  }
 
   await assertRoleAssignmentAllowed(userId, [userRole.id], rolesCatalog);
 
@@ -430,16 +442,21 @@ async function ensureSupabaseUserAction(formData: FormData): Promise<void> {
       .throwOnError();
   } catch (error) {
     console.error("ensureSupabaseUserAction error:", error);
+    revalidatePath("/admin/users");
+    redirect("/admin/users?status=error&errorCode=ensure_supabase_user_failed");
   }
 
   revalidatePath("/admin/users");
+  redirect("/admin/users?status=success&message=supabase_user_ensured");
 }
 
 async function addEmailAction(formData: FormData): Promise<void> {
   "use server";
   const userId = (formData.get("userId") as string) ?? "";
   const newEmail = (formData.get("newEmail") as string)?.trim().toLowerCase() ?? "";
-  if (!userId || !newEmail) return;
+  if (!userId || !newEmail) {
+    redirect("/admin/users?status=error&errorCode=email_or_user_missing");
+  }
 
   try {
     const { clerkAddEmailAddress, clerkPrepareEmailVerification } = await import("@/lib/clerk-rest");
@@ -454,16 +471,21 @@ async function addEmailAction(formData: FormData): Promise<void> {
     });
   } catch (e) {
     console.error("addEmailAction error:", e);
+    revalidatePath("/admin/users");
+    redirect("/admin/users?status=error&errorCode=email_add_failed");
   } finally {
     revalidatePath("/admin/users");
   }
+  redirect("/admin/users?status=success&message=email_added");
 }
 
 async function makePrimaryEmailAction(formData: FormData): Promise<void> {
   "use server";
   const userId = (formData.get("userId") as string) ?? "";
   const emailId = (formData.get("emailId") as string) ?? "";
-  if (!userId || !emailId) return;
+  if (!userId || !emailId) {
+    redirect("/admin/users?status=error&errorCode=email_or_user_missing");
+  }
 
   try {
     const { clerkSetPrimaryEmail } = await import("@/lib/clerk-rest");
@@ -477,16 +499,21 @@ async function makePrimaryEmailAction(formData: FormData): Promise<void> {
     });
   } catch (e) {
     console.error("makePrimaryEmailAction error:", e);
+    revalidatePath("/admin/users");
+    redirect("/admin/users?status=error&errorCode=primary_email_failed");
   } finally {
     revalidatePath("/admin/users");
   }
+  redirect("/admin/users?status=success&message=primary_email_updated");
 }
 
 async function deleteEmailAction(formData: FormData): Promise<void> {
   "use server";
   const userId = (formData.get("userId") as string) ?? "";
   const emailId = (formData.get("emailId") as string) ?? "";
-  if (!userId || !emailId) return;
+  if (!userId || !emailId) {
+    redirect("/admin/users?status=error&errorCode=email_or_user_missing");
+  }
 
   try {
     const { clerkDeleteEmailAddress } = await import("@/lib/clerk-rest");
@@ -500,9 +527,12 @@ async function deleteEmailAction(formData: FormData): Promise<void> {
     });
   } catch (e) {
     console.error("deleteEmailAction error:", e);
+    revalidatePath("/admin/users");
+    redirect("/admin/users?status=error&errorCode=email_delete_failed");
   } finally {
     revalidatePath("/admin/users");
   }
+  redirect("/admin/users?status=success&message=email_deleted");
 }
 
 export default async function AdminUsersPage({ searchParams }: { searchParams?: SearchParams }) {
@@ -512,6 +542,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
   const q = (searchParams?.q ?? "").trim().toLowerCase();
   const roleFilter = (searchParams?.role ?? "all").toLowerCase();
   const editId = searchParams?.edit;
+  const status = searchParams?.status === "error" ? "error" : searchParams?.status === "success" ? "success" : null;
+  const statusMessage = (searchParams?.message ?? "").trim();
+  const errorCode = (searchParams?.errorCode ?? "").trim();
 
   const { userId: actorId } = await auth();
   const actorAssignments = actorId ? await fetchAssignments([actorId], rolesCatalog) : {};
@@ -548,6 +581,19 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
   return (
     <RoleGate routeKey="admin/users">
       <section className="card p-6 flex flex-col gap-6">
+        {status && (
+          <div
+            className={`rounded-lg border px-4 py-3 text-sm ${
+              status === "success"
+                ? "border-emerald-700/60 bg-emerald-950/30 text-emerald-200"
+                : "border-rose-700/60 bg-rose-950/30 text-rose-200"
+            }`}
+          >
+            {status === "success" ? "Speichern erfolgreich." : "Fehler beim Speichern."}
+            {statusMessage ? <div className="mt-1 text-xs opacity-80">Info: {statusMessage}</div> : null}
+            {errorCode ? <div className="mt-1 text-xs opacity-80">Fehlercode: {errorCode}</div> : null}
+          </div>
+        )}
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Benutzer &amp; Rollen</h2>

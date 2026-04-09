@@ -36,6 +36,7 @@ export const AUDIT_ACTIONS = [
   // Dashboard
   "dashboard_welcome_update",
   "theme_preference_update",
+  "tool_maintenance_enabled",
 
   // Errors
   "critical_error",
