@@ -12,6 +12,7 @@ import DayRequirementCell from "./DayRequirementCell";
 import SettingsPanelToggle from "./SettingsPanelToggle";
 import ShiftInput from "./ShiftInput";
 import {
+  autoGenerateMonthPlanAction,
   bulkSaveShiftsAction,
   clearMonthAction,
   saveAvailabilityAction,
@@ -234,13 +235,31 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     positionRequirementMap.set(requirement.requirement_date, list);
   }
 
+  let requiredSlotsMonth = 0;
+  let assignedSlotsMonth = 0;
+  for (const day of days) {
+    const dateKey = day.toISOString().slice(0, 10);
+    const positionRequirementsForDay = positionRequirementMap.get(dateKey) ?? [];
+    if (positionRequirementsForDay.length > 0) {
+      requiredSlotsMonth += positionRequirementsForDay.length;
+    } else {
+      requiredSlotsMonth += dateRequirementMap.get(dateKey) ?? weekdayRequirementMap.get(day.getUTCDay()) ?? 0;
+    }
+    for (const employee of (employees as DienstplanEmployee[] | null) ?? []) {
+      if (shiftMap.has(`${employee.id}-${dateKey}`)) {
+        assignedSlotsMonth += 1;
+      }
+    }
+  }
+  const coveragePercent = requiredSlotsMonth > 0 ? Math.min(100, Math.round((assignedSlotsMonth / requiredSlotsMonth) * 100)) : 100;
+
   return (
     <section className="p-6 flex flex-col gap-6">
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-zinc-100">Dienstplaner</h1>
-            <p className="text-sm text-zinc-400">Monatsplanung für Schichten & Arbeitszeiten</p>
+            <p className="text-sm text-zinc-400">Monatsplanung für Schichten, Rollen & automatische Einsatzvorschläge</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link
@@ -256,6 +275,20 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
             >
               Nächster Monat →
             </Link>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="rounded-xl border border-cyan-900/60 bg-gradient-to-br from-cyan-950/60 to-zinc-900/80 px-4 py-3">
+            <div className="text-[11px] uppercase tracking-wide text-cyan-300/80">Planabdeckung</div>
+            <div className="text-xl font-semibold text-cyan-100">{coveragePercent}%</div>
+          </div>
+          <div className="rounded-xl border border-violet-900/60 bg-gradient-to-br from-violet-950/60 to-zinc-900/80 px-4 py-3">
+            <div className="text-[11px] uppercase tracking-wide text-violet-300/80">Benötigte Slots</div>
+            <div className="text-xl font-semibold text-violet-100">{requiredSlotsMonth}</div>
+          </div>
+          <div className="rounded-xl border border-emerald-900/60 bg-gradient-to-br from-emerald-950/60 to-zinc-900/80 px-4 py-3">
+            <div className="text-[11px] uppercase tracking-wide text-emerald-300/80">Verplante Slots</div>
+            <div className="text-xl font-semibold text-emerald-100">{assignedSlotsMonth}</div>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -277,9 +310,20 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
               Alles löschen
             </button>
           </form>
+          {isAdmin && (
+            <form action={autoGenerateMonthPlanAction} className="flex items-center gap-3">
+              <input type="hidden" name="month" value={monthKey} />
+              <button
+                type="submit"
+                className="bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium px-4 py-2 rounded"
+              >
+                Auto-Plan erstellen
+              </button>
+            </form>
+          )}
           {!isAdmin && (
             <span className="text-xs text-zinc-500">
-              Du hast nur Lesezugriff auf Einstellungen (Admins können dort Regeln anpassen).
+              Du hast nur Lesezugriff auf Einstellungen und Automatisierung (Admins können Regeln und Auto-Planung anpassen).
             </span>
           )}
         </div>
