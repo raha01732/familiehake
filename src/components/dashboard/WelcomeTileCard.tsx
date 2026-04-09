@@ -21,6 +21,27 @@ type Props = {
 
 export default function WelcomeTileCard({ tile, isAdmin, onSave }: Props) {
   const [isEditing, setIsEditing] = useState(false);
+  const [titleColorHint, setTitleColorHint] = useState<string | null>(null);
+  const [bodyColorHint, setBodyColorHint] = useState<string | null>(null);
+
+  const isVeryLightColor = (input: string) => {
+    const normalized = input.replace("#", "");
+    const value =
+      normalized.length === 3
+        ? normalized
+            .split("")
+            .map((part) => part + part)
+            .join("")
+        : normalized;
+    if (value.length !== 6) return false;
+    const parsed = Number.parseInt(value, 16);
+    if (Number.isNaN(parsed)) return false;
+    const r = (parsed >> 16) & 255;
+    const g = (parsed >> 8) & 255;
+    const b = parsed & 255;
+    const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    return luminance > 0.85;
+  };
 
   return (
     <div className="card relative overflow-hidden p-6 flex flex-col gap-4">
@@ -92,7 +113,15 @@ export default function WelcomeTileCard({ tile, isAdmin, onSave }: Props) {
                 type="color"
                 defaultValue={tile.titleColor}
                 className="h-10 w-full rounded-md border border-slate-300 bg-white"
+                onChange={(event) =>
+                  setTitleColorHint(
+                    isVeryLightColor(event.target.value)
+                      ? "Sehr helle Farben werden aus Lesbarkeitsgründen automatisch auf eine dunklere Variante gesetzt."
+                      : null
+                  )
+                }
               />
+              {titleColorHint ? <p className="text-xs text-amber-700">{titleColorHint}</p> : null}
             </div>
             <div className="grid gap-2">
               <label className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Text Farbe</label>
@@ -101,7 +130,15 @@ export default function WelcomeTileCard({ tile, isAdmin, onSave }: Props) {
                 type="color"
                 defaultValue={tile.bodyColor}
                 className="h-10 w-full rounded-md border border-slate-300 bg-white"
+                onChange={(event) =>
+                  setBodyColorHint(
+                    isVeryLightColor(event.target.value)
+                      ? "Sehr helle Farben werden aus Lesbarkeitsgründen automatisch auf eine dunklere Variante gesetzt."
+                      : null
+                  )
+                }
               />
+              {bodyColorHint ? <p className="text-xs text-amber-700">{bodyColorHint}</p> : null}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">

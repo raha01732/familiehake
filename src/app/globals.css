@@ -137,3 +137,30 @@
     linear-gradient(150deg, hsl(var(--card) / 0.95), hsl(var(--secondary) / 0.86));
   border: 1px solid hsl(var(--border) / 0.8);
 }
+
+/* Legacy dark utility compatibility in light cards */
+.card .text-zinc-100 {
+  color: rgb(15 23 42) !important;
+}
+
+.card .text-zinc-200 {
+  color: rgb(30 41 59) !important;
+}
+
+.card .text-zinc-300,
+.card .text-zinc-400,
+.card .text-zinc-500,
+.card .text-zinc-600 {
+  color: rgb(71 85 105) !important;
+}
+
+.card .bg-zinc-900,
+.card .bg-zinc-950,
+.card .bg-zinc-900\/40 {
+  background-color: rgb(248 250 252) !important;
+}
+
+.card .border-zinc-700,
+.card .border-zinc-800 {
+  border-color: rgb(203 213 225) !important;
+}
