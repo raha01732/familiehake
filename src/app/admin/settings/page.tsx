@@ -7,6 +7,7 @@ import { discoverAppRoutes } from "@/lib/route-discovery";
 import { normalizeRouteKey } from "@/lib/route-access";
 import { env } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { logAudit } from "@/lib/audit";
 import { currentUser } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -233,6 +234,25 @@ async function upsertToolStatusAction(formData: FormData): Promise<void> {
   const sb = createAdminClient();
 
   try {
+    const existingRes = await sb
+      .from("tool_status")
+      .select("route_key,enabled,maintenance_message")
+      .in(
+        "route_key",
+        TOOL_LINKS.map((tool) => tool.routeKey)
+      )
+      .throwOnError();
+
+    const existingByRoute = new Map(
+      (existingRes.data ?? []).map((row: { route_key: string; enabled: boolean | null; maintenance_message: string | null }) => [
+        row.route_key,
+        {
+          enabled: typeof row.enabled === "boolean" ? row.enabled : true,
+          maintenanceMessage: typeof row.maintenance_message === "string" ? row.maintenance_message : "",
+        },
+      ])
+    );
+
     const payload = TOOL_LINKS.map((tool) => {
       const messageRaw = String(formData.get(buildToolMessageFieldName(tool.routeKey)) ?? "").trim();
       return {
@@ -245,6 +265,32 @@ async function upsertToolStatusAction(formData: FormData): Promise<void> {
     if (payload.length > 0) {
       const upsertRes = await sb.from("tool_status").upsert(payload, { onConflict: "route_key" });
       if (upsertRes.error) throw upsertRes.error;
+
+      const actor = await currentUser();
+      for (const item of payload) {
+        const previous = existingByRoute.get(item.route_key);
+        const wasEnabled = previous?.enabled ?? true;
+        const isEnabled = typeof item.enabled === "boolean" ? item.enabled : true;
+        const maintenanceReason = item.maintenance_message ?? "";
+        const reasonChanged =
+          maintenanceReason.trim() !== (previous?.maintenanceMessage ?? "").trim();
+        const maintenanceModeWasEnabled = !wasEnabled;
+        const maintenanceModeIsEnabled = !isEnabled;
+        if (!maintenanceModeIsEnabled) continue;
+        if (maintenanceModeWasEnabled && !reasonChanged) continue;
+
+        await logAudit({
+          action: "tool_maintenance_enabled",
+          actorUserId: actor?.id ?? null,
+          actorEmail: actor?.emailAddresses?.[0]?.emailAddress ?? null,
+          target: item.route_key,
+          detail: {
+            tool: item.route_key,
+            reason: maintenanceReason || "kein_grund_angegeben",
+            previousReason: previous?.maintenanceMessage ?? "",
+          },
+        });
+      }
     }
   } catch (error) {
     console.error("tool_status_save_failed", error);
