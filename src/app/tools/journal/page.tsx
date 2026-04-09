@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/browser";
 import { useAuth } from "@clerk/nextjs";
+import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
 type Row = {
   id: string;
@@ -14,6 +15,7 @@ type Row = {
 };
 
 export default function JournalPage() {
+  const isPreview = process.env.NEXT_PUBLIC_VERCEL_ENV === "preview";
   const sb = useMemo(() => createClient(), []);
   const { userId } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
@@ -63,6 +65,18 @@ export default function JournalPage() {
     return (
       <section className="p-6">
         <div className="text-sm text-zinc-400">Bitte anmelden.</div>
+      </section>
+    );
+  }
+
+  if (isPreview) {
+    return (
+      <section className="p-6">
+        <PreviewPlaceholder
+          title="Journal (Preview)"
+          description="In der Preview können keine echten Journal-Einträge geladen oder gespeichert werden."
+          fields={["Einträge", "Editor-Inhalte", "Speicheraktionen"]}
+        />
       </section>
     );
   }

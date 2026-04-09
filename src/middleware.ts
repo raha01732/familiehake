@@ -3,6 +3,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { Buffer } from "buffer";
+import { getClerkPublishableKey } from "@/lib/env";
 
 /** Öffentliche Routen (ohne Login erreichbar) */
 const isPublicRoute = createRouteMatcher([
@@ -16,7 +17,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/sentry-tunnel",
 ]);
 
-const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const clerkPublishableKey = getClerkPublishableKey();
 const clerkSignInUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL ?? "/sign-in";
 const isClerkEnabled = Boolean(clerkPublishableKey);
 const hasRelativeSignInPath = clerkSignInUrl.startsWith("/");

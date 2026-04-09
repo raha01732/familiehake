@@ -1,8 +1,9 @@
 // /workspace/familiehake/src/app/tools/system/page.tsx
 import RoleGate from "@/components/RoleGate";
-import { env } from "@/lib/env";
+import { env, isPreviewEnvironment } from "@/lib/env";
 import { fetchSentryStats } from "@/lib/sentry-metrics";
 import { headers } from "next/headers";
+import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
 export const metadata = { title: "Systemübersicht" };
 
@@ -50,6 +51,18 @@ function getServerInfo() {
 }
 
 export default async function SystemOverviewPage() {
+  if (isPreviewEnvironment()) {
+    return (
+      <RoleGate routeKey="tools/system">
+        <PreviewPlaceholder
+          title="Systemübersicht (Preview)"
+          description="In Preview werden keine produktiven Runtime- oder Monitoringdaten angezeigt."
+          fields={["Health/API-Status", "Sentry-Metriken", "Umgebungswerte"]}
+        />
+      </RoleGate>
+    );
+  }
+
   const [health, sentry] = await Promise.all([getHealth(), fetchSentryStats()]);
   const server = getServerInfo();
   const configuration = env();

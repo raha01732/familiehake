@@ -1,6 +1,9 @@
+// /workspace/familiehake/src/app/tools/storage/page.tsx
 import Link from "next/link";
 import RoleGate from "@/components/RoleGate";
 import { getStorageUsageSummary } from "@/lib/stats";
+import { isPreviewEnvironment } from "@/lib/env";
+import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
 export const metadata = { title: "Storage-Insights" };
 
@@ -18,6 +21,18 @@ function formatDate(value: string | null) {
 }
 
 export default async function StorageInsightsPage() {
+  if (isPreviewEnvironment()) {
+    return (
+      <RoleGate routeKey="tools/storage">
+        <PreviewPlaceholder
+          title="Storage-Insights (Preview)"
+          description="Storage-Daten aus Supabase werden in Preview nicht geladen."
+          fields={["Datei-Statistiken", "Freigaben", "Verbrauchskennzahlen"]}
+        />
+      </RoleGate>
+    );
+  }
+
   const summary = await getStorageUsageSummary();
 
   return (

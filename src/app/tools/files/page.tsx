@@ -6,6 +6,8 @@ import RoleGate from "@/components/RoleGate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
 import { generateShareToken, hashPasswordScrypt, isShareActive } from "@/lib/share";
+import { isPreviewEnvironment } from "@/lib/env";
+import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
 export const metadata = { title: "Dateien" };
 
@@ -428,6 +430,18 @@ async function revokeShareAction(formData: FormData) {
 /* ======================== Page ======================== */
 
 export default async function FilesPage({ searchParams }: { searchParams?: { folder?: string } }) {
+  if (isPreviewEnvironment()) {
+    return (
+      <RoleGate routeKey="tools/files">
+        <PreviewPlaceholder
+          title="Dateimanager (Preview)"
+          description="Dateien, Ordner und Freigaben sind in Preview nur als Platzhalter sichtbar."
+          fields={["Dateiliste", "Ordnerstruktur", "Freigabe-Daten"]}
+        />
+      </RoleGate>
+    );
+  }
+
   const { userId } = await auth();
   if (!userId) {
     return (

@@ -9,7 +9,8 @@ import PostHogProvider from "@/components/PostHogProvider";
 import DynamicUserChrome from "@/components/layout/DynamicUserChrome";
 import * as Sentry from "@sentry/nextjs";
 import { getSessionInfo } from "@/lib/auth";
-import { env } from "@/lib/env";
+import { env, getClerkPublishableKey } from "@/lib/env";
+import { PreviewTopBanner } from "@/components/PreviewNotice";
 
 export function generateMetadata(): Metadata {
   return {
@@ -22,7 +23,7 @@ export function generateMetadata(): Metadata {
 }
 
 const configuration = env();
-const clerkPublishableKey = configuration.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const clerkPublishableKey = getClerkPublishableKey(configuration);
 const clerkSignInUrl = configuration.NEXT_PUBLIC_CLERK_SIGN_IN_URL ?? "/sign-in";
 const isClerkEnabled = Boolean(clerkPublishableKey);
 const clerkAppearance = {
@@ -71,7 +72,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         aria-hidden
       />
       <DynamicUserChrome clerkEnabled={isClerkEnabled} signInUrl={clerkSignInUrl} />
-      <main className="mx-auto flex w-full max-w-[1800px] flex-1 flex-col px-4 pb-16 pt-8">{children}</main>
+      <main className="mx-auto flex w-full max-w-[1800px] flex-1 flex-col px-4 pb-16 pt-8">
+        <PreviewTopBanner />
+        {children}
+      </main>
     </div>
   );
   const analyticsShell = <PostHogProvider enableIdentity={session.signedIn}>{shell}</PostHogProvider>;
