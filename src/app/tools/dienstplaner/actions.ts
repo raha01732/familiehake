@@ -1,8 +1,9 @@
-// src/app/tools/dienstplaner/actions.ts
+// /workspace/familiehake/src/app/tools/dienstplaner/actions.ts
 "use server";
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { generateAutoPlanSlots, type AutoPlanSlot, type PauseRule } from "./utils";
 
 const PLAN_PATH = "/tools/dienstplaner";
 const SETTINGS_PATH = "/tools/dienstplaner/settings";
@@ -18,6 +19,16 @@ function getMonthRange(month: string) {
     start: start.toISOString().slice(0, 10),
     end: end.toISOString().slice(0, 10),
   };
+}
+
+function buildMonthDays(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const days: string[] = [];
+  for (let cursor = new Date(start); cursor <= end; cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), cursor.getUTCDate() + 1))) {
+    days.push(cursor.toISOString().slice(0, 10));
+  }
+  return days;
 }
 
 export async function saveShiftAction(formData: FormData) {
@@ -102,6 +113,140 @@ export async function clearMonthAction(formData: FormData) {
     .delete()
     .gte("shift_date", range.start)
     .lte("shift_date", range.end);
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function autoGenerateMonthPlanAction(formData: FormData) {
+  const month = String(formData.get("month") || "");
+  const range = getMonthRange(month);
+  if (!range) return;
+
+  const sb = createAdminClient();
+  const [employeesResult, pauseRulesResult, availabilityResult, weekdayRequirementsResult, dateRequirementsResult, shiftTracksResult, weekdayPositionRequirementsResult, datePositionRequirementsResult] = await Promise.all([
+    sb.from("dienstplan_employees").select("id, position, monthly_hours"),
+    sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
+    sb.from("dienstplan_availability").select("employee_id, availability_date, status, fixed_start, fixed_end").gte("availability_date", range.start).lte("availability_date", range.end),
+    sb.from("dienstplan_weekday_requirements").select("weekday, required_shifts"),
+    sb.from("dienstplan_date_requirements").select("requirement_date, required_shifts").gte("requirement_date", range.start).lte("requirement_date", range.end),
+    sb.from("dienstplan_shift_tracks").select("track_key, start_time, end_time").order("start_time"),
+    sb.from("dienstplan_weekday_position_requirements").select("weekday, track_key, position"),
+    sb.from("dienstplan_position_requirements").select("requirement_date, position, track_key, start_time, end_time").gte("requirement_date", range.start).lte("requirement_date", range.end),
+  ]);
+
+  const employees = (employeesResult.data ?? []) as { id: number; position: string | null; monthly_hours: number }[];
+  const pauseRules = (pauseRulesResult.data ?? []) as PauseRule[];
+  const availability = (availabilityResult.data ?? []) as {
+    employee_id: number;
+    availability_date: string;
+    status: string | null;
+    fixed_start: string | null;
+    fixed_end: string | null;
+  }[];
+  const weekdayRequirements = new Map<number, number>(
+    ((weekdayRequirementsResult.data ?? []) as { weekday: number; required_shifts: number }[]).map((item) => [
+      item.weekday,
+      item.required_shifts,
+    ])
+  );
+  const dateRequirements = new Map<string, number>(
+    ((dateRequirementsResult.data ?? []) as { requirement_date: string; required_shifts: number }[]).map((item) => [
+      item.requirement_date,
+      item.required_shifts,
+    ])
+  );
+  const shiftTracks = (shiftTracksResult.data ?? []) as { track_key: string; start_time: string; end_time: string }[];
+  const weekdayPositionRequirements = (weekdayPositionRequirementsResult.data ?? []) as {
+    weekday: number;
+    track_key: string;
+    position: string;
+  }[];
+  const datePositionRequirements = (datePositionRequirementsResult.data ?? []) as {
+    requirement_date: string;
+    position: string;
+    track_key: string | null;
+    start_time: string;
+    end_time: string;
+  }[];
+
+  const trackMap = new Map(shiftTracks.map((track) => [track.track_key, track]));
+  const weekdayPositionMap = new Map<number, { track_key: string; position: string }[]>();
+  for (const requirement of weekdayPositionRequirements) {
+    const list = weekdayPositionMap.get(requirement.weekday) ?? [];
+    list.push(requirement);
+    weekdayPositionMap.set(requirement.weekday, list);
+  }
+  const datePositionMap = new Map<string, typeof datePositionRequirements>();
+  for (const requirement of datePositionRequirements) {
+    const list = datePositionMap.get(requirement.requirement_date) ?? [];
+    list.push(requirement);
+    datePositionMap.set(requirement.requirement_date, list);
+  }
+
+  const monthDays = buildMonthDays(range.start, range.end);
+  const slots: AutoPlanSlot[] = [];
+  for (const day of monthDays) {
+    const parsedDay = new Date(`${day}T00:00:00Z`);
+    const weekday = parsedDay.getUTCDay();
+    const dateSpecificRequirements = datePositionMap.get(day) ?? [];
+
+    if (dateSpecificRequirements.length > 0) {
+      for (const requirement of dateSpecificRequirements) {
+        slots.push({
+          shift_date: day,
+          position: requirement.position,
+          start_time: requirement.start_time.slice(0, 5),
+          end_time: requirement.end_time.slice(0, 5),
+        });
+      }
+      continue;
+    }
+
+    const weekdayDefaults = weekdayPositionMap.get(weekday) ?? [];
+    if (weekdayDefaults.length > 0) {
+      for (const requirement of weekdayDefaults) {
+        const track = trackMap.get(requirement.track_key);
+        if (!track) continue;
+        slots.push({
+          shift_date: day,
+          position: requirement.position,
+          start_time: track.start_time.slice(0, 5),
+          end_time: track.end_time.slice(0, 5),
+        });
+      }
+      continue;
+    }
+
+    const fallbackCount = dateRequirements.get(day) ?? weekdayRequirements.get(weekday) ?? 0;
+    for (let index = 0; index < fallbackCount; index += 1) {
+      const track = shiftTracks[index % Math.max(shiftTracks.length, 1)];
+      if (!track) continue;
+      slots.push({
+        shift_date: day,
+        position: null,
+        start_time: track.start_time.slice(0, 5),
+        end_time: track.end_time.slice(0, 5),
+      });
+    }
+  }
+
+  const generatedShifts = generateAutoPlanSlots({
+    employees,
+    existingShifts: [],
+    availability,
+    slots,
+    pauseRules,
+  });
+
+  await sb.from("dienstplan_shifts").delete().gte("shift_date", range.start).lte("shift_date", range.end);
+  if (generatedShifts.length > 0) {
+    await sb.from("dienstplan_shifts").insert(
+      generatedShifts.map((shift) => ({
+        ...shift,
+        raw_input: "auto-generated",
+      }))
+    );
+  }
 
   revalidatePath(PLAN_PATH);
 }
