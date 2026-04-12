@@ -1,4 +1,4 @@
-// src/app/admin/settings/page.tsx
+// /workspace/familiehake/src/app/admin/settings/page.tsx
 import RoleGate from "@/components/RoleGate";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
 import { checkDatabaseLive } from "@/lib/access-db";
@@ -6,6 +6,7 @@ import { TOOL_LINKS } from "@/lib/navigation";
 import { discoverAppRoutes } from "@/lib/route-discovery";
 import { normalizeRouteKey } from "@/lib/route-access";
 import { env } from "@/lib/env";
+import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
 import { currentUser } from "@clerk/nextjs/server";
@@ -36,7 +37,7 @@ type DbToolStatus = {
 
 async function getAdminStatus() {
   const user = await currentUser();
-  const role = (user?.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
+  const role = getRoleFromPublicMetadata(user?.publicMetadata);
   const isAdmin =
     !!user && (role === "admin" || role === "superadmin" || user.id === env().PRIMARY_SUPERADMIN_ID);
   return { isAdmin, role, user };
