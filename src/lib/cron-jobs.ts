@@ -13,6 +13,10 @@ type CronRunLogInput = {
   errorMessage?: string | null;
 };
 
+type DailyClaimResult =
+  | { ok: true; claimed: boolean }
+  | { ok: false; errorCode: string | null; errorMessage: string };
+
 function getRequestActor(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   const hasBearer = Boolean(authHeader?.startsWith("Bearer "));
@@ -48,7 +52,7 @@ export async function hasSuccessfulRunToday(jobName: string) {
   return Array.isArray(data) && data.length > 0;
 }
 
-export async function claimDailyCronRun(jobName: string) {
+export async function claimDailyCronRun(jobName: string): Promise<DailyClaimResult> {
   const sb = createAdminClient();
   const runDay = new Date().toISOString().slice(0, 10);
   const { data, error } = await sb
@@ -61,10 +65,18 @@ export async function claimDailyCronRun(jobName: string) {
     .limit(1);
 
   if (error) {
-    return false;
+    if (error.code === "23505") {
+      return { ok: true, claimed: false };
+    }
+
+    return {
+      ok: false,
+      errorCode: error.code ?? null,
+      errorMessage: error.message ?? "claim_daily_cron_run_failed",
+    };
   }
 
-  return Array.isArray(data) && data.length > 0;
+  return { ok: true, claimed: Array.isArray(data) && data.length > 0 };
 }
 
 function toIsoTimestamp(value: string | number | Date | undefined, fallbackDate: Date) {

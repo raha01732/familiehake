@@ -26,11 +26,13 @@ type ClerkSession = {
 function normalizeTimestamp(value: unknown): number | null {
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return null;
+    if (value <= 0) return null;
     return value > 1e12 ? value : value * 1000;
   }
   if (typeof value === "string") {
     const parsedNumeric = Number(value);
     if (Number.isFinite(parsedNumeric)) {
+      if (parsedNumeric <= 0) return null;
       return parsedNumeric > 1e12 ? parsedNumeric : parsedNumeric * 1000;
     }
     const parsedDate = Date.parse(value);
@@ -50,7 +52,7 @@ function getLastActiveAt(session: ClerkSession) {
 
 function shouldRevokeSessionByIdlePolicy(session: ClerkSession, nowMs: number) {
   const lastActiveAt = getLastActiveAt(session);
-  if (!lastActiveAt) return true;
+  if (lastActiveAt == null) return true;
   const idleMs = nowMs - lastActiveAt;
   const idleTimeoutMs = Math.max(1, IDLE_TIMEOUT_HOURS) * 60 * 60 * 1000;
   return idleMs >= idleTimeoutMs;
@@ -98,8 +100,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const claimed = await claimDailyCronRun("force-logout");
-  if (!claimed) {
+  const claimResult = await claimDailyCronRun("force-logout");
+  if (!claimResult.ok) {
+    await logCronRun({
+      jobName: "force-logout",
+      request: req,
+      success: false,
+      startedAt,
+      durationMs: Date.now() - startedAt,
+      errorMessage: claimResult.errorMessage,
+      details: {
+        reason: "claim_failed",
+        errorCode: claimResult.errorCode,
+      },
+    });
+    return NextResponse.json({ ok: false, error: "claim_daily_run_failed" }, { status: 503 });
+  }
+
+  if (!claimResult.claimed) {
     await logCronRun({
       jobName: "force-logout",
       request: req,
