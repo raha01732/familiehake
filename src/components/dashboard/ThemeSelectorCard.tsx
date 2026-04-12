@@ -2,9 +2,8 @@
 import { currentUser } from "@clerk/nextjs/server";
 import * as Sentry from "@sentry/nextjs";
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
 import { logAudit } from "@/lib/audit";
-import { getThemePresets, ThemePreset, THEME_PRESET_COOKIE } from "@/lib/theme";
+import { getThemePresets, ThemePreset } from "@/lib/theme";
 import { setCachedJson } from "@/lib/redis";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -41,14 +40,6 @@ async function updateThemePreference(formData: FormData) {
       Sentry.captureException(error);
       return;
     }
-
-    const cookieStore = await cookies();
-    cookieStore.set(THEME_PRESET_COOKIE, presetId, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 365,
-    });
 
     await setCachedJson(`theme:user:${user.id}`, selectedPreset, 60 * 60 * 12);
 

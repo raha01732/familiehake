@@ -13,7 +13,6 @@ export type ThemePreset = {
 const THEME_CACHE_TTL_SECONDS = 60 * 60 * 6;
 const USER_THEME_CACHE_TTL_SECONDS = 60 * 60 * 12;
 const DEFAULT_PRESET_ID = "light";
-export const THEME_PRESET_COOKIE = "themePreset";
 const THEME_PRESETS_CACHE_KEY = "theme:presets:v2";
 const USER_THEME_CACHE_KEY_PREFIX = "theme:user:";
 
