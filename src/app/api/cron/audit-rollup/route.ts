@@ -1,4 +1,5 @@
 // /workspace/familiehake/src/app/api/cron/audit-rollup/route.ts
+import { logCronRun } from "@/lib/cron-jobs";
 import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { getRedisClient } from "@/lib/redis";
 import { reportError } from "@/lib/sentry";
@@ -33,11 +34,21 @@ function countByAction(rows: AuditEventRow[]) {
 
 export async function GET(req: NextRequest) {
   if (!isAuthorizedCronRequest(req)) {
+    await logCronRun({ jobName: "audit-rollup", request: req, success: false, errorMessage: "unauthorized" });
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
+  const startedAt = Date.now();
   const redis = getRedisClient();
   if (!redis) {
+    await logCronRun({
+      jobName: "audit-rollup",
+      request: req,
+      success: false,
+      skipped: true,
+      durationMs: Date.now() - startedAt,
+      errorMessage: "upstash_not_configured",
+    });
     return NextResponse.json({ ok: false, skipped: true, error: "upstash_not_configured" });
   }
 
@@ -73,6 +84,18 @@ export async function GET(req: NextRequest) {
 
     await Promise.all(writes);
 
+    await logCronRun({
+      jobName: "audit-rollup",
+      request: req,
+      success: true,
+      durationMs: Date.now() - startedAt,
+      details: {
+        hourBucket,
+        actions: Object.keys(grouped).length,
+        rows: rows.length,
+      },
+    });
+
     return NextResponse.json({
       ok: true,
       hourBucket,
@@ -80,6 +103,13 @@ export async function GET(req: NextRequest) {
       rows: rows.length,
     });
   } catch (error) {
+    await logCronRun({
+      jobName: "audit-rollup",
+      request: req,
+      success: false,
+      durationMs: Date.now() - startedAt,
+      errorMessage: error instanceof Error ? error.message : "audit_rollup_failed",
+    });
     reportError(error, { cron: "audit-rollup" });
     return NextResponse.json({ ok: false, error: "audit_rollup_failed" }, { status: 500 });
   }

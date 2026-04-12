@@ -21,6 +21,8 @@ const clerkPublishableKey = getClerkPublishableKey();
 const clerkSignInUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL ?? "/sign-in";
 const isClerkEnabled = Boolean(clerkPublishableKey);
 const hasRelativeSignInPath = clerkSignInUrl.startsWith("/");
+const DEFAULT_LOCALE = process.env.NEXT_PUBLIC_DEFAULT_LOCALE ?? "de";
+const LOCALE_COOKIE_NAME = "locale";
 
 /** Optional: IP-Denylist (kommasepariert) */
 const BLOCKED_IPS = (process.env.BLOCKED_IPS ?? "")
@@ -80,6 +82,23 @@ function withSecurityHeaders(res: NextResponse) {
   return res;
 }
 
+function withLocaleCookie(req: NextRequest, res: NextResponse) {
+  const existingLocale = req.cookies.get(LOCALE_COOKIE_NAME)?.value;
+  if (existingLocale) return res;
+
+  res.cookies.set({
+    name: LOCALE_COOKIE_NAME,
+    value: DEFAULT_LOCALE,
+    maxAge: 60 * 60 * 24 * 365,
+    path: "/",
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    httpOnly: false,
+  });
+
+  return res;
+}
+
 /** Optional: IP-Block */
 function checkIpBlock(req: NextRequest) {
   if (BLOCKED_IPS.length === 0) return null;
@@ -103,23 +122,23 @@ function isClerkSignInRoute(req: NextRequest) {
 
 const fallbackMiddleware = (req: NextRequest) => {
   const preview = handlePreviewProtection(req);
-  if (preview) return withSecurityHeaders(preview);
+  if (preview) return withLocaleCookie(req, withSecurityHeaders(preview));
 
   const ipBlock = checkIpBlock(req);
-  if (ipBlock) return withSecurityHeaders(ipBlock);
+  if (ipBlock) return withLocaleCookie(req, withSecurityHeaders(ipBlock));
 
-  return withSecurityHeaders(NextResponse.next());
+  return withLocaleCookie(req, withSecurityHeaders(NextResponse.next()));
 };
 
 const clerkEnabledMiddleware = clerkMiddleware(async (auth, req) => {
   const preview = handlePreviewProtection(req);
-  if (preview) return withSecurityHeaders(preview);
+  if (preview) return withLocaleCookie(req, withSecurityHeaders(preview));
 
   const ipBlock = checkIpBlock(req);
-  if (ipBlock) return withSecurityHeaders(ipBlock);
+  if (ipBlock) return withLocaleCookie(req, withSecurityHeaders(ipBlock));
 
   if (isPublicRoute(req) || isClerkSignInRoute(req)) {
-    return withSecurityHeaders(NextResponse.next());
+    return withLocaleCookie(req, withSecurityHeaders(NextResponse.next()));
   }
 
   // ✅ FIX: protect() gibt es bei deinem auth()-Typ nicht.
@@ -130,11 +149,11 @@ const clerkEnabledMiddleware = clerkMiddleware(async (auth, req) => {
   if (!userId) {
     const signInUrl = new URL(clerkSignInUrl, req.url);
     signInUrl.searchParams.set("redirect_url", req.url);
-    return withSecurityHeaders(NextResponse.redirect(signInUrl));
+    return withLocaleCookie(req, withSecurityHeaders(NextResponse.redirect(signInUrl)));
   }
 
 
-  return withSecurityHeaders(NextResponse.next());
+  return withLocaleCookie(req, withSecurityHeaders(NextResponse.next()));
 });
 
 export default isClerkEnabled ? clerkEnabledMiddleware : fallbackMiddleware;
