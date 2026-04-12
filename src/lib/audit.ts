@@ -1,5 +1,6 @@
 // /workspace/familiehake/src/lib/audit.ts
 import { createAdminClient } from "@/lib/supabase/admin";
+import { PreviewWriteBlockedError } from "@/lib/supabase/preview-guard";
 
 /**
  * Alle erlaubten Audit-Action-Typen zentral definieren.
@@ -72,9 +73,19 @@ export async function logAudit(input: LogAuditInput) {
     detail: input.detail ?? null,
   };
 
-  const { error } = await sb.from("audit_events").insert(payload);
-  if (error) {
+  try {
+    const { error } = await sb.from("audit_events").insert(payload);
+    if (error) {
+      // bewusst kein throw: Audit-Fehler sollen die App nicht brechen
+      console.error("logAudit insert error:", error.message);
+    }
+  } catch (error) {
+    if (error instanceof PreviewWriteBlockedError) {
+      console.warn("logAudit skipped in preview:", error.message);
+      return;
+    }
+
     // bewusst kein throw: Audit-Fehler sollen die App nicht brechen
-    console.error("logAudit insert error:", error.message);
+    console.error("logAudit unexpected error:", error);
   }
 }

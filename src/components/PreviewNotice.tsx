@@ -13,8 +13,8 @@ export function PreviewTopBanner() {
   return (
     <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
       <strong className="mr-1">Preview-Umgebung:</strong>
-      Diese Version zeigt absichtlich reduzierte Inhalte. Externe Tools (z. B. Datenbank/Upstash/Sentry) liefern hier
-      keine echten Daten.
+      Daten können hier live gelesen werden, aber Datenbank-Schreibzugriffe sind gesperrt. Ausnahme:
+      Benutzerverwaltung (z. B. Rollen-Zuweisungen) bleibt schreibbar.
     </div>
   );
 }
