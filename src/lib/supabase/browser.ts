@@ -1,5 +1,6 @@
 // /workspace/familiehake/src/lib/supabase/browser.ts
 import { createBrowserClient } from "@supabase/ssr";
+import { wrapPreviewWriteGuard } from "@/lib/supabase/preview-guard";
 
 let browserClient: ReturnType<typeof createBrowserClient> | null = null;
 
@@ -20,6 +21,6 @@ export function createClient() {
     return null;
   }
 
-  browserClient = createBrowserClient(url, anon);
+  browserClient = wrapPreviewWriteGuard(createBrowserClient(url, anon));
   return browserClient;
 }

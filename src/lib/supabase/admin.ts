@@ -1,5 +1,6 @@
 // src/lib/supabase/admin.ts
 import { createClient } from "@supabase/supabase-js";
+import { wrapPreviewWriteGuard } from "@/lib/supabase/preview-guard";
 
 // Nur Server (Service Role Key) – NIE ins Browser-Bundle!
 export function createAdminClient() {
@@ -8,7 +9,8 @@ export function createAdminClient() {
   if (!url || !serviceKey) {
     throw new Error("Supabase Admin-Client: URL oder SERVICE_ROLE_KEY fehlt.");
   }
-  return createClient(url, serviceKey, {
+  const client = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
   });
+  return wrapPreviewWriteGuard(client);
 }

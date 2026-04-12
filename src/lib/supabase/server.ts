@@ -1,10 +1,11 @@
 // /workspace/familiehake/src/lib/supabase/server.ts
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { wrapPreviewWriteGuard } from "@/lib/supabase/preview-guard";
 
 export async function createClient() {
   const cookieStore = await cookies();
-  return createServerClient(
+  const client = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -19,4 +20,5 @@ export async function createClient() {
       }
     }
   );
+  return wrapPreviewWriteGuard(client);
 }
