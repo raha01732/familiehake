@@ -22,6 +22,10 @@ export function wrapPreviewWriteGuard<TClient>(client: TClient): TClient {
     return client;
   }
 
+  if (typeof client !== "object" || client === null) {
+    return client;
+  }
+
   return new Proxy(client, {
     get(target, prop, receiver) {
       if (prop !== "from") {
