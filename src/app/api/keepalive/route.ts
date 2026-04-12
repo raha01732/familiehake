@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
       request: req,
       success: false,
       skipped: true,
+      startedAt,
       durationMs: Date.now() - startedAt,
       errorMessage: "supabase not configured",
     });
@@ -31,6 +32,7 @@ export async function GET(req: NextRequest) {
       jobName: "keepalive",
       request: req,
       success: false,
+      startedAt,
       durationMs: Date.now() - startedAt,
       errorMessage: error.message,
     });
@@ -41,6 +43,7 @@ export async function GET(req: NextRequest) {
     jobName: "keepalive",
     request: req,
     success: true,
+    startedAt,
     durationMs: Date.now() - startedAt,
     details: { pingedAt },
   });

@@ -7,6 +7,7 @@ type CronRunLogInput = {
   request: NextRequest;
   success: boolean;
   skipped?: boolean;
+  startedAt?: string | number | Date;
   durationMs?: number;
   details?: Record<string, unknown> | null;
   errorMessage?: string | null;
@@ -47,12 +48,40 @@ export async function hasSuccessfulRunToday(jobName: string) {
   return Array.isArray(data) && data.length > 0;
 }
 
+export async function claimDailyCronRun(jobName: string) {
+  const sb = createAdminClient();
+  const runDay = new Date().toISOString().slice(0, 10);
+  const { data, error } = await sb
+    .from("cron_job_daily_claims")
+    .insert({
+      job_name: jobName,
+      run_day: runDay,
+    })
+    .select("job_name")
+    .limit(1);
+
+  if (error) {
+    return false;
+  }
+
+  return Array.isArray(data) && data.length > 0;
+}
+
+function toIsoTimestamp(value: string | number | Date | undefined, fallbackDate: Date) {
+  if (value == null) return fallbackDate.toISOString();
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "number") return new Date(value).toISOString();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? fallbackDate.toISOString() : parsed.toISOString();
+}
+
 export async function logCronRun(input: CronRunLogInput) {
   try {
     const sb = createAdminClient();
-    const now = new Date();
+    const finishedAt = new Date();
     const actorInfo = getRequestActor(input.request);
-    const runDay = now.toISOString().slice(0, 10);
+    const runDay = finishedAt.toISOString().slice(0, 10);
+    const startedAt = toIsoTimestamp(input.startedAt, finishedAt);
 
     await sb.from("cron_job_runs").insert({
       job_name: input.jobName,
@@ -63,8 +92,8 @@ export async function logCronRun(input: CronRunLogInput) {
       user_agent: actorInfo.userAgent,
       success: input.success,
       skipped: Boolean(input.skipped),
-      started_at: now.toISOString(),
-      finished_at: now.toISOString(),
+      started_at: startedAt,
+      finished_at: finishedAt.toISOString(),
       duration_ms: input.durationMs ?? null,
       details: input.details ?? null,
       error_message: input.errorMessage ?? null,

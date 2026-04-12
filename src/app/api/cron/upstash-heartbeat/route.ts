@@ -12,12 +12,19 @@ const HEARTBEAT_KEY = "ops:heartbeat:upstash";
 const HEARTBEAT_TTL_SECONDS = 60 * 60 * 48;
 
 export async function GET(req: NextRequest) {
+  const startedAt = Date.now();
   if (!isAuthorizedCronRequest(req)) {
-    await logCronRun({ jobName: "upstash-heartbeat", request: req, success: false, errorMessage: "unauthorized" });
+    await logCronRun({
+      jobName: "upstash-heartbeat",
+      request: req,
+      success: false,
+      startedAt,
+      durationMs: Date.now() - startedAt,
+      errorMessage: "unauthorized",
+    });
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const startedAt = Date.now();
   const redis = getRedisClient();
   if (!redis) {
     await logCronRun({
@@ -25,6 +32,7 @@ export async function GET(req: NextRequest) {
       request: req,
       success: false,
       skipped: true,
+      startedAt,
       durationMs: Date.now() - startedAt,
       errorMessage: "upstash_not_configured",
     });
@@ -39,6 +47,7 @@ export async function GET(req: NextRequest) {
       jobName: "upstash-heartbeat",
       request: req,
       success: true,
+      startedAt,
       durationMs: Date.now() - startedAt,
       details: { key: HEARTBEAT_KEY, pingedAt },
     });
@@ -48,6 +57,7 @@ export async function GET(req: NextRequest) {
       jobName: "upstash-heartbeat",
       request: req,
       success: false,
+      startedAt,
       durationMs: Date.now() - startedAt,
       errorMessage: error instanceof Error ? error.message : "upstash_heartbeat_failed",
     });

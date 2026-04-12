@@ -32,6 +32,13 @@ create table if not exists cron_job_runs (
   error_message text
 );
 
+create table if not exists cron_job_daily_claims (
+  job_name text not null,
+  run_day date not null,
+  claimed_at timestamptz not null default now(),
+  primary key (job_name, run_day)
+);
+
 create index if not exists cron_job_runs_job_name_idx on cron_job_runs(job_name);
 create index if not exists cron_job_runs_run_day_idx on cron_job_runs(run_day desc);
 create unique index if not exists cron_force_logout_once_per_day_idx

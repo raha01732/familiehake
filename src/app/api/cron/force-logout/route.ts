@@ -1,7 +1,7 @@
 // /workspace/familiehake/src/app/api/cron/force-logout/route.ts
 import * as Sentry from "@sentry/nextjs";
 import { clerkClient } from "@clerk/nextjs/server";
-import { hasSuccessfulRunToday, logCronRun } from "@/lib/cron-jobs";
+import { claimDailyCronRun, logCronRun } from "@/lib/cron-jobs";
 import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { getRedisClient } from "@/lib/redis";
 import { reportError } from "@/lib/sentry";
@@ -85,29 +85,32 @@ async function listActiveSessions(): Promise<ClerkSession[]> {
 }
 
 export async function GET(req: NextRequest) {
+  const startedAt = Date.now();
   if (!isAuthorizedCronRequest(req)) {
     await logCronRun({
       jobName: "force-logout",
       request: req,
       success: false,
+      startedAt,
+      durationMs: Date.now() - startedAt,
       errorMessage: "unauthorized",
     });
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const alreadySucceededToday = await hasSuccessfulRunToday("force-logout");
-  if (alreadySucceededToday) {
+  const claimed = await claimDailyCronRun("force-logout");
+  if (!claimed) {
     await logCronRun({
       jobName: "force-logout",
       request: req,
       success: true,
       skipped: true,
-      details: { reason: "already_succeeded_today" },
+      startedAt,
+      durationMs: Date.now() - startedAt,
+      details: { reason: "already_claimed_today" },
     });
-    return NextResponse.json({ ok: true, skipped: true, reason: "already_succeeded_today" });
+    return NextResponse.json({ ok: true, skipped: true, reason: "already_claimed_today" });
   }
-
-  const startedAt = Date.now();
 
   try {
     const client = await clerkClient();
@@ -160,6 +163,7 @@ export async function GET(req: NextRequest) {
       jobName: "force-logout",
       request: req,
       success: revokeErrors === 0,
+      startedAt,
       durationMs,
       details: {
         activeSessions: activeSessions.length,
@@ -183,6 +187,7 @@ export async function GET(req: NextRequest) {
       jobName: "force-logout",
       request: req,
       success: false,
+      startedAt,
       durationMs: Date.now() - startedAt,
       errorMessage: error instanceof Error ? error.message : "force_logout_failed",
     });

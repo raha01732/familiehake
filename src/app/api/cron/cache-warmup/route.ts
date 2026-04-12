@@ -9,12 +9,19 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  const startedAt = Date.now();
   if (!isAuthorizedCronRequest(req)) {
-    await logCronRun({ jobName: "cache-warmup", request: req, success: false, errorMessage: "unauthorized" });
+    await logCronRun({
+      jobName: "cache-warmup",
+      request: req,
+      success: false,
+      startedAt,
+      durationMs: Date.now() - startedAt,
+      errorMessage: "unauthorized",
+    });
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const startedAt = Date.now();
   try {
     const [storage, journal] = await Promise.all([
       getStorageUsageSummary(),
@@ -25,6 +32,7 @@ export async function GET(req: NextRequest) {
       jobName: "cache-warmup",
       request: req,
       success: true,
+      startedAt,
       durationMs: Date.now() - startedAt,
       details: {
         totalFiles: storage.totalFiles,
@@ -48,6 +56,7 @@ export async function GET(req: NextRequest) {
       jobName: "cache-warmup",
       request: req,
       success: false,
+      startedAt,
       durationMs: Date.now() - startedAt,
       errorMessage: error instanceof Error ? error.message : "cache_warmup_failed",
     });

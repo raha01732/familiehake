@@ -33,12 +33,19 @@ function countByAction(rows: AuditEventRow[]) {
 }
 
 export async function GET(req: NextRequest) {
+  const startedAt = Date.now();
   if (!isAuthorizedCronRequest(req)) {
-    await logCronRun({ jobName: "audit-rollup", request: req, success: false, errorMessage: "unauthorized" });
+    await logCronRun({
+      jobName: "audit-rollup",
+      request: req,
+      success: false,
+      startedAt,
+      durationMs: Date.now() - startedAt,
+      errorMessage: "unauthorized",
+    });
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const startedAt = Date.now();
   const redis = getRedisClient();
   if (!redis) {
     await logCronRun({
@@ -46,6 +53,7 @@ export async function GET(req: NextRequest) {
       request: req,
       success: false,
       skipped: true,
+      startedAt,
       durationMs: Date.now() - startedAt,
       errorMessage: "upstash_not_configured",
     });
@@ -88,6 +96,7 @@ export async function GET(req: NextRequest) {
       jobName: "audit-rollup",
       request: req,
       success: true,
+      startedAt,
       durationMs: Date.now() - startedAt,
       details: {
         hourBucket,
@@ -107,6 +116,7 @@ export async function GET(req: NextRequest) {
       jobName: "audit-rollup",
       request: req,
       success: false,
+      startedAt,
       durationMs: Date.now() - startedAt,
       errorMessage: error instanceof Error ? error.message : "audit_rollup_failed",
     });
