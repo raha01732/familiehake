@@ -8,6 +8,7 @@ export type AutoPlanEmployee = {
   id: number;
   position: string | null;
   monthly_hours: number;
+  weekly_hours: number;
 };
 
 export type AutoPlanShift = {
@@ -31,6 +32,9 @@ export type AutoPlanSlot = {
   start_time: string;
   end_time: string;
 };
+
+const MINUTES_PER_DAY = 24 * 60;
+const SERVICELEITUNG_POSITION = "serviceleitung";
 
 function parseTimeValue(value: string) {
   const [hoursStr, minutesStr] = value.split(":");
@@ -89,6 +93,29 @@ function toMinutes(time: string) {
   return parsed.hours * 60 + parsed.minutes;
 }
 
+function toTimeString(minutes: number) {
+  const normalized = ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  const hours = Math.floor(normalized / 60);
+  const mins = normalized % 60;
+  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+}
+
+export function addHoursToTime(time: string, hoursToAdd: number) {
+  const timeInMinutes = toMinutes(time);
+  if (timeInMinutes === null) return null;
+  return toTimeString(timeInMinutes + hoursToAdd * 60);
+}
+
+export function getThursdayWeekKey(dateValue: string) {
+  const date = new Date(`${dateValue}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const weekday = date.getUTCDay();
+  const offsetToThursday = (weekday - 4 + 7) % 7;
+  const thursday = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - offsetToThursday));
+  return thursday.toISOString().slice(0, 10);
+}
+
 function isTimeRangeCompatible(slotStart: string, slotEnd: string, fixedStart: string, fixedEnd: string) {
   const slotStartMinutes = toMinutes(slotStart);
   const slotEndMinutes = toMinutes(slotEnd);
@@ -129,6 +156,7 @@ export function generateAutoPlanSlots(params: {
   );
   const assignedByDay = new Map<string, Set<number>>();
   const totalMinutesByEmployee = new Map<number, number>();
+  const weeklyMinutesByEmployee = new Map<string, number>();
   const assignmentCount = new Map<number, number>();
 
   for (const shift of existingShifts) {
@@ -138,6 +166,14 @@ export function generateAutoPlanSlots(params: {
       shift.employee_id,
       (totalMinutesByEmployee.get(shift.employee_id) ?? 0) + summary.workMinutes
     );
+
+    const weekKey = getThursdayWeekKey(shift.shift_date);
+    if (weekKey) {
+      weeklyMinutesByEmployee.set(
+        `${shift.employee_id}-${weekKey}`,
+        (weeklyMinutesByEmployee.get(`${shift.employee_id}-${weekKey}`) ?? 0) + summary.workMinutes
+      );
+    }
   }
 
   const plannedShifts: { employee_id: number; shift_date: string; start_time: string; end_time: string }[] = [];
@@ -167,11 +203,18 @@ export function generateAutoPlanSlots(params: {
       }
 
       const currentMinutes = totalMinutesByEmployee.get(employee.id) ?? 0;
-      const targetMinutes = Math.max(0, Math.round(employee.monthly_hours * 60));
-      const fairnessScore = targetMinutes > 0 ? (currentMinutes / targetMinutes) * 100 : currentMinutes / 60;
+      const monthlyTargetMinutes = Math.max(0, Math.round(employee.monthly_hours * 60));
+      const monthlyFairnessScore =
+        monthlyTargetMinutes > 0 ? (currentMinutes / monthlyTargetMinutes) * 100 : currentMinutes / 60;
+      const weekKey = getThursdayWeekKey(slot.shift_date);
+      const weeklyTargetMinutes = Math.max(0, Math.round(employee.weekly_hours * 60));
+      const weeklyMinutes = weekKey ? (weeklyMinutesByEmployee.get(`${employee.id}-${weekKey}`) ?? 0) : 0;
+      const weeklyFairnessScore =
+        weeklyTargetMinutes > 0 ? (weeklyMinutes / weeklyTargetMinutes) * 100 : weeklyMinutes / 60;
       const preferencePenalty = calculatePreferencePenalty(availabilityStatus, slot.start_time);
       const loadPenalty = (assignmentCount.get(employee.id) ?? 0) * 1.5;
-      const score = fairnessScore + preferencePenalty + loadPenalty;
+      const combinedFairnessScore = monthlyFairnessScore * 0.6 + weeklyFairnessScore * 0.4;
+      const score = combinedFairnessScore + preferencePenalty + loadPenalty;
 
       if (score < selectedScore) {
         selectedScore = score;
@@ -181,20 +224,32 @@ export function generateAutoPlanSlots(params: {
 
     if (selectedEmployeeId === null) continue;
 
+    const employee = employees.find((entry) => entry.id === selectedEmployeeId);
+    const isServiceleitung = employee?.position?.trim().toLowerCase() === SERVICELEITUNG_POSITION;
+    const startTime = slot.start_time;
+    const endTime = isServiceleitung ? (addHoursToTime(startTime, 8) ?? slot.end_time) : slot.end_time;
+
     plannedShifts.push({
       employee_id: selectedEmployeeId,
       shift_date: slot.shift_date,
-      start_time: slot.start_time,
-      end_time: slot.end_time,
+      start_time: startTime,
+      end_time: endTime,
     });
     assignedSet.add(selectedEmployeeId);
     assignmentCount.set(selectedEmployeeId, (assignmentCount.get(selectedEmployeeId) ?? 0) + 1);
-    const summary = calculateShiftMinutes(slot.start_time, slot.end_time, pauseRules);
+    const summary = calculateShiftMinutes(startTime, endTime, pauseRules);
     if (summary) {
       totalMinutesByEmployee.set(
         selectedEmployeeId,
         (totalMinutesByEmployee.get(selectedEmployeeId) ?? 0) + summary.workMinutes
       );
+      const weekKey = getThursdayWeekKey(slot.shift_date);
+      if (weekKey) {
+        weeklyMinutesByEmployee.set(
+          `${selectedEmployeeId}-${weekKey}`,
+          (weeklyMinutesByEmployee.get(`${selectedEmployeeId}-${weekKey}`) ?? 0) + summary.workMinutes
+        );
+      }
     }
   }
 

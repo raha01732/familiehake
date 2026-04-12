@@ -24,6 +24,7 @@ import {
   formatDateLabel,
   formatMinutesAsHours,
   formatMonthLabel,
+  getThursdayWeekKey,
   type PauseRule,
 } from "./utils";
 
@@ -34,6 +35,7 @@ type DienstplanEmployee = {
   name: string;
   position: string | null;
   monthly_hours: number;
+  weekly_hours: number;
   user_id: string | null;
 };
 
@@ -201,10 +203,24 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     pause_minutes: rule.pause_minutes,
   })) satisfies PauseRule[];
   const employeeTotals = new Map<number, number>();
+  const weeklyTotals = new Map<string, number>();
   for (const shift of (shifts as DienstplanShift[] | null) ?? []) {
     const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRuleList);
     if (!summary) continue;
     employeeTotals.set(shift.employee_id, (employeeTotals.get(shift.employee_id) ?? 0) + summary.workMinutes);
+    const weekKey = getThursdayWeekKey(shift.shift_date);
+    if (!weekKey) continue;
+    weeklyTotals.set(`${shift.employee_id}-${weekKey}`, (weeklyTotals.get(`${shift.employee_id}-${weekKey}`) ?? 0) + summary.workMinutes);
+  }
+
+  const weekGroups = new Map<string, string[]>();
+  for (const day of days) {
+    const dateKey = day.toISOString().slice(0, 10);
+    const weekKey = getThursdayWeekKey(dateKey);
+    if (!weekKey) continue;
+    const group = weekGroups.get(weekKey) ?? [];
+    group.push(dateKey);
+    weekGroups.set(weekKey, group);
   }
 
   const prevMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1));
@@ -351,6 +367,9 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                   <div className="text-[11px] text-zinc-500">
                     Soll: {formatMinutesAsHours(Math.round(employee.monthly_hours * 60))}h / Monat
                   </div>
+                  <div className="text-[11px] text-zinc-500">
+                    Soll: {formatMinutesAsHours(Math.round((employee.weekly_hours ?? 0) * 60))}h / Woche (Do-Mi)
+                  </div>
                 </th>
               ))}
               <th className="py-3 px-4 text-left">Tagessumme</th>
@@ -401,6 +420,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                           employeeId={employee.id}
                           date={dateKey}
                           formId="bulk-save"
+                          isServiceleitung={employee.position?.trim().toLowerCase() === "serviceleitung"}
                           saveAction={saveShiftAction}
                         />
                         {summary && (
@@ -430,6 +450,30 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
               })}
               <td className="py-3 px-4" />
             </tr>
+            {Array.from(weekGroups.entries()).map(([weekKey, weekDays]) => {
+              const weekStart = new Date(`${weekKey}T00:00:00Z`);
+              const weekEnd = new Date(`${weekDays[weekDays.length - 1]}T00:00:00Z`);
+              const weekLabel = `Woche ${weekStart.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}–${weekEnd.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`;
+              return (
+                <tr key={`weekly-${weekKey}`} className="border-t border-zinc-800 bg-zinc-900/30">
+                  <td className="py-2 px-4 text-zinc-300 text-xs">{weekLabel}</td>
+                  <td className="py-2 px-4 text-zinc-500 text-xs">Wochensumme (Donnerstag–Mittwoch)</td>
+                  {(employees as DienstplanEmployee[] | null)?.map((employee) => {
+                    const weeklyMinutes = weeklyTotals.get(`${employee.id}-${weekKey}`) ?? 0;
+                    const weeklyTargetMinutes = Math.max(0, Math.round((employee.weekly_hours ?? 0) * 60));
+                    return (
+                      <td key={`weekly-total-${employee.id}-${weekKey}`} className="py-2 px-4 text-xs text-zinc-300">
+                        {weeklyMinutes > 0 ? `${formatMinutesAsHours(weeklyMinutes)}h` : "—"}
+                        {weeklyTargetMinutes > 0 && (
+                          <span className="ml-1 text-zinc-500">/ {formatMinutesAsHours(weeklyTargetMinutes)}h</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td className="py-2 px-4" />
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

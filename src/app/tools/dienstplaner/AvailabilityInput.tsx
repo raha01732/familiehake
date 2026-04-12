@@ -71,7 +71,7 @@ export default function AvailabilityInput({
         <select
           value={status}
           onChange={(event) => handleStatusChange(event.target.value)}
-          className="bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+          className="rounded-xl border border-zinc-700/80 bg-zinc-900/90 px-2.5 py-1.5 text-[11px] text-zinc-100 focus:border-cyan-500/70 focus:outline-none"
           aria-label={`Verfügbarkeit ${employeeId} ${date}`}
         >
           {AVAILABILITY_OPTIONS.map((option) => (
@@ -91,7 +91,7 @@ export default function AvailabilityInput({
             value={fixedStart}
             onChange={(event) => setFixedStart(event.target.value)}
             onBlur={(event) => handleFixedBlur(event.target.value, fixedEnd)}
-            className="w-20 bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+            className="w-20 rounded-xl border border-zinc-700/80 bg-zinc-900/90 px-2 py-1 text-[11px] text-zinc-100 focus:border-cyan-500/70 focus:outline-none"
             aria-label="Fixe Startzeit"
           />
           <span className="text-[11px] text-zinc-400">bis</span>
@@ -100,7 +100,7 @@ export default function AvailabilityInput({
             value={fixedEnd}
             onChange={(event) => setFixedEnd(event.target.value)}
             onBlur={(event) => handleFixedBlur(fixedStart, event.target.value)}
-            className="w-20 bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+            className="w-20 rounded-xl border border-zinc-700/80 bg-zinc-900/90 px-2 py-1 text-[11px] text-zinc-100 focus:border-cyan-500/70 focus:outline-none"
             aria-label="Fixe Endzeit"
           />
         </div>

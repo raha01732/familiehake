@@ -6,7 +6,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
-import { generateAutoPlanSlots, type AutoPlanSlot, type PauseRule } from "./utils";
+import { addHoursToTime, generateAutoPlanSlots, type AutoPlanSlot, type PauseRule } from "./utils";
 
 const PLAN_PATH = "/tools/dienstplaner";
 const SETTINGS_PATH = "/tools/dienstplaner/settings";
@@ -142,7 +142,7 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
 
   const sb = createAdminClient();
   const [employeesResult, pauseRulesResult, availabilityResult, weekdayRequirementsResult, dateRequirementsResult, shiftTracksResult, weekdayPositionRequirementsResult, datePositionRequirementsResult] = await Promise.all([
-    sb.from("dienstplan_employees").select("id, position, monthly_hours"),
+    sb.from("dienstplan_employees").select("id, position, monthly_hours, weekly_hours"),
     sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
     sb.from("dienstplan_availability").select("employee_id, availability_date, status, fixed_start, fixed_end").gte("availability_date", range.start).lte("availability_date", range.end),
     sb.from("dienstplan_weekday_requirements").select("weekday, required_shifts"),
@@ -152,7 +152,12 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
     sb.from("dienstplan_position_requirements").select("requirement_date, position, track_key, start_time, end_time").gte("requirement_date", range.start).lte("requirement_date", range.end),
   ]);
 
-  const employees = (employeesResult.data ?? []) as { id: number; position: string | null; monthly_hours: number }[];
+  const employees = (employeesResult.data ?? []) as {
+    id: number;
+    position: string | null;
+    monthly_hours: number;
+    weekly_hours: number;
+  }[];
   const pauseRules = (pauseRulesResult.data ?? []) as PauseRule[];
   const availability = (availabilityResult.data ?? []) as {
     employee_id: number;
@@ -210,11 +215,13 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
 
     if (dateSpecificRequirements.length > 0) {
       for (const requirement of dateSpecificRequirements) {
+        const normalizedPosition = requirement.position.trim().toLowerCase();
+        const defaultEnd = normalizedPosition === "serviceleitung" ? (addHoursToTime(requirement.start_time.slice(0, 5), 8) ?? requirement.end_time.slice(0, 5)) : requirement.end_time.slice(0, 5);
         slots.push({
           shift_date: day,
           position: requirement.position,
           start_time: requirement.start_time.slice(0, 5),
-          end_time: requirement.end_time.slice(0, 5),
+          end_time: defaultEnd,
         });
       }
       continue;
@@ -225,11 +232,13 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
       for (const requirement of weekdayDefaults) {
         const track = trackMap.get(requirement.track_key);
         if (!track) continue;
+        const normalizedPosition = requirement.position.trim().toLowerCase();
+        const defaultEnd = normalizedPosition === "serviceleitung" ? (addHoursToTime(track.start_time.slice(0, 5), 8) ?? track.end_time.slice(0, 5)) : track.end_time.slice(0, 5);
         slots.push({
           shift_date: day,
           position: requirement.position,
           start_time: track.start_time.slice(0, 5),
-          end_time: track.end_time.slice(0, 5),
+          end_time: defaultEnd,
         });
       }
       continue;
@@ -277,6 +286,7 @@ export async function createEmployeeAction(formData: FormData) {
   const name = String(formData.get("name") || "").trim();
   const position = String(formData.get("position") || "").trim();
   const monthlyHours = Number(formData.get("monthly_hours") || 0);
+  const weeklyHours = Number(formData.get("weekly_hours") || 0);
   if (!name) return;
 
   const sb = createAdminClient();
@@ -284,6 +294,7 @@ export async function createEmployeeAction(formData: FormData) {
     name,
     position: position || null,
     monthly_hours: monthlyHours,
+    weekly_hours: weeklyHours,
   });
 
   revalidatePath(SETTINGS_PATH);
@@ -292,13 +303,37 @@ export async function createEmployeeAction(formData: FormData) {
 
 export async function updateEmployeeAction(formData: FormData) {
   const id = Number(formData.get("id"));
-  const name = String(formData.get("name") || "").trim();
-  const position = String(formData.get("position") || "").trim();
-  const monthlyHours = Number(formData.get("monthly_hours") || 0);
-  if (!id || !name) return;
+  if (!id) return;
+
+  const updates: {
+    name?: string;
+    position?: string | null;
+    monthly_hours?: number;
+    weekly_hours?: number;
+  } = {};
+  const rawName = formData.get("name");
+  if (typeof rawName === "string") {
+    const value = rawName.trim();
+    if (!value) return;
+    updates.name = value;
+  }
+  const rawPosition = formData.get("position");
+  if (typeof rawPosition === "string") {
+    const value = rawPosition.trim();
+    updates.position = value || null;
+  }
+  const rawMonthlyHours = formData.get("monthly_hours");
+  if (typeof rawMonthlyHours === "string") {
+    updates.monthly_hours = Number(rawMonthlyHours || 0);
+  }
+  const rawWeeklyHours = formData.get("weekly_hours");
+  if (typeof rawWeeklyHours === "string") {
+    updates.weekly_hours = Number(rawWeeklyHours || 0);
+  }
+  if (Object.keys(updates).length === 0) return;
 
   const sb = createAdminClient();
-  await sb.from("dienstplan_employees").update({ name, position, monthly_hours: monthlyHours }).eq("id", id);
+  await sb.from("dienstplan_employees").update(updates).eq("id", id);
 
   revalidatePath(SETTINGS_PATH);
   revalidatePath(PLAN_PATH);

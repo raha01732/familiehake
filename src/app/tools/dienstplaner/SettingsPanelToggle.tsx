@@ -1,4 +1,4 @@
-// src/app/tools/dienstplaner/SettingsPanelToggle.tsx
+// /workspace/familiehake/src/app/tools/dienstplaner/SettingsPanelToggle.tsx
 "use client";
 
 import { useId, useState } from "react";
@@ -9,6 +9,7 @@ type DienstplanEmployee = {
   name: string;
   position: string | null;
   monthly_hours: number;
+  weekly_hours: number;
   user_id: string | null;
 };
 
