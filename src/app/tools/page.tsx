@@ -2,6 +2,7 @@
 import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { env } from "@/lib/env";
+import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import { TOOL_LINKS } from "@/lib/navigation";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 import { getAllowedRoutesForRole, LEVEL_NONE, LEVEL_READ, normalizeRouteKey } from "@/lib/route-access";
@@ -24,7 +25,7 @@ export default async function ToolsPage() {
     );
   }
 
-  const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase() ?? "user";
+  const role = getRoleFromPublicMetadata(user.publicMetadata);
   const isSuper = user.id === env().PRIMARY_SUPERADMIN_ID;
   const [allowed, toolStatusMap] = await Promise.all([
     isSuper ? Promise.resolve<Map<string, number> | null>(null) : getAllowedRoutesForRole(role),

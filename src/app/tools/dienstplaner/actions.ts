@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
+import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import { generateAutoPlanSlots, type AutoPlanSlot, type PauseRule } from "./utils";
 
 const PLAN_PATH = "/tools/dienstplaner";
@@ -39,7 +40,7 @@ async function assertAdminForDienstplanAutomation() {
     throw new Error("UNAUTHORIZED_NOT_LOGGED_IN");
   }
 
-  const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase() || "user";
+  const role = getRoleFromPublicMetadata(user.publicMetadata);
   const isAdmin = role === "admin" || user.id === env().PRIMARY_SUPERADMIN_ID;
   if (!isAdmin) {
     throw new Error("FORBIDDEN_ADMIN_ONLY");

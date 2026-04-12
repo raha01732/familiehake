@@ -3,6 +3,7 @@ import Link from "next/link";
 import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env, isPreviewEnvironment } from "@/lib/env";
+import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 import { getSessionInfo } from "@/lib/auth";
 import { getToolStatusMap } from "@/lib/tool-status";
@@ -126,7 +127,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     return <section className="p-6 text-zinc-400">Bitte melde dich an, um den Dienstplaner zu nutzen.</section>;
   }
 
-  const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase() || "user";
+  const role = getRoleFromPublicMetadata(user.publicMetadata);
   const isAdmin = role === "admin" || user.id === env().PRIMARY_SUPERADMIN_ID;
 
   if (isPreviewEnvironment()) {
