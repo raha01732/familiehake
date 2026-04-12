@@ -61,14 +61,14 @@ function withSecurityHeaders(res: NextResponse) {
       "img-src 'self' data: blob: https://images.clerk.dev https://img.clerk.com https://clerk.familiehake.de;",
       "style-src 'self' 'unsafe-inline';",
       "font-src 'self' data:;",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de https://vercel.live;",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.com https://*.clerk.services https://*.clerk.accounts.dev https://clerk.familiehake.de https://vercel.live;",
       "worker-src 'self' blob:;",
       // Hinweis: 'self' deckt deinen Tunnel /api/sentry-tunnel ab
-      "connect-src 'self' https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de https://*.supabase.co https://*.ingest.sentry.io;",
+      "connect-src 'self' https://*.clerk.com https://*.clerk.services https://*.clerk.accounts.dev https://clerk.familiehake.de https://*.supabase.co https://*.ingest.sentry.io;",
       "frame-ancestors 'none';",
-      "frame-src https://*.clerk.com https://*.clerk.services https://clerk.familiehake.de https://vercel.live;",
+      "frame-src https://*.clerk.com https://*.clerk.services https://*.clerk.accounts.dev https://clerk.familiehake.de https://vercel.live;",
       "base-uri 'self';",
-      "form-action 'self' https://*.clerk.com https://clerk.familiehake.de;",
+      "form-action 'self' https://*.clerk.com https://*.clerk.accounts.dev https://clerk.familiehake.de;",
     ].join(" ")
   );
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");

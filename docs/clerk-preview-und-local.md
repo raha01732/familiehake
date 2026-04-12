@@ -3,6 +3,7 @@
 
 ## Was wurde im Code angepasst?
 
+- CSP erlaubt jetzt zusätzlich `https://*.clerk.accounts.dev` (relevant für Clerk-Preview/Dev-Instanzen).
 - Login-Weiterleitungen laufen jetzt standardmäßig über `"/sign-in"` auf **derselben Domain**.
 - Optional kann ein stage-spezifischer Login-Endpunkt über `NEXT_PUBLIC_CLERK_SIGN_IN_URL` gesetzt werden.
 - Clerk ist für lokale Builds jetzt **optional**, solange `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` und `CLERK_SECRET_KEY` beide leer sind.
@@ -30,6 +31,7 @@ Setze die Werte getrennt für `Production`, `Preview` und `Development`:
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
 - `NEXT_PUBLIC_CLERK_SIGN_IN_URL`
+- `NEXT_PUBLIC_CLERK_FRONTEND_API` (falls eure Instanz diesen Host nutzt)
 
 Empfehlung:
 

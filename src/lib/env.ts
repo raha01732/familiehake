@@ -7,6 +7,7 @@ const baseSchema = z.object({
   CLERK_PUBLISHABLE_KEY: z.string().min(1).optional(),
   CLERK_SECRET_KEY: z.string().min(1).optional(),
   NEXT_PUBLIC_CLERK_SIGN_IN_URL: z.string().min(1).optional(),
+  NEXT_PUBLIC_CLERK_FRONTEND_API: z.string().min(1).optional(),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),

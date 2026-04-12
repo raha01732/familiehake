@@ -20,7 +20,9 @@ export async function GET(request: NextRequest) {
   const vercelEnv = process.env.VERCEL_ENV ?? "unknown";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   const signInUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL;
-  const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const clerkFrontendApi = process.env.NEXT_PUBLIC_CLERK_FRONTEND_API ?? null;
+  const clerkPublishableKey =
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? process.env.CLERK_PUBLISHABLE_KEY;
   const clerkSecretKey = process.env.CLERK_SECRET_KEY;
 
   const hasPublishableKey = Boolean(clerkPublishableKey);
@@ -70,6 +72,7 @@ export async function GET(request: NextRequest) {
       clerk_key_pair_consistent: keyPairConsistent,
       clerk_publishable_key_configured: hasPublishableKey,
       clerk_secret_key_configured: hasSecretKey,
+      clerk_frontend_api: clerkFrontendApi,
       configured_sign_in_url: configuredSignInUrl,
       expected_sign_in_url: expectedSignInUrl,
       sign_in_host_matches_request_host: signInHostMatchesRequestHost,
