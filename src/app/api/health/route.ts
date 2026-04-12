@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getRedisClient } from "@/lib/redis";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { reportError } from "@/lib/sentry";
+import { getClerkPublishableKey } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export async function GET() {
     uptime_s: Math.floor(process.uptime()),
     env: {
       clerk: {
-        publishable_key: !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+        publishable_key: !!getClerkPublishableKey(),
         secret_key: !!process.env.CLERK_SECRET_KEY,
       },
       supabase: {

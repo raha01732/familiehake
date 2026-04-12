@@ -1,6 +1,7 @@
 // /workspace/familiehake/src/app/api/health/auth/route.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getClerkPublishableKey } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,7 @@ export async function GET(request: NextRequest) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   const signInUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL;
   const clerkFrontendApi = process.env.NEXT_PUBLIC_CLERK_FRONTEND_API ?? null;
-  const clerkPublishableKey =
-    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? process.env.CLERK_PUBLISHABLE_KEY;
+  const clerkPublishableKey = getClerkPublishableKey();
   const clerkSecretKey = process.env.CLERK_SECRET_KEY;
 
   const hasPublishableKey = Boolean(clerkPublishableKey);
