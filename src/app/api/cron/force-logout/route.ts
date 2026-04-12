@@ -13,7 +13,20 @@ export const runtime = "nodejs";
 const HEARTBEAT_KEY = "ops:heartbeat:force-logout";
 const HEARTBEAT_TTL_SECONDS = 60 * 60 * 48;
 const CLERK_PAGE_SIZE = 100;
-const IDLE_TIMEOUT_HOURS = Number(process.env.FORCE_LOGOUT_IDLE_TIMEOUT_HOURS ?? "24");
+
+function parseIdleTimeoutHours() {
+  const raw = process.env.FORCE_LOGOUT_IDLE_TIMEOUT_HOURS;
+  if (!raw) return 24;
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 24;
+  }
+
+  return Math.floor(parsed);
+}
+
+const IDLE_TIMEOUT_HOURS = parseIdleTimeoutHours();
 
 type ClerkSession = {
   id: string;
