@@ -1,4 +1,4 @@
-// src/app/tools/dienstplaner/SettingsPanel.tsx
+// /workspace/familiehake/src/app/tools/dienstplaner/SettingsPanel.tsx
 import {
   createEmployeeAction,
   createPauseRuleAction,
@@ -18,6 +18,7 @@ type DienstplanEmployee = {
   name: string;
   position: string | null;
   monthly_hours: number;
+  weekly_hours: number;
   user_id: string | null;
 };
 
@@ -80,6 +81,8 @@ export default function SettingsPanel({
   }
 
   const isReadOnly = !isAdmin;
+  const fieldClassName =
+    "w-full rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-3 py-2 text-sm text-zinc-100 shadow-inner shadow-black/20 focus:border-cyan-500/70 focus:outline-none";
 
   return (
     <div className="relative">
@@ -104,7 +107,8 @@ export default function SettingsPanel({
               <tr>
                 <th className="text-left py-2">Name</th>
                 <th className="text-left py-2">Position</th>
-                <th className="text-right py-2">Soll Stunden/Monat</th>
+                <th className="text-right py-2">Soll Std./Monat</th>
+                <th className="text-right py-2">Soll Std./Woche (Do-Mi)</th>
                 <th className="text-left py-2">Tool-Benutzer</th>
                 <th className="py-2" />
               </tr>
@@ -118,7 +122,7 @@ export default function SettingsPanel({
                       <input
                         name="name"
                         defaultValue={employee.name}
-                        className="bg-transparent text-zinc-100 w-full"
+                        className={fieldClassName}
                         required
                         disabled={isReadOnly}
                       />
@@ -137,7 +141,7 @@ export default function SettingsPanel({
                       <input
                         name="position"
                         defaultValue={employee.position ?? ""}
-                        className="bg-transparent text-zinc-100 w-full"
+                        className={fieldClassName}
                         disabled={isReadOnly}
                       />
                       <button
@@ -157,7 +161,28 @@ export default function SettingsPanel({
                         type="number"
                         step="0.1"
                         defaultValue={employee.monthly_hours}
-                        className="bg-transparent text-zinc-100 w-20 text-right"
+                        className="w-24 rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-3 py-2 text-right text-sm text-zinc-100"
+                        required
+                        disabled={isReadOnly}
+                      />
+                      <button
+                        type="submit"
+                        className="text-xs text-emerald-500 hover:text-emerald-400"
+                        disabled={isReadOnly}
+                      >
+                        Speichern
+                      </button>
+                    </form>
+                  </td>
+                  <td className="py-2 pr-2 text-right">
+                    <form action={updateEmployeeAction} className="flex items-center justify-end gap-2">
+                      <input type="hidden" name="id" value={employee.id} />
+                      <input
+                        name="weekly_hours"
+                        type="number"
+                        step="0.1"
+                        defaultValue={employee.weekly_hours ?? 0}
+                        className="w-24 rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-3 py-2 text-right text-sm text-zinc-100"
                         required
                         disabled={isReadOnly}
                       />
@@ -174,7 +199,7 @@ export default function SettingsPanel({
                     <input
                       disabled
                       value={employee.user_id ?? "(noch nicht verknüpft)"}
-                      className="bg-zinc-900/50 border border-zinc-800 text-zinc-500 text-xs px-2 py-1 rounded w-full"
+                      className="w-full rounded-xl border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-xs text-zinc-500"
                     />
                   </td>
                   <td className="py-2 text-right">
@@ -198,14 +223,14 @@ export default function SettingsPanel({
             <input
               name="name"
               placeholder="Name"
-              className="flex-1 bg-zinc-900 border border-zinc-700 text-sm text-zinc-100 px-2 py-1"
+              className={fieldClassName}
               required
               disabled={isReadOnly}
             />
             <input
               name="position"
               placeholder="Position"
-              className="flex-1 bg-zinc-900 border border-zinc-700 text-sm text-zinc-100 px-2 py-1"
+              className={fieldClassName}
               disabled={isReadOnly}
             />
             <input
@@ -213,7 +238,16 @@ export default function SettingsPanel({
               type="number"
               step="0.1"
               placeholder="Std/Monat"
-              className="w-28 bg-zinc-900 border border-zinc-700 text-sm text-zinc-100 px-2 py-1"
+              className="w-36 rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-3 py-2 text-sm text-zinc-100"
+              required
+              disabled={isReadOnly}
+            />
+            <input
+              name="weekly_hours"
+              type="number"
+              step="0.1"
+              placeholder="Std/Woche Do-Mi"
+              className="w-44 rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-3 py-2 text-sm text-zinc-100"
               required
               disabled={isReadOnly}
             />

@@ -334,6 +334,7 @@ create table if not exists dienstplan_employees (
   name text not null,
   position text,
   monthly_hours numeric(6,2) not null default 0,
+  weekly_hours numeric(6,2) not null default 0,
   user_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -355,6 +356,8 @@ create table if not exists dienstplan_shifts (
   shift_date date not null,
   start_time time,
   end_time time,
+  break_minutes integer,
+  comment text,
   raw_input text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -454,6 +457,36 @@ begin
       and kcu.column_name in ('employee_id', 'availability_date')
   ) then
     alter table dienstplan_availability add primary key (employee_id, availability_date);
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dienstplan_shifts'
+      and column_name = 'break_minutes'
+  ) then
+    alter table dienstplan_shifts add column break_minutes integer;
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dienstplan_shifts'
+      and column_name = 'comment'
+  ) then
+    alter table dienstplan_shifts add column comment text;
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dienstplan_employees'
+      and column_name = 'weekly_hours'
+  ) then
+    alter table dienstplan_employees add column weekly_hours numeric(6,2) not null default 0;
   end if;
 
   if not exists (

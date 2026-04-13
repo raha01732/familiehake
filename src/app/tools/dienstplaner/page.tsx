@@ -16,14 +16,17 @@ import {
   autoGenerateMonthPlanAction,
   bulkSaveShiftsAction,
   clearMonthAction,
+  moveShiftAction,
   saveAvailabilityAction,
   saveShiftAction,
+  updateShiftDetailsAction,
 } from "./actions";
 import {
   calculateShiftMinutes,
   formatDateLabel,
   formatMinutesAsHours,
   formatMonthLabel,
+  getThursdayWeekKey,
   type PauseRule,
 } from "./utils";
 
@@ -34,6 +37,7 @@ type DienstplanEmployee = {
   name: string;
   position: string | null;
   monthly_hours: number;
+  weekly_hours: number;
   user_id: string | null;
 };
 
@@ -42,6 +46,16 @@ type DienstplanShift = {
   shift_date: string;
   start_time: string | null;
   end_time: string | null;
+  break_minutes: number | null;
+  comment: string | null;
+};
+
+type WeeklyRangeShift = {
+  employee_id: number;
+  shift_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  break_minutes: number | null;
 };
 
 type DienstplanPauseRule = {
@@ -150,7 +164,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
   const { data: employees } = await sb.from("dienstplan_employees").select("*").order("name");
   const { data: shifts } = await sb
     .from("dienstplan_shifts")
-    .select("employee_id, shift_date, start_time, end_time")
+    .select("employee_id, shift_date, start_time, end_time, break_minutes, comment")
     .gte("shift_date", start.toISOString().slice(0, 10))
     .lte("shift_date", end.toISOString().slice(0, 10));
   const { data: availability } = await sb
@@ -200,11 +214,43 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     min_minutes: rule.min_minutes,
     pause_minutes: rule.pause_minutes,
   })) satisfies PauseRule[];
+  const weekGroups = new Map<string, string[]>();
+  for (const day of days) {
+    const dateKey = day.toISOString().slice(0, 10);
+    const weekKey = getThursdayWeekKey(dateKey);
+    if (!weekKey) continue;
+    const group = weekGroups.get(weekKey) ?? [];
+    group.push(dateKey);
+    weekGroups.set(weekKey, group);
+  }
+
   const employeeTotals = new Map<number, number>();
   for (const shift of (shifts as DienstplanShift[] | null) ?? []) {
-    const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRuleList);
+    const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRuleList, shift.break_minutes);
     if (!summary) continue;
     employeeTotals.set(shift.employee_id, (employeeTotals.get(shift.employee_id) ?? 0) + summary.workMinutes);
+  }
+
+  const weekKeys = Array.from(weekGroups.keys()).sort();
+  const firstWeekKey = weekKeys[0] ?? start.toISOString().slice(0, 10);
+  const lastWeekKey = weekKeys[weekKeys.length - 1] ?? end.toISOString().slice(0, 10);
+  const weeklyRangeEndDate = new Date(`${lastWeekKey}T00:00:00Z`);
+  weeklyRangeEndDate.setUTCDate(weeklyRangeEndDate.getUTCDate() + 6);
+  const weeklyRangeEnd = weeklyRangeEndDate.toISOString().slice(0, 10);
+
+  const { data: weeklyRangeShifts } = await sb
+    .from("dienstplan_shifts")
+    .select("employee_id, shift_date, start_time, end_time, break_minutes")
+    .gte("shift_date", firstWeekKey)
+    .lte("shift_date", weeklyRangeEnd);
+
+  const weeklyTotals = new Map<string, number>();
+  for (const shift of (weeklyRangeShifts as WeeklyRangeShift[] | null) ?? []) {
+    const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRuleList, shift.break_minutes);
+    if (!summary) continue;
+    const weekKey = getThursdayWeekKey(shift.shift_date);
+    if (!weekKey) continue;
+    weeklyTotals.set(`${shift.employee_id}-${weekKey}`, (weeklyTotals.get(`${shift.employee_id}-${weekKey}`) ?? 0) + summary.workMinutes);
   }
 
   const prevMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1));
@@ -351,6 +397,9 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                   <div className="text-[11px] text-zinc-500">
                     Soll: {formatMinutesAsHours(Math.round(employee.monthly_hours * 60))}h / Monat
                   </div>
+                  <div className="text-[11px] text-zinc-500">
+                    Soll: {formatMinutesAsHours(Math.round((employee.weekly_hours ?? 0) * 60))}h / Woche (Do-Mi)
+                  </div>
                 </th>
               ))}
               <th className="py-3 px-4 text-left">Tagessumme</th>
@@ -378,7 +427,12 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                   {(employees as DienstplanEmployee[] | null)?.map((employee) => {
                     const shift = shiftMap.get(`${employee.id}-${dateKey}`);
                     const availabilityEntry = availabilityMap.get(`${employee.id}-${dateKey}`);
-                    const summary = calculateShiftMinutes(shift?.start_time ?? null, shift?.end_time ?? null, pauseRuleList);
+                    const summary = calculateShiftMinutes(
+                      shift?.start_time ?? null,
+                      shift?.end_time ?? null,
+                      pauseRuleList,
+                      shift?.break_minutes ?? null
+                    );
                     if (summary) {
                       dayTotalMinutes += summary.workMinutes;
                     }
@@ -401,13 +455,20 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                           employeeId={employee.id}
                           date={dateKey}
                           formId="bulk-save"
+                          isServiceleitung={employee.position?.trim().toLowerCase() === "serviceleitung"}
+                          hasShift={Boolean(shift?.start_time && shift?.end_time)}
+                          initialPauseMinutes={shift?.break_minutes ?? null}
+                          initialComment={shift?.comment ?? null}
                           saveAction={saveShiftAction}
+                          moveAction={moveShiftAction}
+                          updateDetailsAction={updateShiftDetailsAction}
                         />
                         {summary && (
                           <div className="text-[11px] text-zinc-500 mt-1">
                             {formatMinutesAsHours(summary.workMinutes)}h (Pause {summary.pauseMinutes}m)
                           </div>
                         )}
+                        {shift?.comment && <div className="mt-1 text-[11px] text-zinc-400">📝 {shift.comment}</div>}
                       </td>
                     );
                   })}
@@ -430,6 +491,30 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
               })}
               <td className="py-3 px-4" />
             </tr>
+            {Array.from(weekGroups.entries()).map(([weekKey, weekDays]) => {
+              const weekStart = new Date(`${weekKey}T00:00:00Z`);
+              const weekEnd = new Date(`${weekDays[weekDays.length - 1]}T00:00:00Z`);
+              const weekLabel = `Woche ${weekStart.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}–${weekEnd.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`;
+              return (
+                <tr key={`weekly-${weekKey}`} className="border-t border-zinc-800 bg-zinc-900/30">
+                  <td className="py-2 px-4 text-zinc-300 text-xs">{weekLabel}</td>
+                  <td className="py-2 px-4 text-zinc-500 text-xs">Wochensumme (Donnerstag–Mittwoch)</td>
+                  {(employees as DienstplanEmployee[] | null)?.map((employee) => {
+                    const weeklyMinutes = weeklyTotals.get(`${employee.id}-${weekKey}`) ?? 0;
+                    const weeklyTargetMinutes = Math.max(0, Math.round((employee.weekly_hours ?? 0) * 60));
+                    return (
+                      <td key={`weekly-total-${employee.id}-${weekKey}`} className="py-2 px-4 text-xs text-zinc-300">
+                        {weeklyMinutes > 0 ? `${formatMinutesAsHours(weeklyMinutes)}h` : "—"}
+                        {weeklyTargetMinutes > 0 && (
+                          <span className="ml-1 text-zinc-500">/ {formatMinutesAsHours(weeklyTargetMinutes)}h</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td className="py-2 px-4" />
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

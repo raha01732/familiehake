@@ -6,7 +6,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
-import { generateAutoPlanSlots, type AutoPlanSlot, type PauseRule } from "./utils";
+import { addHoursToTime, generateAutoPlanSlots, type AutoPlanSlot, type PauseRule } from "./utils";
 
 const PLAN_PATH = "/tools/dienstplaner";
 const SETTINGS_PATH = "/tools/dienstplaner/settings";
@@ -47,7 +47,22 @@ async function assertAdminForDienstplanAutomation() {
   }
 }
 
+async function assertAuthenticatedForDienstplanWrite() {
+  const user = await currentUser();
+  if (!user) {
+    throw new Error("UNAUTHORIZED_NOT_LOGGED_IN");
+  }
+
+  const role = getRoleFromPublicMetadata(user.publicMetadata);
+  const isPrivilegedUser = role === "admin" || role === "user" || user.id === env().PRIMARY_SUPERADMIN_ID;
+  if (!isPrivilegedUser) {
+    throw new Error("FORBIDDEN_WRITE_ACCESS");
+  }
+}
+
 export async function saveShiftAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const employeeId = Number(formData.get("employee_id"));
   const shiftDate = String(formData.get("shift_date") || "");
   const startTime = String(formData.get("start_time") || "").trim();
@@ -61,13 +76,22 @@ export async function saveShiftAction(formData: FormData) {
     return;
   }
 
+  const { data: existingShift } = await sb
+    .from("dienstplan_shifts")
+    .select("break_minutes, comment, raw_input")
+    .eq("employee_id", employeeId)
+    .eq("shift_date", shiftDate)
+    .maybeSingle();
+
   await sb.from("dienstplan_shifts").upsert(
     {
       employee_id: employeeId,
       shift_date: shiftDate,
       start_time: startTime,
       end_time: endTime,
-      raw_input: null,
+      break_minutes: existingShift?.break_minutes ?? null,
+      comment: existingShift?.comment ?? null,
+      raw_input: existingShift?.raw_input ?? null,
     },
     { onConflict: "employee_id,shift_date" }
   );
@@ -76,6 +100,8 @@ export async function saveShiftAction(formData: FormData) {
 }
 
 export async function bulkSaveShiftsAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const sb = createAdminClient();
   const entries = Array.from(formData.entries());
   const shiftEntries = new Map<string, { employeeId: number; date: string; startTime: string; endTime: string }>();
@@ -103,13 +129,22 @@ export async function bulkSaveShiftsAction(formData: FormData) {
       continue;
     }
 
+    const { data: existingShift } = await sb
+      .from("dienstplan_shifts")
+      .select("break_minutes, comment, raw_input")
+      .eq("employee_id", entry.employeeId)
+      .eq("shift_date", entry.date)
+      .maybeSingle();
+
     await sb.from("dienstplan_shifts").upsert(
       {
         employee_id: entry.employeeId,
         shift_date: entry.date,
         start_time: entry.startTime,
         end_time: entry.endTime,
-        raw_input: null,
+        break_minutes: existingShift?.break_minutes ?? null,
+        comment: existingShift?.comment ?? null,
+        raw_input: existingShift?.raw_input ?? null,
       },
       { onConflict: "employee_id,shift_date" }
     );
@@ -119,6 +154,8 @@ export async function bulkSaveShiftsAction(formData: FormData) {
 }
 
 export async function clearMonthAction(formData: FormData) {
+  await assertAdminForDienstplanAutomation();
+
   const month = String(formData.get("month") || "");
   const range = getMonthRange(month);
   if (!range) return;
@@ -142,7 +179,7 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
 
   const sb = createAdminClient();
   const [employeesResult, pauseRulesResult, availabilityResult, weekdayRequirementsResult, dateRequirementsResult, shiftTracksResult, weekdayPositionRequirementsResult, datePositionRequirementsResult] = await Promise.all([
-    sb.from("dienstplan_employees").select("id, position, monthly_hours"),
+    sb.from("dienstplan_employees").select("id, position, monthly_hours, weekly_hours"),
     sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
     sb.from("dienstplan_availability").select("employee_id, availability_date, status, fixed_start, fixed_end").gte("availability_date", range.start).lte("availability_date", range.end),
     sb.from("dienstplan_weekday_requirements").select("weekday, required_shifts"),
@@ -152,7 +189,12 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
     sb.from("dienstplan_position_requirements").select("requirement_date, position, track_key, start_time, end_time").gte("requirement_date", range.start).lte("requirement_date", range.end),
   ]);
 
-  const employees = (employeesResult.data ?? []) as { id: number; position: string | null; monthly_hours: number }[];
+  const employees = (employeesResult.data ?? []) as {
+    id: number;
+    position: string | null;
+    monthly_hours: number;
+    weekly_hours: number;
+  }[];
   const pauseRules = (pauseRulesResult.data ?? []) as PauseRule[];
   const availability = (availabilityResult.data ?? []) as {
     employee_id: number;
@@ -210,11 +252,13 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
 
     if (dateSpecificRequirements.length > 0) {
       for (const requirement of dateSpecificRequirements) {
+        const normalizedPosition = requirement.position.trim().toLowerCase();
+        const defaultEnd = normalizedPosition === "serviceleitung" ? (addHoursToTime(requirement.start_time.slice(0, 5), 8) ?? requirement.end_time.slice(0, 5)) : requirement.end_time.slice(0, 5);
         slots.push({
           shift_date: day,
           position: requirement.position,
           start_time: requirement.start_time.slice(0, 5),
-          end_time: requirement.end_time.slice(0, 5),
+          end_time: defaultEnd,
         });
       }
       continue;
@@ -225,11 +269,13 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
       for (const requirement of weekdayDefaults) {
         const track = trackMap.get(requirement.track_key);
         if (!track) continue;
+        const normalizedPosition = requirement.position.trim().toLowerCase();
+        const defaultEnd = normalizedPosition === "serviceleitung" ? (addHoursToTime(track.start_time.slice(0, 5), 8) ?? track.end_time.slice(0, 5)) : track.end_time.slice(0, 5);
         slots.push({
           shift_date: day,
           position: requirement.position,
           start_time: track.start_time.slice(0, 5),
-          end_time: track.end_time.slice(0, 5),
+          end_time: defaultEnd,
         });
       }
       continue;
@@ -265,6 +311,8 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
     await sb.from("dienstplan_shifts").insert(
       generatedShifts.map((shift) => ({
         ...shift,
+        break_minutes: null,
+        comment: null,
         raw_input: "auto-generated",
       }))
     );
@@ -273,10 +321,94 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
+export async function moveShiftAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const fromEmployeeId = Number(formData.get("from_employee_id"));
+  const toEmployeeId = Number(formData.get("to_employee_id"));
+  const shiftDate = String(formData.get("shift_date") || "").trim();
+  if (!fromEmployeeId || !toEmployeeId || !shiftDate || fromEmployeeId === toEmployeeId) {
+    return { ok: false, message: "Ungültige Verschiebung." };
+  }
+
+  const sb = createAdminClient();
+  const { data: sourceShift } = await sb
+    .from("dienstplan_shifts")
+    .select("start_time, end_time, raw_input, break_minutes, comment")
+    .eq("employee_id", fromEmployeeId)
+    .eq("shift_date", shiftDate)
+    .maybeSingle();
+  if (!sourceShift?.start_time || !sourceShift.end_time) {
+    return { ok: false, message: "Quelle der Schicht nicht gefunden." };
+  }
+
+  const { error: insertError } = await sb.from("dienstplan_shifts").insert(
+    {
+      employee_id: toEmployeeId,
+      shift_date: shiftDate,
+      start_time: sourceShift.start_time,
+      end_time: sourceShift.end_time,
+      break_minutes: sourceShift.break_minutes ?? null,
+      comment: sourceShift.comment ?? null,
+      raw_input: sourceShift.raw_input ?? "drag-drop",
+    }
+  );
+  if (insertError) {
+    return { ok: false, message: "Ziel hat bereits eine Schicht oder die Verschiebung ist fehlgeschlagen." };
+  }
+
+  const { error: deleteError } = await sb
+    .from("dienstplan_shifts")
+    .delete()
+    .eq("employee_id", fromEmployeeId)
+    .eq("shift_date", shiftDate);
+  if (deleteError) {
+    await sb.from("dienstplan_shifts").delete().eq("employee_id", toEmployeeId).eq("shift_date", shiftDate);
+    return { ok: false, message: "Verschiebung konnte nicht abgeschlossen werden." };
+  }
+
+  revalidatePath(PLAN_PATH);
+  return { ok: true };
+}
+
+export async function updateShiftDetailsAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const employeeId = Number(formData.get("employee_id"));
+  const shiftDate = String(formData.get("shift_date") || "").trim();
+  const startTime = String(formData.get("start_time") || "").trim();
+  const endTime = String(formData.get("end_time") || "").trim();
+  const breakMinutesRaw = String(formData.get("break_minutes") || "").trim();
+  const comment = String(formData.get("comment") || "").trim();
+  if (!employeeId || !shiftDate || !startTime || !endTime) return;
+
+  const breakMinutes = breakMinutesRaw ? Number(breakMinutesRaw) : null;
+  const normalizedBreakMinutes = Number.isFinite(breakMinutes) && (breakMinutes ?? 0) >= 0 ? breakMinutes : null;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_shifts").upsert(
+    {
+      employee_id: employeeId,
+      shift_date: shiftDate,
+      start_time: startTime,
+      end_time: endTime,
+      break_minutes: normalizedBreakMinutes,
+      comment: comment || null,
+      raw_input: "manual-details",
+    },
+    { onConflict: "employee_id,shift_date" }
+  );
+
+  revalidatePath(PLAN_PATH);
+}
+
 export async function createEmployeeAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const name = String(formData.get("name") || "").trim();
   const position = String(formData.get("position") || "").trim();
   const monthlyHours = Number(formData.get("monthly_hours") || 0);
+  const weeklyHours = Number(formData.get("weekly_hours") || 0);
   if (!name) return;
 
   const sb = createAdminClient();
@@ -284,6 +416,7 @@ export async function createEmployeeAction(formData: FormData) {
     name,
     position: position || null,
     monthly_hours: monthlyHours,
+    weekly_hours: weeklyHours,
   });
 
   revalidatePath(SETTINGS_PATH);
@@ -291,20 +424,48 @@ export async function createEmployeeAction(formData: FormData) {
 }
 
 export async function updateEmployeeAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
-  const name = String(formData.get("name") || "").trim();
-  const position = String(formData.get("position") || "").trim();
-  const monthlyHours = Number(formData.get("monthly_hours") || 0);
-  if (!id || !name) return;
+  if (!id) return;
+
+  const updates: {
+    name?: string;
+    position?: string | null;
+    monthly_hours?: number;
+    weekly_hours?: number;
+  } = {};
+  const rawName = formData.get("name");
+  if (typeof rawName === "string") {
+    const value = rawName.trim();
+    if (!value) return;
+    updates.name = value;
+  }
+  const rawPosition = formData.get("position");
+  if (typeof rawPosition === "string") {
+    const value = rawPosition.trim();
+    updates.position = value || null;
+  }
+  const rawMonthlyHours = formData.get("monthly_hours");
+  if (typeof rawMonthlyHours === "string") {
+    updates.monthly_hours = Number(rawMonthlyHours || 0);
+  }
+  const rawWeeklyHours = formData.get("weekly_hours");
+  if (typeof rawWeeklyHours === "string") {
+    updates.weekly_hours = Number(rawWeeklyHours || 0);
+  }
+  if (Object.keys(updates).length === 0) return;
 
   const sb = createAdminClient();
-  await sb.from("dienstplan_employees").update({ name, position, monthly_hours: monthlyHours }).eq("id", id);
+  await sb.from("dienstplan_employees").update(updates).eq("id", id);
 
   revalidatePath(SETTINGS_PATH);
   revalidatePath(PLAN_PATH);
 }
 
 export async function deleteEmployeeAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
   if (!id) return;
 
@@ -316,6 +477,8 @@ export async function deleteEmployeeAction(formData: FormData) {
 }
 
 export async function createPauseRuleAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const minMinutes = Number(formData.get("min_minutes") || 0);
   const pauseMinutes = Number(formData.get("pause_minutes") || 0);
   if (minMinutes <= 0 || pauseMinutes <= 0) return;
@@ -328,6 +491,8 @@ export async function createPauseRuleAction(formData: FormData) {
 }
 
 export async function updatePauseRuleAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
   const minMinutes = Number(formData.get("min_minutes") || 0);
   const pauseMinutes = Number(formData.get("pause_minutes") || 0);
@@ -341,6 +506,8 @@ export async function updatePauseRuleAction(formData: FormData) {
 }
 
 export async function deletePauseRuleAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
   if (!id) return;
 
@@ -352,6 +519,8 @@ export async function deletePauseRuleAction(formData: FormData) {
 }
 
 export async function saveAvailabilityAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const employeeId = Number(formData.get("employee_id"));
   const availabilityDate = String(formData.get("availability_date") || "");
   const status = String(formData.get("status") || "").trim();
@@ -385,6 +554,8 @@ export async function saveAvailabilityAction(formData: FormData) {
 }
 
 export async function saveWeekdayRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const weekday = Number(formData.get("weekday"));
   const requiredShifts = Number(formData.get("required_shifts"));
   if (Number.isNaN(weekday) || weekday < 0 || weekday > 6 || Number.isNaN(requiredShifts) || requiredShifts < 0) return;
@@ -402,6 +573,8 @@ export async function saveWeekdayRequirementAction(formData: FormData) {
 }
 
 export async function saveShiftTrackAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const trackKey = String(formData.get("track_key") || "").trim();
   const startTime = String(formData.get("start_time") || "").trim();
   const endTime = String(formData.get("end_time") || "").trim();
@@ -415,6 +588,8 @@ export async function saveShiftTrackAction(formData: FormData) {
 }
 
 export async function createWeekdayPositionRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const weekday = Number(formData.get("weekday"));
   const trackKey = String(formData.get("track_key") || "").trim();
   const position = String(formData.get("position") || "").trim();
@@ -434,6 +609,8 @@ export async function createWeekdayPositionRequirementAction(formData: FormData)
 }
 
 export async function updateWeekdayPositionRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
   const weekday = Number(formData.get("weekday"));
   const trackKey = String(formData.get("track_key") || "").trim();
@@ -454,6 +631,8 @@ export async function updateWeekdayPositionRequirementAction(formData: FormData)
 }
 
 export async function deleteWeekdayPositionRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
   if (!id) return;
 
@@ -465,6 +644,8 @@ export async function deleteWeekdayPositionRequirementAction(formData: FormData)
 }
 
 export async function saveDateRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const date = String(formData.get("requirement_date") || "");
   const requiredShifts = Number(formData.get("required_shifts"));
   if (!date || Number.isNaN(requiredShifts) || requiredShifts < 0) return;
@@ -482,6 +663,8 @@ export async function saveDateRequirementAction(formData: FormData) {
 }
 
 export async function clearDateRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const date = String(formData.get("requirement_date") || "");
   if (!date) return;
 
@@ -492,6 +675,8 @@ export async function clearDateRequirementAction(formData: FormData) {
 }
 
 export async function upsertPositionRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   const position = String(formData.get("position") || "").trim();
   const startTime = String(formData.get("start_time") || "").trim();
@@ -536,6 +721,8 @@ export async function upsertPositionRequirementAction(formData: FormData) {
 }
 
 export async function deletePositionRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   const position = String(formData.get("position") || "").trim();
   const startTime = String(formData.get("start_time") || "").trim();
@@ -555,6 +742,8 @@ export async function deletePositionRequirementAction(formData: FormData) {
 }
 
 export async function clearPositionRequirementsAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   if (!requirementDate) return;
 
@@ -565,6 +754,8 @@ export async function clearPositionRequirementsAction(formData: FormData) {
 }
 
 export async function applyWeekdayDefaultsToDateAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   if (!requirementDate) return;
 
