@@ -154,7 +154,7 @@ export async function bulkSaveShiftsAction(formData: FormData) {
 }
 
 export async function clearMonthAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  await assertAdminForDienstplanAutomation();
 
   const month = String(formData.get("month") || "");
   const range = getMonthRange(month);
@@ -337,6 +337,16 @@ export async function moveShiftAction(formData: FormData) {
     .eq("shift_date", shiftDate)
     .maybeSingle();
   if (!sourceShift?.start_time || !sourceShift.end_time) return;
+
+  const { data: targetShift } = await sb
+    .from("dienstplan_shifts")
+    .select("employee_id")
+    .eq("employee_id", toEmployeeId)
+    .eq("shift_date", shiftDate)
+    .maybeSingle();
+  if (targetShift) {
+    throw new Error("TARGET_SHIFT_ALREADY_EXISTS");
+  }
 
   await sb.from("dienstplan_shifts").upsert(
     {

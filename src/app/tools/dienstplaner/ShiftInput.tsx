@@ -79,6 +79,7 @@ export default function ShiftInput({
 
   const handleDropShift = (payload: string) => {
     try {
+      if (hasAssignedShift) return;
       const parsedPayload = JSON.parse(payload) as { employeeId?: number; date?: string };
       if (!parsedPayload.employeeId || !parsedPayload.date) return;
       if (parsedPayload.employeeId === employeeId || parsedPayload.date !== date) return;

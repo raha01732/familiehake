@@ -50,6 +50,14 @@ type DienstplanShift = {
   comment: string | null;
 };
 
+type WeeklyRangeShift = {
+  employee_id: number;
+  shift_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  break_minutes: number | null;
+};
+
 type DienstplanPauseRule = {
   id: number;
   min_minutes: number;
@@ -206,17 +214,6 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     min_minutes: rule.min_minutes,
     pause_minutes: rule.pause_minutes,
   })) satisfies PauseRule[];
-  const employeeTotals = new Map<number, number>();
-  const weeklyTotals = new Map<string, number>();
-  for (const shift of (shifts as DienstplanShift[] | null) ?? []) {
-    const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRuleList, shift.break_minutes);
-    if (!summary) continue;
-    employeeTotals.set(shift.employee_id, (employeeTotals.get(shift.employee_id) ?? 0) + summary.workMinutes);
-    const weekKey = getThursdayWeekKey(shift.shift_date);
-    if (!weekKey) continue;
-    weeklyTotals.set(`${shift.employee_id}-${weekKey}`, (weeklyTotals.get(`${shift.employee_id}-${weekKey}`) ?? 0) + summary.workMinutes);
-  }
-
   const weekGroups = new Map<string, string[]>();
   for (const day of days) {
     const dateKey = day.toISOString().slice(0, 10);
@@ -225,6 +222,35 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     const group = weekGroups.get(weekKey) ?? [];
     group.push(dateKey);
     weekGroups.set(weekKey, group);
+  }
+
+  const employeeTotals = new Map<number, number>();
+  for (const shift of (shifts as DienstplanShift[] | null) ?? []) {
+    const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRuleList, shift.break_minutes);
+    if (!summary) continue;
+    employeeTotals.set(shift.employee_id, (employeeTotals.get(shift.employee_id) ?? 0) + summary.workMinutes);
+  }
+
+  const weekKeys = Array.from(weekGroups.keys()).sort();
+  const firstWeekKey = weekKeys[0] ?? start.toISOString().slice(0, 10);
+  const lastWeekKey = weekKeys[weekKeys.length - 1] ?? end.toISOString().slice(0, 10);
+  const weeklyRangeEndDate = new Date(`${lastWeekKey}T00:00:00Z`);
+  weeklyRangeEndDate.setUTCDate(weeklyRangeEndDate.getUTCDate() + 6);
+  const weeklyRangeEnd = weeklyRangeEndDate.toISOString().slice(0, 10);
+
+  const { data: weeklyRangeShifts } = await sb
+    .from("dienstplan_shifts")
+    .select("employee_id, shift_date, start_time, end_time, break_minutes")
+    .gte("shift_date", firstWeekKey)
+    .lte("shift_date", weeklyRangeEnd);
+
+  const weeklyTotals = new Map<string, number>();
+  for (const shift of (weeklyRangeShifts as WeeklyRangeShift[] | null) ?? []) {
+    const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRuleList, shift.break_minutes);
+    if (!summary) continue;
+    const weekKey = getThursdayWeekKey(shift.shift_date);
+    if (!weekKey) continue;
+    weeklyTotals.set(`${shift.employee_id}-${weekKey}`, (weeklyTotals.get(`${shift.employee_id}-${weekKey}`) ?? 0) + summary.workMinutes);
   }
 
   const prevMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1));
