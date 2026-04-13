@@ -19,7 +19,7 @@ type ShiftInputProps = {
   // eslint-disable-next-line no-unused-vars
   saveAction: (formData: FormData) => Promise<void>;
   // eslint-disable-next-line no-unused-vars
-  moveAction: (formData: FormData) => Promise<void>;
+  moveAction: (formData: FormData) => Promise<{ ok: boolean; message?: string }>;
   // eslint-disable-next-line no-unused-vars
   updateDetailsAction: (formData: FormData) => Promise<void>;
 };
@@ -46,6 +46,7 @@ export default function ShiftInput({
   const [commentValue, setCommentValue] = useState(initialComment ?? "");
   const [isPending, startTransition] = useTransition();
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [moveFeedback, setMoveFeedback] = useState<string | null>(null);
   const hasAssignedShift = hasShift || Boolean(startValue && endValue);
 
   const handleBlur = () => {
@@ -89,7 +90,13 @@ export default function ShiftInput({
       formData.set("to_employee_id", String(employeeId));
       formData.set("shift_date", date);
       startTransition(() => {
-        void moveAction(formData);
+        void moveAction(formData).then((result) => {
+          if (!result.ok) {
+            setMoveFeedback(result.message ?? "Schicht konnte nicht verschoben werden.");
+            return;
+          }
+          setMoveFeedback("Schicht erfolgreich verschoben.");
+        });
       });
     } catch {
       // noop: invalid drag payload
@@ -175,6 +182,7 @@ export default function ShiftInput({
       <span className={`text-[10px] ${isPending ? "text-amber-400" : "text-zinc-500"}`}>
         {isPending ? "Speichern..." : "Auto-Save"}
       </span>
+      {moveFeedback && <span className="text-[10px] text-cyan-300">{moveFeedback}</span>}
 
       {isEditorOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4">

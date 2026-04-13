@@ -327,7 +327,9 @@ export async function moveShiftAction(formData: FormData) {
   const fromEmployeeId = Number(formData.get("from_employee_id"));
   const toEmployeeId = Number(formData.get("to_employee_id"));
   const shiftDate = String(formData.get("shift_date") || "").trim();
-  if (!fromEmployeeId || !toEmployeeId || !shiftDate || fromEmployeeId === toEmployeeId) return;
+  if (!fromEmployeeId || !toEmployeeId || !shiftDate || fromEmployeeId === toEmployeeId) {
+    return { ok: false, message: "Ungültige Verschiebung." };
+  }
 
   const sb = createAdminClient();
   const { data: sourceShift } = await sb
@@ -336,19 +338,11 @@ export async function moveShiftAction(formData: FormData) {
     .eq("employee_id", fromEmployeeId)
     .eq("shift_date", shiftDate)
     .maybeSingle();
-  if (!sourceShift?.start_time || !sourceShift.end_time) return;
-
-  const { data: targetShift } = await sb
-    .from("dienstplan_shifts")
-    .select("employee_id")
-    .eq("employee_id", toEmployeeId)
-    .eq("shift_date", shiftDate)
-    .maybeSingle();
-  if (targetShift) {
-    throw new Error("TARGET_SHIFT_ALREADY_EXISTS");
+  if (!sourceShift?.start_time || !sourceShift.end_time) {
+    return { ok: false, message: "Quelle der Schicht nicht gefunden." };
   }
 
-  await sb.from("dienstplan_shifts").upsert(
+  const { error: insertError } = await sb.from("dienstplan_shifts").insert(
     {
       employee_id: toEmployeeId,
       shift_date: shiftDate,
@@ -357,12 +351,24 @@ export async function moveShiftAction(formData: FormData) {
       break_minutes: sourceShift.break_minutes ?? null,
       comment: sourceShift.comment ?? null,
       raw_input: sourceShift.raw_input ?? "drag-drop",
-    },
-    { onConflict: "employee_id,shift_date" }
+    }
   );
+  if (insertError) {
+    return { ok: false, message: "Ziel hat bereits eine Schicht oder die Verschiebung ist fehlgeschlagen." };
+  }
 
-  await sb.from("dienstplan_shifts").delete().eq("employee_id", fromEmployeeId).eq("shift_date", shiftDate);
+  const { error: deleteError } = await sb
+    .from("dienstplan_shifts")
+    .delete()
+    .eq("employee_id", fromEmployeeId)
+    .eq("shift_date", shiftDate);
+  if (deleteError) {
+    await sb.from("dienstplan_shifts").delete().eq("employee_id", toEmployeeId).eq("shift_date", shiftDate);
+    return { ok: false, message: "Verschiebung konnte nicht abgeschlossen werden." };
+  }
+
   revalidatePath(PLAN_PATH);
+  return { ok: true };
 }
 
 export async function updateShiftDetailsAction(formData: FormData) {
