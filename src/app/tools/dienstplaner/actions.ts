@@ -47,7 +47,22 @@ async function assertAdminForDienstplanAutomation() {
   }
 }
 
+async function assertAuthenticatedForDienstplanWrite() {
+  const user = await currentUser();
+  if (!user) {
+    throw new Error("UNAUTHORIZED_NOT_LOGGED_IN");
+  }
+
+  const role = getRoleFromPublicMetadata(user.publicMetadata);
+  const isPrivilegedUser = role === "admin" || role === "user" || user.id === env().PRIMARY_SUPERADMIN_ID;
+  if (!isPrivilegedUser) {
+    throw new Error("FORBIDDEN_WRITE_ACCESS");
+  }
+}
+
 export async function saveShiftAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const employeeId = Number(formData.get("employee_id"));
   const shiftDate = String(formData.get("shift_date") || "");
   const startTime = String(formData.get("start_time") || "").trim();
@@ -61,15 +76,22 @@ export async function saveShiftAction(formData: FormData) {
     return;
   }
 
+  const { data: existingShift } = await sb
+    .from("dienstplan_shifts")
+    .select("break_minutes, comment, raw_input")
+    .eq("employee_id", employeeId)
+    .eq("shift_date", shiftDate)
+    .maybeSingle();
+
   await sb.from("dienstplan_shifts").upsert(
     {
       employee_id: employeeId,
       shift_date: shiftDate,
       start_time: startTime,
       end_time: endTime,
-      break_minutes: null,
-      comment: null,
-      raw_input: null,
+      break_minutes: existingShift?.break_minutes ?? null,
+      comment: existingShift?.comment ?? null,
+      raw_input: existingShift?.raw_input ?? null,
     },
     { onConflict: "employee_id,shift_date" }
   );
@@ -78,6 +100,8 @@ export async function saveShiftAction(formData: FormData) {
 }
 
 export async function bulkSaveShiftsAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const sb = createAdminClient();
   const entries = Array.from(formData.entries());
   const shiftEntries = new Map<string, { employeeId: number; date: string; startTime: string; endTime: string }>();
@@ -105,15 +129,22 @@ export async function bulkSaveShiftsAction(formData: FormData) {
       continue;
     }
 
+    const { data: existingShift } = await sb
+      .from("dienstplan_shifts")
+      .select("break_minutes, comment, raw_input")
+      .eq("employee_id", entry.employeeId)
+      .eq("shift_date", entry.date)
+      .maybeSingle();
+
     await sb.from("dienstplan_shifts").upsert(
       {
         employee_id: entry.employeeId,
         shift_date: entry.date,
         start_time: entry.startTime,
         end_time: entry.endTime,
-        break_minutes: null,
-        comment: null,
-        raw_input: null,
+        break_minutes: existingShift?.break_minutes ?? null,
+        comment: existingShift?.comment ?? null,
+        raw_input: existingShift?.raw_input ?? null,
       },
       { onConflict: "employee_id,shift_date" }
     );
@@ -123,6 +154,8 @@ export async function bulkSaveShiftsAction(formData: FormData) {
 }
 
 export async function clearMonthAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const month = String(formData.get("month") || "");
   const range = getMonthRange(month);
   if (!range) return;
@@ -289,6 +322,8 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
 }
 
 export async function moveShiftAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const fromEmployeeId = Number(formData.get("from_employee_id"));
   const toEmployeeId = Number(formData.get("to_employee_id"));
   const shiftDate = String(formData.get("shift_date") || "").trim();
@@ -321,6 +356,8 @@ export async function moveShiftAction(formData: FormData) {
 }
 
 export async function updateShiftDetailsAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const employeeId = Number(formData.get("employee_id"));
   const shiftDate = String(formData.get("shift_date") || "").trim();
   const startTime = String(formData.get("start_time") || "").trim();
@@ -350,6 +387,8 @@ export async function updateShiftDetailsAction(formData: FormData) {
 }
 
 export async function createEmployeeAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const name = String(formData.get("name") || "").trim();
   const position = String(formData.get("position") || "").trim();
   const monthlyHours = Number(formData.get("monthly_hours") || 0);
@@ -369,6 +408,8 @@ export async function createEmployeeAction(formData: FormData) {
 }
 
 export async function updateEmployeeAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
   if (!id) return;
 
@@ -407,6 +448,8 @@ export async function updateEmployeeAction(formData: FormData) {
 }
 
 export async function deleteEmployeeAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
   if (!id) return;
 
@@ -418,6 +461,8 @@ export async function deleteEmployeeAction(formData: FormData) {
 }
 
 export async function createPauseRuleAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const minMinutes = Number(formData.get("min_minutes") || 0);
   const pauseMinutes = Number(formData.get("pause_minutes") || 0);
   if (minMinutes <= 0 || pauseMinutes <= 0) return;
@@ -430,6 +475,8 @@ export async function createPauseRuleAction(formData: FormData) {
 }
 
 export async function updatePauseRuleAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
   const minMinutes = Number(formData.get("min_minutes") || 0);
   const pauseMinutes = Number(formData.get("pause_minutes") || 0);
@@ -443,6 +490,8 @@ export async function updatePauseRuleAction(formData: FormData) {
 }
 
 export async function deletePauseRuleAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
   if (!id) return;
 
@@ -454,6 +503,8 @@ export async function deletePauseRuleAction(formData: FormData) {
 }
 
 export async function saveAvailabilityAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const employeeId = Number(formData.get("employee_id"));
   const availabilityDate = String(formData.get("availability_date") || "");
   const status = String(formData.get("status") || "").trim();
@@ -487,6 +538,8 @@ export async function saveAvailabilityAction(formData: FormData) {
 }
 
 export async function saveWeekdayRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const weekday = Number(formData.get("weekday"));
   const requiredShifts = Number(formData.get("required_shifts"));
   if (Number.isNaN(weekday) || weekday < 0 || weekday > 6 || Number.isNaN(requiredShifts) || requiredShifts < 0) return;
@@ -504,6 +557,8 @@ export async function saveWeekdayRequirementAction(formData: FormData) {
 }
 
 export async function saveShiftTrackAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const trackKey = String(formData.get("track_key") || "").trim();
   const startTime = String(formData.get("start_time") || "").trim();
   const endTime = String(formData.get("end_time") || "").trim();
@@ -517,6 +572,8 @@ export async function saveShiftTrackAction(formData: FormData) {
 }
 
 export async function createWeekdayPositionRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const weekday = Number(formData.get("weekday"));
   const trackKey = String(formData.get("track_key") || "").trim();
   const position = String(formData.get("position") || "").trim();
@@ -536,6 +593,8 @@ export async function createWeekdayPositionRequirementAction(formData: FormData)
 }
 
 export async function updateWeekdayPositionRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
   const weekday = Number(formData.get("weekday"));
   const trackKey = String(formData.get("track_key") || "").trim();
@@ -556,6 +615,8 @@ export async function updateWeekdayPositionRequirementAction(formData: FormData)
 }
 
 export async function deleteWeekdayPositionRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const id = Number(formData.get("id"));
   if (!id) return;
 
@@ -567,6 +628,8 @@ export async function deleteWeekdayPositionRequirementAction(formData: FormData)
 }
 
 export async function saveDateRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const date = String(formData.get("requirement_date") || "");
   const requiredShifts = Number(formData.get("required_shifts"));
   if (!date || Number.isNaN(requiredShifts) || requiredShifts < 0) return;
@@ -584,6 +647,8 @@ export async function saveDateRequirementAction(formData: FormData) {
 }
 
 export async function clearDateRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const date = String(formData.get("requirement_date") || "");
   if (!date) return;
 
@@ -594,6 +659,8 @@ export async function clearDateRequirementAction(formData: FormData) {
 }
 
 export async function upsertPositionRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   const position = String(formData.get("position") || "").trim();
   const startTime = String(formData.get("start_time") || "").trim();
@@ -638,6 +705,8 @@ export async function upsertPositionRequirementAction(formData: FormData) {
 }
 
 export async function deletePositionRequirementAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   const position = String(formData.get("position") || "").trim();
   const startTime = String(formData.get("start_time") || "").trim();
@@ -657,6 +726,8 @@ export async function deletePositionRequirementAction(formData: FormData) {
 }
 
 export async function clearPositionRequirementsAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   if (!requirementDate) return;
 
@@ -667,6 +738,8 @@ export async function clearPositionRequirementsAction(formData: FormData) {
 }
 
 export async function applyWeekdayDefaultsToDateAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   if (!requirementDate) return;
 
