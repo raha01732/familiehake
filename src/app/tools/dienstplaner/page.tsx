@@ -16,8 +16,10 @@ import {
   autoGenerateMonthPlanAction,
   bulkSaveShiftsAction,
   clearMonthAction,
+  moveShiftAction,
   saveAvailabilityAction,
   saveShiftAction,
+  updateShiftDetailsAction,
 } from "./actions";
 import {
   calculateShiftMinutes,
@@ -44,6 +46,8 @@ type DienstplanShift = {
   shift_date: string;
   start_time: string | null;
   end_time: string | null;
+  break_minutes: number | null;
+  comment: string | null;
 };
 
 type DienstplanPauseRule = {
@@ -152,7 +156,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
   const { data: employees } = await sb.from("dienstplan_employees").select("*").order("name");
   const { data: shifts } = await sb
     .from("dienstplan_shifts")
-    .select("employee_id, shift_date, start_time, end_time")
+    .select("employee_id, shift_date, start_time, end_time, break_minutes, comment")
     .gte("shift_date", start.toISOString().slice(0, 10))
     .lte("shift_date", end.toISOString().slice(0, 10));
   const { data: availability } = await sb
@@ -205,7 +209,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
   const employeeTotals = new Map<number, number>();
   const weeklyTotals = new Map<string, number>();
   for (const shift of (shifts as DienstplanShift[] | null) ?? []) {
-    const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRuleList);
+    const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRuleList, shift.break_minutes);
     if (!summary) continue;
     employeeTotals.set(shift.employee_id, (employeeTotals.get(shift.employee_id) ?? 0) + summary.workMinutes);
     const weekKey = getThursdayWeekKey(shift.shift_date);
@@ -397,7 +401,12 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                   {(employees as DienstplanEmployee[] | null)?.map((employee) => {
                     const shift = shiftMap.get(`${employee.id}-${dateKey}`);
                     const availabilityEntry = availabilityMap.get(`${employee.id}-${dateKey}`);
-                    const summary = calculateShiftMinutes(shift?.start_time ?? null, shift?.end_time ?? null, pauseRuleList);
+                    const summary = calculateShiftMinutes(
+                      shift?.start_time ?? null,
+                      shift?.end_time ?? null,
+                      pauseRuleList,
+                      shift?.break_minutes ?? null
+                    );
                     if (summary) {
                       dayTotalMinutes += summary.workMinutes;
                     }
@@ -421,13 +430,19 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                           date={dateKey}
                           formId="bulk-save"
                           isServiceleitung={employee.position?.trim().toLowerCase() === "serviceleitung"}
+                          hasShift={Boolean(shift?.start_time && shift?.end_time)}
+                          initialPauseMinutes={shift?.break_minutes ?? null}
+                          initialComment={shift?.comment ?? null}
                           saveAction={saveShiftAction}
+                          moveAction={moveShiftAction}
+                          updateDetailsAction={updateShiftDetailsAction}
                         />
                         {summary && (
                           <div className="text-[11px] text-zinc-500 mt-1">
                             {formatMinutesAsHours(summary.workMinutes)}h (Pause {summary.pauseMinutes}m)
                           </div>
                         )}
+                        {shift?.comment && <div className="mt-1 text-[11px] text-zinc-400">📝 {shift.comment}</div>}
                       </td>
                     );
                   })}

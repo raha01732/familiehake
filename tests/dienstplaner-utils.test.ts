@@ -35,3 +35,23 @@ test("generateAutoPlanSlots uses weekly and monthly balancing while keeping serv
   assert.equal(result[0]?.start_time, "09:00");
   assert.equal(result[0]?.end_time, "17:00");
 });
+
+test("generateAutoPlanSlots respects fixed availability with 8h serviceleitung duration", () => {
+  const result = generateAutoPlanSlots({
+    employees: [{ id: 1, position: "Serviceleitung", monthly_hours: 160, weekly_hours: 40 }],
+    existingShifts: [],
+    availability: [
+      {
+        employee_id: 1,
+        availability_date: "2026-04-10",
+        status: "fix",
+        fixed_start: "09:00",
+        fixed_end: "13:00",
+      },
+    ],
+    slots: [{ shift_date: "2026-04-10", position: "Serviceleitung", start_time: "09:00", end_time: "13:00" }],
+    pauseRules: [],
+  });
+
+  assert.equal(result.length, 0);
+});

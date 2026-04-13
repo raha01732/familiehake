@@ -67,6 +67,8 @@ export async function saveShiftAction(formData: FormData) {
       shift_date: shiftDate,
       start_time: startTime,
       end_time: endTime,
+      break_minutes: null,
+      comment: null,
       raw_input: null,
     },
     { onConflict: "employee_id,shift_date" }
@@ -109,6 +111,8 @@ export async function bulkSaveShiftsAction(formData: FormData) {
         shift_date: entry.date,
         start_time: entry.startTime,
         end_time: entry.endTime,
+        break_minutes: null,
+        comment: null,
         raw_input: null,
       },
       { onConflict: "employee_id,shift_date" }
@@ -274,10 +278,73 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
     await sb.from("dienstplan_shifts").insert(
       generatedShifts.map((shift) => ({
         ...shift,
+        break_minutes: null,
+        comment: null,
         raw_input: "auto-generated",
       }))
     );
   }
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function moveShiftAction(formData: FormData) {
+  const fromEmployeeId = Number(formData.get("from_employee_id"));
+  const toEmployeeId = Number(formData.get("to_employee_id"));
+  const shiftDate = String(formData.get("shift_date") || "").trim();
+  if (!fromEmployeeId || !toEmployeeId || !shiftDate || fromEmployeeId === toEmployeeId) return;
+
+  const sb = createAdminClient();
+  const { data: sourceShift } = await sb
+    .from("dienstplan_shifts")
+    .select("start_time, end_time, raw_input, break_minutes, comment")
+    .eq("employee_id", fromEmployeeId)
+    .eq("shift_date", shiftDate)
+    .maybeSingle();
+  if (!sourceShift?.start_time || !sourceShift.end_time) return;
+
+  await sb.from("dienstplan_shifts").upsert(
+    {
+      employee_id: toEmployeeId,
+      shift_date: shiftDate,
+      start_time: sourceShift.start_time,
+      end_time: sourceShift.end_time,
+      break_minutes: sourceShift.break_minutes ?? null,
+      comment: sourceShift.comment ?? null,
+      raw_input: sourceShift.raw_input ?? "drag-drop",
+    },
+    { onConflict: "employee_id,shift_date" }
+  );
+
+  await sb.from("dienstplan_shifts").delete().eq("employee_id", fromEmployeeId).eq("shift_date", shiftDate);
+  revalidatePath(PLAN_PATH);
+}
+
+export async function updateShiftDetailsAction(formData: FormData) {
+  const employeeId = Number(formData.get("employee_id"));
+  const shiftDate = String(formData.get("shift_date") || "").trim();
+  const startTime = String(formData.get("start_time") || "").trim();
+  const endTime = String(formData.get("end_time") || "").trim();
+  const breakMinutesRaw = String(formData.get("break_minutes") || "").trim();
+  const comment = String(formData.get("comment") || "").trim();
+  if (!employeeId || !shiftDate || !startTime || !endTime) return;
+
+  const breakMinutes = breakMinutesRaw ? Number(breakMinutesRaw) : null;
+  const normalizedBreakMinutes = Number.isFinite(breakMinutes) && (breakMinutes ?? 0) >= 0 ? breakMinutes : null;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_shifts").upsert(
+    {
+      employee_id: employeeId,
+      shift_date: shiftDate,
+      start_time: startTime,
+      end_time: endTime,
+      break_minutes: normalizedBreakMinutes,
+      comment: comment || null,
+      raw_input: "manual-details",
+    },
+    { onConflict: "employee_id,shift_date" }
+  );
 
   revalidatePath(PLAN_PATH);
 }

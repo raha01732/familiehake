@@ -13,8 +13,15 @@ type ShiftInputProps = {
   date: string;
   formId: string;
   isServiceleitung: boolean;
+  hasShift: boolean;
+  initialPauseMinutes: number | null;
+  initialComment: string | null;
   // eslint-disable-next-line no-unused-vars
   saveAction: (formData: FormData) => Promise<void>;
+  // eslint-disable-next-line no-unused-vars
+  moveAction: (formData: FormData) => Promise<void>;
+  // eslint-disable-next-line no-unused-vars
+  updateDetailsAction: (formData: FormData) => Promise<void>;
 };
 
 export default function ShiftInput({
@@ -26,11 +33,20 @@ export default function ShiftInput({
   date,
   formId,
   isServiceleitung,
+  hasShift,
+  initialPauseMinutes,
+  initialComment,
   saveAction,
+  moveAction,
+  updateDetailsAction,
 }: ShiftInputProps) {
   const [startValue, setStartValue] = useState(initialStart);
   const [endValue, setEndValue] = useState(initialEnd);
+  const [pauseMinutesValue, setPauseMinutesValue] = useState(initialPauseMinutes ? String(initialPauseMinutes) : "");
+  const [commentValue, setCommentValue] = useState(initialComment ?? "");
   const [isPending, startTransition] = useTransition();
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const hasAssignedShift = hasShift || Boolean(startValue && endValue);
 
   const handleBlur = () => {
     const formData = new FormData();
@@ -61,8 +77,69 @@ export default function ShiftInput({
     });
   };
 
+  const handleDropShift = (payload: string) => {
+    try {
+      const parsedPayload = JSON.parse(payload) as { employeeId?: number; date?: string };
+      if (!parsedPayload.employeeId || !parsedPayload.date) return;
+      if (parsedPayload.employeeId === employeeId || parsedPayload.date !== date) return;
+
+      const formData = new FormData();
+      formData.set("from_employee_id", String(parsedPayload.employeeId));
+      formData.set("to_employee_id", String(employeeId));
+      formData.set("shift_date", date);
+      startTransition(() => {
+        void moveAction(formData);
+      });
+    } catch {
+      // noop: invalid drag payload
+    }
+  };
+
+  const saveDetails = () => {
+    if (!startValue || !endValue) return;
+    const formData = new FormData();
+    formData.set("employee_id", String(employeeId));
+    formData.set("shift_date", date);
+    formData.set("start_time", startValue);
+    formData.set("end_time", endValue);
+    formData.set("break_minutes", pauseMinutesValue);
+    formData.set("comment", commentValue);
+
+    startTransition(() => {
+      void updateDetailsAction(formData);
+    });
+    setIsEditorOpen(false);
+  };
+
   return (
-    <div className="flex flex-col gap-1">
+    <div
+      className="flex flex-col gap-1 rounded-xl border border-zinc-800/80 bg-zinc-950/30 p-2"
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        handleDropShift(event.dataTransfer.getData("application/x-dienstplan-shift"));
+      }}
+    >
+      {hasAssignedShift && (
+        <button
+          type="button"
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.setData(
+              "application/x-dienstplan-shift",
+              JSON.stringify({ employeeId, date })
+            );
+          }}
+          onClick={() => setIsEditorOpen(true)}
+          className="w-full rounded-xl border border-cyan-700/50 bg-cyan-500/10 px-2 py-1 text-left text-[11px] text-cyan-100 hover:bg-cyan-500/20"
+          title="Zum Bearbeiten klicken oder auf andere Person ziehen"
+        >
+          <div className="font-semibold">Schicht-Kästchen</div>
+          <div>
+            {startValue || "--:--"} – {endValue || "--:--"}
+          </div>
+        </button>
+      )}
       <div className="flex items-center gap-2">
         <input
           form={formId}
@@ -97,6 +174,70 @@ export default function ShiftInput({
       <span className={`text-[10px] ${isPending ? "text-amber-400" : "text-zinc-500"}`}>
         {isPending ? "Speichern..." : "Auto-Save"}
       </span>
+
+      {isEditorOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
+            <h4 className="text-sm font-semibold text-zinc-100">Schicht bearbeiten</h4>
+            <p className="mb-4 text-xs text-zinc-400">{label}</p>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs text-zinc-300">
+                Start
+                <input
+                  type="time"
+                  value={startValue}
+                  onChange={(event) => setStartValue(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="text-xs text-zinc-300">
+                Ende
+                <input
+                  type="time"
+                  value={endValue}
+                  onChange={(event) => setEndValue(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
+            <label className="mt-3 block text-xs text-zinc-300">
+              Pause (Minuten, optional)
+              <input
+                type="number"
+                min="0"
+                value={pauseMinutesValue}
+                onChange={(event) => setPauseMinutesValue(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="mt-3 block text-xs text-zinc-300">
+              Kommentar
+              <textarea
+                value={commentValue}
+                onChange={(event) => setCommentValue(event.target.value)}
+                rows={3}
+                className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsEditorOpen(false)}
+                className="rounded-xl border border-zinc-600 px-3 py-1 text-xs text-zinc-300"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={saveDetails}
+                className="rounded-xl bg-cyan-600 px-3 py-1 text-xs font-medium text-white"
+              >
+                Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

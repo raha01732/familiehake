@@ -48,7 +48,8 @@ function parseTimeValue(value: string) {
 export function calculateShiftMinutes(
   startTime: string | null,
   endTime: string | null,
-  pauseRules: PauseRule[]
+  pauseRules: PauseRule[],
+  pauseOverrideMinutes?: number | null
 ) {
   if (!startTime || !endTime) return null;
 
@@ -61,11 +62,15 @@ export function calculateShiftMinutes(
     durationMinutes += 24 * 60;
   }
 
-  const sortedRules = [...pauseRules].sort((a, b) => a.min_minutes - b.min_minutes);
   let pauseMinutes = 0;
-  for (const rule of sortedRules) {
-    if (durationMinutes >= rule.min_minutes) {
-      pauseMinutes = rule.pause_minutes;
+  if (typeof pauseOverrideMinutes === "number" && pauseOverrideMinutes >= 0) {
+    pauseMinutes = pauseOverrideMinutes;
+  } else {
+    const sortedRules = [...pauseRules].sort((a, b) => a.min_minutes - b.min_minutes);
+    for (const rule of sortedRules) {
+      if (durationMinutes >= rule.min_minutes) {
+        pauseMinutes = rule.pause_minutes;
+      }
     }
   }
 
@@ -190,6 +195,8 @@ export function generateAutoPlanSlots(params: {
         continue;
       }
 
+      const isServiceleitung = employee.position?.trim().toLowerCase() === SERVICELEITUNG_POSITION;
+      const candidateEndTime = isServiceleitung ? (addHoursToTime(slot.start_time, 8) ?? slot.end_time) : slot.end_time;
       const availabilityEntry = availabilityMap.get(`${employee.id}-${slot.shift_date}`);
       const availabilityStatus = availabilityEntry?.status?.toLowerCase() ?? null;
       if (availabilityStatus === "f" || availabilityStatus === "k") continue;
@@ -197,7 +204,7 @@ export function generateAutoPlanSlots(params: {
         availabilityStatus === "fix" &&
         (!availabilityEntry?.fixed_start ||
           !availabilityEntry.fixed_end ||
-          !isTimeRangeCompatible(slot.start_time, slot.end_time, availabilityEntry.fixed_start, availabilityEntry.fixed_end))
+          !isTimeRangeCompatible(slot.start_time, candidateEndTime, availabilityEntry.fixed_start, availabilityEntry.fixed_end))
       ) {
         continue;
       }
