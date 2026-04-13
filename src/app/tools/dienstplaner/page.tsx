@@ -95,6 +95,9 @@ type WeekdayPositionRequirement = {
 type DateRequirement = {
   requirement_date: string;
   required_shifts: number;
+  service_required_shifts: number | null;
+  projection_required_shifts: number | null;
+  note: string | null;
 };
 
 type PositionRequirement = {
@@ -181,7 +184,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     .select("weekday, required_shifts");
   const { data: dateRequirements } = await sb
     .from("dienstplan_date_requirements")
-    .select("requirement_date, required_shifts")
+    .select("requirement_date, required_shifts, service_required_shifts, projection_required_shifts, note")
     .gte("requirement_date", start.toISOString().slice(0, 10))
     .lte("requirement_date", end.toISOString().slice(0, 10));
   const { data: shiftTracks } = await sb
@@ -263,10 +266,27 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     weekdayRequirementMap.set(rule.weekday, rule.required_shifts);
   }
 
-  const dateRequirementMap = new Map<string, number>();
+  const dateRequirementMap = new Map<string, DateRequirement>();
   for (const rule of (dateRequirements as DateRequirement[] | null) ?? []) {
-    dateRequirementMap.set(rule.requirement_date, rule.required_shifts);
+    dateRequirementMap.set(rule.requirement_date, rule);
   }
+
+  const employeesOrdered = ((employees as DienstplanEmployee[] | null) ?? []).sort((left, right) => {
+    const normalize = (position: string | null) => position?.trim().toLowerCase() ?? "";
+    const leftPosition = normalize(left.position);
+    const rightPosition = normalize(right.position);
+    const rank = (position: string) => {
+      if (position === "serviceleitung") return 0;
+      if (position.includes("projektion")) return 2;
+      return 1;
+    };
+    const rankDifference = rank(leftPosition) - rank(rightPosition);
+    if (rankDifference !== 0) return rankDifference;
+    return left.name.localeCompare(right.name, "de");
+  });
+  const firstProjectionIndex = employeesOrdered.findIndex((employee) =>
+    (employee.position ?? "").trim().toLowerCase().includes("projektion")
+  );
 
   const weekdayPositionRequirementMap = new Map<number, WeekdayPositionRequirement[]>();
   for (const requirement of (weekdayPositionRequirements as WeekdayPositionRequirement[] | null) ?? []) {
@@ -290,9 +310,9 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
     if (positionRequirementsForDay.length > 0) {
       requiredSlotsMonth += positionRequirementsForDay.length;
     } else {
-      requiredSlotsMonth += dateRequirementMap.get(dateKey) ?? weekdayRequirementMap.get(day.getUTCDay()) ?? 0;
+      requiredSlotsMonth += dateRequirementMap.get(dateKey)?.required_shifts ?? weekdayRequirementMap.get(day.getUTCDay()) ?? 0;
     }
-    for (const employee of (employees as DienstplanEmployee[] | null) ?? []) {
+    for (const employee of employeesOrdered) {
       if (shiftMap.has(`${employee.id}-${dateKey}`)) {
         assignedSlotsMonth += 1;
       }
@@ -384,14 +404,17 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
         isAdmin={isAdmin}
       />
 
-      <div className="overflow-x-auto border border-zinc-800 rounded-xl">
-        <table className="min-w-max w-full text-sm text-zinc-200">
-          <thead className="text-xs text-zinc-400 uppercase bg-zinc-900/60">
+      <div className="overflow-x-auto border border-zinc-700 rounded-xl bg-zinc-950/70">
+        <table className="min-w-max w-full text-sm text-zinc-100">
+          <thead className="text-xs text-zinc-300 uppercase bg-zinc-900">
             <tr>
               <th className="py-3 pl-4 pr-2 text-left w-[190px]">Datum</th>
               <th className="py-3 pl-2 pr-4 text-left min-w-[220px]">Bemerkung/Bedarf</th>
-              {(employees as DienstplanEmployee[] | null)?.map((employee) => (
-                <th key={employee.id} className="py-3 px-4 text-left min-w-[160px]">
+              {employeesOrdered.map((employee, employeeIndex) => (
+                <th
+                  key={employee.id}
+                  className={`py-3 px-4 text-left min-w-[160px] ${employeeIndex === firstProjectionIndex ? "border-l-4 border-black" : ""}`}
+                >
                   <div className="font-semibold text-zinc-100">{employee.name}</div>
                   <div className="text-[11px] text-zinc-500">{employee.position || "Position offen"}</div>
                   <div className="text-[11px] text-zinc-500">
@@ -402,15 +425,17 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                   </div>
                 </th>
               ))}
-              <th className="py-3 px-4 text-left">Tagessumme</th>
+                <th className="py-3 px-4 text-left text-zinc-100">Tagessumme</th>
             </tr>
           </thead>
           <tbody>
             {days.map((day) => {
               const dateKey = day.toISOString().slice(0, 10);
               let dayTotalMinutes = 0;
-              const requiredShifts =
-                dateRequirementMap.get(dateKey) ?? weekdayRequirementMap.get(day.getUTCDay()) ?? 0;
+              const dateRequirement = dateRequirementMap.get(dateKey);
+              const requiredShifts = dateRequirement?.required_shifts ?? weekdayRequirementMap.get(day.getUTCDay()) ?? 0;
+              const serviceRequiredShifts = dateRequirement?.service_required_shifts ?? 0;
+              const projectionRequiredShifts = dateRequirement?.projection_required_shifts ?? 0;
               const positionRequirementsForDay = positionRequirementMap.get(dateKey) ?? [];
               const weekdayPositionDefaults = weekdayPositionRequirementMap.get(day.getUTCDay()) ?? [];
 
@@ -420,11 +445,14 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                     dateKey={dateKey}
                     dateLabel={formatDateLabel(day)}
                     requiredShifts={requiredShifts}
+                    serviceRequiredShifts={serviceRequiredShifts}
+                    projectionRequiredShifts={projectionRequiredShifts}
+                    note={dateRequirement?.note ?? null}
                     positionRequirementsForDay={positionRequirementsForDay}
                     shiftTracks={(shiftTracks as ShiftTrack[] | null) ?? []}
                     weekdayPositionRequirements={weekdayPositionDefaults}
                   />
-                  {(employees as DienstplanEmployee[] | null)?.map((employee) => {
+                  {employeesOrdered.map((employee, employeeIndex) => {
                     const shift = shiftMap.get(`${employee.id}-${dateKey}`);
                     const availabilityEntry = availabilityMap.get(`${employee.id}-${dateKey}`);
                     const summary = calculateShiftMinutes(
@@ -438,7 +466,10 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                     }
 
                     return (
-                      <td key={`${employee.id}-${dateKey}`} className="py-3 px-4">
+                      <td
+                        key={`${employee.id}-${dateKey}`}
+                        className={`py-3 px-4 ${employeeIndex === firstProjectionIndex ? "border-l-4 border-black" : ""}`}
+                      >
                         <AvailabilityInput
                           employeeId={employee.id}
                           date={dateKey}
@@ -481,10 +512,13 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
             <tr className="border-t border-zinc-800 bg-zinc-900/60">
               <td className="py-3 px-4 text-zinc-300 font-medium">Monatssumme</td>
               <td className="py-3 px-4" />
-              {(employees as DienstplanEmployee[] | null)?.map((employee) => {
+              {employeesOrdered.map((employee, employeeIndex) => {
                 const totalMinutes = employeeTotals.get(employee.id) ?? 0;
                 return (
-                  <td key={`total-${employee.id}`} className="py-3 px-4 text-zinc-300 text-sm font-medium">
+                  <td
+                    key={`total-${employee.id}`}
+                    className={`py-3 px-4 text-zinc-300 text-sm font-medium ${employeeIndex === firstProjectionIndex ? "border-l-4 border-black" : ""}`}
+                  >
                     {totalMinutes > 0 ? `${formatMinutesAsHours(totalMinutes)}h` : "—"}
                   </td>
                 );
@@ -499,11 +533,14 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
                 <tr key={`weekly-${weekKey}`} className="border-t border-zinc-800 bg-zinc-900/30">
                   <td className="py-2 px-4 text-zinc-300 text-xs">{weekLabel}</td>
                   <td className="py-2 px-4 text-zinc-500 text-xs">Wochensumme (Donnerstag–Mittwoch)</td>
-                  {(employees as DienstplanEmployee[] | null)?.map((employee) => {
+                  {employeesOrdered.map((employee, employeeIndex) => {
                     const weeklyMinutes = weeklyTotals.get(`${employee.id}-${weekKey}`) ?? 0;
                     const weeklyTargetMinutes = Math.max(0, Math.round((employee.weekly_hours ?? 0) * 60));
                     return (
-                      <td key={`weekly-total-${employee.id}-${weekKey}`} className="py-2 px-4 text-xs text-zinc-300">
+                      <td
+                        key={`weekly-total-${employee.id}-${weekKey}`}
+                        className={`py-2 px-4 text-xs text-zinc-300 ${employeeIndex === firstProjectionIndex ? "border-l-4 border-black" : ""}`}
+                      >
                         {weeklyMinutes > 0 ? `${formatMinutesAsHours(weeklyMinutes)}h` : "—"}
                         {weeklyTargetMinutes > 0 && (
                           <span className="ml-1 text-zinc-500">/ {formatMinutesAsHours(weeklyTargetMinutes)}h</span>
@@ -519,7 +556,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
         </table>
       </div>
 
-      {((employees as DienstplanEmployee[] | null) ?? []).length === 0 && (
+      {employeesOrdered.length === 0 && (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6 text-sm text-zinc-300">
           Noch keine Mitarbeitenden angelegt. Lege sie oben in den Einstellungen an.
         </div>

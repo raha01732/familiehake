@@ -39,6 +39,9 @@ type DayRequirementCellProps = {
   dateKey: string;
   dateLabel: string;
   requiredShifts: number;
+  serviceRequiredShifts: number;
+  projectionRequiredShifts: number;
+  note: string | null;
   positionRequirementsForDay: PositionRequirement[];
   shiftTracks: ShiftTrack[];
   weekdayPositionRequirements: WeekdayPositionRequirement[];
@@ -53,6 +56,9 @@ export default function DayRequirementCell({
   dateKey,
   dateLabel,
   requiredShifts,
+  serviceRequiredShifts,
+  projectionRequiredShifts,
+  note,
   positionRequirementsForDay,
   shiftTracks,
   weekdayPositionRequirements,
@@ -136,6 +142,9 @@ export default function DayRequirementCell({
             <div className="text-[11px] text-zinc-500 mt-2">
               Bedarf: {requiredShifts} Schicht{requiredShifts === 1 ? "" : "en"}
             </div>
+            <div className="text-[11px] text-zinc-500">
+              Service: {serviceRequiredShifts} · Projektion: {projectionRequiredShifts}
+            </div>
           </div>
           <button
             type="button"
@@ -159,7 +168,7 @@ export default function DayRequirementCell({
       </td>
       <td className="py-3 pl-2 pr-4 align-top">
         {!isEditing ? (
-          <div className="text-[11px] text-zinc-500">Bearbeiten öffnet die Detailansicht.</div>
+          <div className="text-[11px] text-zinc-300">{note ? `📝 ${note}` : "—"}</div>
         ) : (
           <div className="fixed inset-0 z-[90]">
             <div className="absolute inset-0 bg-black/60" />
@@ -186,13 +195,38 @@ export default function DayRequirementCell({
                   >
                     <input type="hidden" name="requirement_date" value={dateKey} />
                     <label className="text-[11px] text-zinc-400">Tagesbedarf</label>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <input
                         name="required_shifts"
                         type="number"
                         min="0"
                         defaultValue={requiredShifts}
-                        className="w-20 bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                        className="w-full bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                        placeholder="Gesamtbedarf"
+                      />
+                      <input
+                        name="service_required_shifts"
+                        type="number"
+                        min="0"
+                        defaultValue={serviceRequiredShifts}
+                        className="w-full bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                        placeholder="Serviceleitung + Service"
+                      />
+                      <input
+                        name="projection_required_shifts"
+                        type="number"
+                        min="0"
+                        defaultValue={projectionRequiredShifts}
+                        className="w-full bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                        placeholder="Projektion"
+                      />
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <input
+                        name="note"
+                        defaultValue={note ?? ""}
+                        className="min-w-[280px] flex-1 bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-100 px-2 py-1 rounded"
+                        placeholder="Bemerkung für diesen Tag"
                       />
                       <button type="submit" className="text-[11px] text-emerald-400 hover:text-emerald-300">
                         Bedarf speichern
