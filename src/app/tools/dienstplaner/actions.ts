@@ -648,13 +648,23 @@ export async function saveDateRequirementAction(formData: FormData) {
 
   const date = String(formData.get("requirement_date") || "");
   const requiredShifts = Number(formData.get("required_shifts"));
+  const serviceRequiredShifts = Number(formData.get("service_required_shifts"));
+  const projectionRequiredShifts = Number(formData.get("projection_required_shifts"));
+  const note = String(formData.get("note") || "").trim();
   if (!date || Number.isNaN(requiredShifts) || requiredShifts < 0) return;
+  const normalizedServiceRequiredShifts =
+    Number.isNaN(serviceRequiredShifts) || serviceRequiredShifts < 0 ? 0 : serviceRequiredShifts;
+  const normalizedProjectionRequiredShifts =
+    Number.isNaN(projectionRequiredShifts) || projectionRequiredShifts < 0 ? 0 : projectionRequiredShifts;
 
   const sb = createAdminClient();
   await sb.from("dienstplan_date_requirements").upsert(
     {
       requirement_date: date,
       required_shifts: requiredShifts,
+      service_required_shifts: normalizedServiceRequiredShifts,
+      projection_required_shifts: normalizedProjectionRequiredShifts,
+      note: note || null,
     },
     { onConflict: "requirement_date" }
   );

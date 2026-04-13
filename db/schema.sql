@@ -412,6 +412,9 @@ create table if not exists dienstplan_weekday_requirements (
 create table if not exists dienstplan_date_requirements (
   requirement_date date not null,
   required_shifts integer not null default 0,
+  service_required_shifts integer not null default 0,
+  projection_required_shifts integer not null default 0,
+  note text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (requirement_date)
@@ -522,6 +525,36 @@ begin
       and column_name = 'required_shifts'
   ) then
     alter table dienstplan_date_requirements add column required_shifts integer not null default 0;
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dienstplan_date_requirements'
+      and column_name = 'service_required_shifts'
+  ) then
+    alter table dienstplan_date_requirements add column service_required_shifts integer not null default 0;
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dienstplan_date_requirements'
+      and column_name = 'projection_required_shifts'
+  ) then
+    alter table dienstplan_date_requirements add column projection_required_shifts integer not null default 0;
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dienstplan_date_requirements'
+      and column_name = 'note'
+  ) then
+    alter table dienstplan_date_requirements add column note text;
   end if;
 
   if not exists (

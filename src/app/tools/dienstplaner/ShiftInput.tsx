@@ -1,7 +1,7 @@
 // /workspace/familiehake/src/app/tools/dienstplaner/ShiftInput.tsx
 "use client";
 
-import { useState, useTransition } from "react";
+import { type DragEvent, useState, useTransition } from "react";
 import { addHoursToTime } from "./utils";
 
 type ShiftInputProps = {
@@ -103,6 +103,12 @@ export default function ShiftInput({
     }
   };
 
+  const parseDropPayload = (event: DragEvent<HTMLDivElement>) => {
+    const customPayload = event.dataTransfer.getData("application/x-dienstplan-shift");
+    if (customPayload) return customPayload;
+    return event.dataTransfer.getData("text/plain");
+  };
+
   const saveDetails = () => {
     if (!startValue || !endValue) return;
     const formData = new FormData();
@@ -125,7 +131,7 @@ export default function ShiftInput({
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
-        handleDropShift(event.dataTransfer.getData("application/x-dienstplan-shift"));
+        handleDropShift(parseDropPayload(event));
       }}
     >
       {hasAssignedShift && (
@@ -133,10 +139,10 @@ export default function ShiftInput({
           type="button"
           draggable
           onDragStart={(event) => {
-            event.dataTransfer.setData(
-              "application/x-dienstplan-shift",
-              JSON.stringify({ employeeId, date })
-            );
+            const payload = JSON.stringify({ employeeId, date });
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("application/x-dienstplan-shift", payload);
+            event.dataTransfer.setData("text/plain", payload);
           }}
           onClick={() => setIsEditorOpen(true)}
           className="w-full rounded-xl border border-cyan-700/50 bg-cyan-500/10 px-2 py-1 text-left text-[11px] text-cyan-100 hover:bg-cyan-500/20"
