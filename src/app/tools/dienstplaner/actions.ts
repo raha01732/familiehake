@@ -34,6 +34,13 @@ function buildMonthDays(startDate: string, endDate: string) {
   return days;
 }
 
+function addDays(dateValue: string, daysToAdd: number) {
+  const date = new Date(`${dateValue}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() + daysToAdd);
+  return date.toISOString().slice(0, 10);
+}
+
 async function assertAdminForDienstplanAutomation() {
   const user = await currentUser();
   if (!user) {
@@ -369,6 +376,55 @@ export async function moveShiftAction(formData: FormData) {
 
   revalidatePath(PLAN_PATH);
   return { ok: true };
+}
+
+export async function copyWeekShiftsAction(formData: FormData) {
+  await assertAdminForDienstplanAutomation();
+
+  const fromWeekStart = String(formData.get("from_week_start") || "").trim();
+  const toWeekStart = String(formData.get("to_week_start") || "").trim();
+  if (!fromWeekStart || !toWeekStart) return;
+
+  const fromWeekEnd = addDays(fromWeekStart, 6);
+  const toWeekEnd = addDays(toWeekStart, 6);
+  if (!fromWeekEnd || !toWeekEnd) return;
+
+  const sb = createAdminClient();
+  const { data: sourceWeekShifts } = await sb
+    .from("dienstplan_shifts")
+    .select("employee_id, shift_date, start_time, end_time, break_minutes, comment, raw_input")
+    .gte("shift_date", fromWeekStart)
+    .lte("shift_date", fromWeekEnd);
+
+  const sourceShifts = sourceWeekShifts ?? [];
+  await sb.from("dienstplan_shifts").delete().gte("shift_date", toWeekStart).lte("shift_date", toWeekEnd);
+
+  if (sourceShifts.length > 0) {
+    const entriesToInsert = sourceShifts
+      .map((shift) => {
+        const fromDate = new Date(`${shift.shift_date}T00:00:00Z`);
+        const targetDate = new Date(fromDate);
+        targetDate.setUTCDate(targetDate.getUTCDate() + 7);
+        const nextDate = targetDate.toISOString().slice(0, 10);
+        if (nextDate < toWeekStart || nextDate > toWeekEnd) return null;
+        return {
+          employee_id: shift.employee_id,
+          shift_date: nextDate,
+          start_time: shift.start_time,
+          end_time: shift.end_time,
+          break_minutes: shift.break_minutes,
+          comment: shift.comment,
+          raw_input: "week-copy",
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+    if (entriesToInsert.length > 0) {
+      await sb.from("dienstplan_shifts").insert(entriesToInsert);
+    }
+  }
+
+  revalidatePath(PLAN_PATH);
 }
 
 export async function updateShiftDetailsAction(formData: FormData) {
