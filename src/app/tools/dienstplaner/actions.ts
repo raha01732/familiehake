@@ -390,14 +390,24 @@ export async function copyWeekShiftsAction(formData: FormData) {
   if (!fromWeekEnd || !toWeekEnd) return;
 
   const sb = createAdminClient();
-  const { data: sourceWeekShifts } = await sb
+  const { data: sourceWeekShifts, error: sourceWeekError } = await sb
     .from("dienstplan_shifts")
     .select("employee_id, shift_date, start_time, end_time, break_minutes, comment, raw_input")
     .gte("shift_date", fromWeekStart)
     .lte("shift_date", fromWeekEnd);
+  if (sourceWeekError) {
+    throw new Error(`COPY_WEEK_SOURCE_FETCH_FAILED: ${sourceWeekError.message}`);
+  }
 
   const sourceShifts = sourceWeekShifts ?? [];
-  await sb.from("dienstplan_shifts").delete().gte("shift_date", toWeekStart).lte("shift_date", toWeekEnd);
+  const { error: deleteTargetWeekError } = await sb
+    .from("dienstplan_shifts")
+    .delete()
+    .gte("shift_date", toWeekStart)
+    .lte("shift_date", toWeekEnd);
+  if (deleteTargetWeekError) {
+    throw new Error(`COPY_WEEK_TARGET_DELETE_FAILED: ${deleteTargetWeekError.message}`);
+  }
 
   if (sourceShifts.length > 0) {
     const entriesToInsert = sourceShifts
@@ -420,7 +430,10 @@ export async function copyWeekShiftsAction(formData: FormData) {
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
     if (entriesToInsert.length > 0) {
-      await sb.from("dienstplan_shifts").insert(entriesToInsert);
+      const { error: insertCopiedShiftsError } = await sb.from("dienstplan_shifts").insert(entriesToInsert);
+      if (insertCopiedShiftsError) {
+        throw new Error(`COPY_WEEK_TARGET_INSERT_FAILED: ${insertCopiedShiftsError.message}`);
+      }
     }
   }
 

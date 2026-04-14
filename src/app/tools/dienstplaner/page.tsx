@@ -141,6 +141,36 @@ function addDays(dateValue: string, daysToAdd: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function parseTimeToMinutes(value: string | null) {
+  if (!value) return null;
+  const [hoursStr, minutesStr] = value.slice(0, 5).split(":");
+  const hours = Number(hoursStr);
+  const minutes = Number(minutesStr);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function hasTimeOverlap(
+  shiftStart: string | null,
+  shiftEnd: string | null,
+  requirementStart: string | null,
+  requirementEnd: string | null
+) {
+  const shiftStartMinutes = parseTimeToMinutes(shiftStart);
+  const shiftEndMinutes = parseTimeToMinutes(shiftEnd);
+  const requirementStartMinutes = parseTimeToMinutes(requirementStart);
+  const requirementEndMinutes = parseTimeToMinutes(requirementEnd);
+  if (
+    shiftStartMinutes === null ||
+    shiftEndMinutes === null ||
+    requirementStartMinutes === null ||
+    requirementEndMinutes === null
+  ) {
+    return true;
+  }
+  return shiftStartMinutes < requirementEndMinutes && shiftEndMinutes > requirementStartMinutes;
+}
+
 export default async function DienstplanerPage({ searchParams }: { searchParams?: { month?: string } }) {
   const [session, toolStatusMap] = await Promise.all([getSessionInfo(), getToolStatusMap()]);
   const toolStatus = toolStatusMap["tools/dienstplaner"];
@@ -362,8 +392,16 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
       requiredSlotsMonth += positionRequirementsForDay.length;
       for (const requirement of positionRequirementsForDay) {
         const matchingEmployeesWithShift = employeesOrdered.filter((employee) => {
-          const hasShift = shiftMap.has(`${employee.id}-${dateKey}`);
-          return hasShift && isEmployeeMatchingPosition(employee.id, requirement.position);
+          const shift = shiftMap.get(`${employee.id}-${dateKey}`);
+          if (!shift) return false;
+          const isPositionMatch = isEmployeeMatchingPosition(employee.id, requirement.position);
+          const isTimeMatch = hasTimeOverlap(
+            shift.start_time,
+            shift.end_time,
+            requirement.start_time,
+            requirement.end_time
+          );
+          return isPositionMatch && isTimeMatch;
         }).length;
         if (matchingEmployeesWithShift === 0) {
           openSlotsMonth += 1;
