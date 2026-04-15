@@ -2,7 +2,15 @@
 "use client";
 
 import Link from "next/link";
-import { ClerkLoaded, ClerkLoading, SignedIn, SignedOut, SignInButton, useClerk, useUser } from "@clerk/nextjs";
+import {
+  ClerkLoaded,
+  ClerkLoading,
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  useClerk,
+  useUser,
+} from "@clerk/nextjs";
 import { useEffect, useRef, useState } from "react";
 
 type HeaderProps = {
@@ -10,91 +18,213 @@ type HeaderProps = {
   signInUrl?: string;
 };
 
-const HEADER_LINKS = [
+const NAV_LINKS = [
   { href: "/", label: "Start" },
   { href: "/tools", label: "Tools" },
   { href: "/admin", label: "Admin" },
 ];
 
 export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) {
-  if (!clerkEnabled) {
-    return (
-      <header className="sticky top-0 z-[520] border-b border-slate-200 bg-[hsl(var(--background)/0.8)] backdrop-blur-2xl">
-        <div className="mx-auto flex w-full max-w-[1800px] items-center gap-4 px-4 py-4">
-          <Brand />
-          <TopNav />
-          <div className="ml-auto">
-            <span className="rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Auth nicht konfiguriert
-            </span>
-          </div>
-        </div>
-      </header>
-    );
-  }
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Schließe mobiles Menü bei Route-Wechsel (Escape-Taste)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMobileOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
-    <header className="sticky top-0 z-[520] border-b border-slate-200 bg-[hsl(var(--background)/0.8)] backdrop-blur-2xl">
-      <div className="mx-auto flex w-full max-w-[1800px] items-center gap-4 px-4 py-4">
+    <header
+      className="sticky top-0 z-[520]"
+      style={{
+        borderBottom: "1px solid hsl(var(--header-border, var(--border)))",
+        backgroundColor: "hsl(var(--header-bg, var(--card)) / 0.9)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+      }}
+    >
+      <div className="mx-auto flex w-full max-w-[1800px] items-center gap-3 px-4 py-3 sm:px-6">
+        {/* Logo / Brand */}
         <Brand />
-        <TopNav />
 
-        <div className="ml-auto flex items-center gap-3">
-          <ClerkLoading>
-            <div className="h-9 w-9 animate-pulse rounded-full border border-slate-300 bg-slate-100" aria-label="Anmeldestatus wird geladen" />
-          </ClerkLoading>
+        {/* Desktop Navigation */}
+        <nav className="ml-3 hidden items-center gap-0.5 sm:flex">
+          {NAV_LINKS.map((item) => (
+            <NavLink key={item.href} href={item.href}>
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
 
-          <ClerkLoaded>
-            <SignedOut>
-              {signInUrl ? (
-                <Link href={signInUrl}>
-                  <button className="rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 shadow-sm transition hover:-translate-y-[1px] hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700">
-                    Anmelden
-                  </button>
-                </Link>
-              ) : (
-                <SignInButton mode="modal" forceRedirectUrl="/" signUpForceRedirectUrl="/">
-                  <button className="rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 shadow-sm transition hover:-translate-y-[1px] hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700">
-                    Anmelden
-                  </button>
-                </SignInButton>
-              )}
-            </SignedOut>
+        {/* Spacer */}
+        <div className="flex-1" />
 
-            <SignedIn>
-              <div className="relative z-[560]">
-                <UserMenu />
-              </div>
-            </SignedIn>
-          </ClerkLoaded>
-        </div>
+        {/* Auth-Bereich */}
+        {clerkEnabled ? (
+          <div className="flex items-center gap-2">
+            <ClerkLoading>
+              <div
+                className="h-9 w-9 animate-pulse rounded-full"
+                style={{
+                  background: "hsl(var(--muted))",
+                  border: "1px solid hsl(var(--border))",
+                }}
+                aria-label="Anmeldestatus wird geladen"
+              />
+            </ClerkLoading>
+            <ClerkLoaded>
+              <SignedOut>
+                {signInUrl ? (
+                  <Link href={signInUrl}>
+                    <SignInBtn />
+                  </Link>
+                ) : (
+                  <SignInButton mode="modal" forceRedirectUrl="/" signUpForceRedirectUrl="/">
+                    <SignInBtn />
+                  </SignInButton>
+                )}
+              </SignedOut>
+              <SignedIn>
+                <div className="relative z-[560]">
+                  <UserMenu />
+                </div>
+              </SignedIn>
+            </ClerkLoaded>
+          </div>
+        ) : (
+          <NoAuthBadge />
+        )}
+
+        {/* Hamburger (nur Mobile) */}
+        <button
+          type="button"
+          aria-label={mobileOpen ? "Menü schließen" : "Menü öffnen"}
+          aria-expanded={mobileOpen}
+          onClick={() => setMobileOpen((v) => !v)}
+          className="flex h-9 w-9 flex-col items-center justify-center gap-[5px] rounded-xl transition sm:hidden"
+          style={{
+            border: "1px solid hsl(var(--border))",
+            color: "hsl(var(--foreground))",
+          }}
+        >
+          <span
+            className={`block h-0.5 w-5 rounded-full transition-all duration-300 ${mobileOpen ? "translate-y-[7px] rotate-45" : ""}`}
+            style={{ background: "hsl(var(--foreground))" }}
+          />
+          <span
+            className={`block h-0.5 w-5 rounded-full transition-all duration-300 ${mobileOpen ? "opacity-0" : ""}`}
+            style={{ background: "hsl(var(--foreground))" }}
+          />
+          <span
+            className={`block h-0.5 w-5 rounded-full transition-all duration-300 ${mobileOpen ? "-translate-y-[7px] -rotate-45" : ""}`}
+            style={{ background: "hsl(var(--foreground))" }}
+          />
+        </button>
       </div>
+
+      {/* Mobile Dropdown */}
+      {mobileOpen && (
+        <div
+          className="border-t sm:hidden"
+          style={{
+            borderColor: "hsl(var(--border))",
+            background: "hsl(var(--header-bg, var(--card)))",
+          }}
+        >
+          <nav className="flex flex-col gap-0.5 px-4 py-3">
+            {NAV_LINKS.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setMobileOpen(false)}
+                className="rounded-xl px-3 py-2.5 text-sm font-medium transition"
+                style={{ color: "hsl(var(--foreground))" }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = "hsl(var(--secondary))";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = "transparent";
+                }}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+      )}
     </header>
   );
 }
 
+/* ── Sub-Komponenten ────────────────────────── */
+
 function Brand() {
   return (
-    <Link href="/" className="group inline-flex items-center gap-2 text-sm font-semibold tracking-tight text-slate-900">
-      <span className="brand-badge grid h-9 w-9 place-items-center rounded-2xl shadow-md transition group-hover:scale-105">FH</span>
+    <Link
+      href="/"
+      className="group inline-flex items-center gap-2.5 text-sm font-semibold tracking-tight"
+      style={{ color: "hsl(var(--foreground))" }}
+    >
+      <span className="brand-badge grid h-9 w-9 flex-shrink-0 place-items-center rounded-2xl text-sm font-bold shadow-md transition group-hover:scale-105">
+        FH
+      </span>
       <span className="hidden sm:block">FamilyHake</span>
     </Link>
   );
 }
 
-function TopNav() {
+function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
-    <nav className="ml-2 flex items-center gap-1 text-xs sm:text-sm">
-      {HEADER_LINKS.map((item) => (
-        <Link
-          key={item.href}
-          href={item.href}
-          className="rounded-full px-3 py-2 font-medium text-slate-700 transition hover:bg-blue-50 hover:text-blue-700"
-        >
-          {item.label}
-        </Link>
-      ))}
-    </nav>
+    <Link
+      href={href}
+      className="relative rounded-xl px-3 py-2 text-sm font-medium transition-colors"
+      style={{ color: "hsl(var(--muted-foreground))" }}
+      onMouseEnter={(e) => {
+        const el = e.currentTarget as HTMLElement;
+        el.style.color = "hsl(var(--foreground))";
+        el.style.background = "hsl(var(--secondary))";
+      }}
+      onMouseLeave={(e) => {
+        const el = e.currentTarget as HTMLElement;
+        el.style.color = "hsl(var(--muted-foreground))";
+        el.style.background = "transparent";
+      }}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function SignInBtn() {
+  return (
+    <button
+      type="button"
+      className="rounded-xl px-4 py-2 text-xs font-semibold uppercase tracking-wider transition hover:brightness-105"
+      style={{
+        border: "1px solid hsl(var(--primary) / 0.4)",
+        background: "hsl(var(--primary) / 0.08)",
+        color: "hsl(var(--primary))",
+      }}
+    >
+      Anmelden
+    </button>
+  );
+}
+
+function NoAuthBadge() {
+  return (
+    <span
+      className="rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wider"
+      style={{
+        border: "1px solid hsl(var(--border))",
+        color: "hsl(var(--muted-foreground))",
+      }}
+    >
+      Auth nicht konfiguriert
+    </span>
   );
 }
 
@@ -105,80 +235,137 @@ function UserMenu() {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+    function onClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     }
-
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
+    function onEscape(e: KeyboardEvent) {
+      if (e.key === "Escape") setIsOpen(false);
     }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
+    document.addEventListener("mousedown", onClickOutside);
+    document.addEventListener("keydown", onEscape);
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("mousedown", onClickOutside);
+      document.removeEventListener("keydown", onEscape);
     };
   }, []);
 
   const avatarUrl = user?.imageUrl;
-  const initials = (user?.firstName?.[0] ?? "?") + (user?.lastName?.[0] ?? "");
-  const userEmail = user?.primaryEmailAddress?.emailAddress ?? "Angemeldet";
-
-  const handleProfile = async () => {
-    setIsOpen(false);
-    await openUserProfile();
-  };
-
-  const handleSignOut = async () => {
-    setIsOpen(false);
-    await signOut({ redirectUrl: "/" });
-  };
+  const initials =
+    (user?.firstName?.[0] ?? "") + (user?.lastName?.[0] ?? "") || "?";
+  const userEmail =
+    user?.primaryEmailAddress?.emailAddress ?? "Angemeldet";
 
   return (
     <div ref={menuRef} className="relative">
+      {/* Avatar-Button */}
       <button
         type="button"
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        onClick={() => setIsOpen((prev) => !prev)}
-        className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-sm ring-2 ring-blue-200 transition hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+        onClick={() => setIsOpen((v) => !v)}
+        className="flex h-9 w-9 items-center justify-center rounded-full transition hover:scale-105 focus-visible:outline-none"
+        style={{
+          border: "2px solid hsl(var(--primary) / 0.3)",
+          boxShadow: "0 0 0 3px hsl(var(--primary) / 0.12)",
+          background: "hsl(var(--secondary))",
+          color: "hsl(var(--foreground))",
+        }}
       >
         {avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={avatarUrl} alt="Benutzeravatar" className="h-10 w-10 rounded-full object-cover" />
+          <img
+            src={avatarUrl}
+            alt="Benutzeravatar"
+            className="h-9 w-9 rounded-full object-cover"
+          />
         ) : (
           <span className="text-sm font-semibold">{initials}</span>
         )}
       </button>
 
-      {isOpen ? (
-        <div className="absolute right-0 mt-3 w-56 rounded-2xl border border-slate-200 bg-white/95 shadow-xl backdrop-blur-xl">
-          <div className="px-4 py-3 text-sm text-slate-700">
-            <p className="font-semibold text-slate-900">{user?.fullName ?? "Angemeldeter Benutzer"}</p>
-            <p className="truncate text-xs text-slate-500">{userEmail}</p>
+      {/* Dropdown */}
+      {isOpen && (
+        <div
+          className="absolute right-0 mt-2 w-56 rounded-2xl shadow-2xl"
+          style={{
+            background: "hsl(var(--card))",
+            border: "1px solid hsl(var(--border))",
+            boxShadow:
+              "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 20px 40px -10px rgb(0 0 0 / 0.2)",
+          }}
+        >
+          {/* Benutzerinfo */}
+          <div className="px-4 py-3">
+            <p
+              className="text-sm font-semibold"
+              style={{ color: "hsl(var(--foreground))" }}
+            >
+              {user?.fullName ?? "Angemeldeter Benutzer"}
+            </p>
+            <p
+              className="truncate text-xs"
+              style={{ color: "hsl(var(--muted-foreground))" }}
+            >
+              {userEmail}
+            </p>
           </div>
-          <div className="border-t border-slate-200" />
-          <button
-            type="button"
-            onClick={handleProfile}
-            className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-          >
-            Profil & Einstellungen
-          </button>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
-          >
-            Abmelden
-          </button>
+
+          <div style={{ height: 1, background: "hsl(var(--border))" }} />
+
+          <div className="p-1">
+            <MenuButton
+              onClick={async () => {
+                setIsOpen(false);
+                await openUserProfile();
+              }}
+            >
+              Profil & Einstellungen
+            </MenuButton>
+            <MenuButton
+              onClick={async () => {
+                setIsOpen(false);
+                await signOut({ redirectUrl: "/" });
+              }}
+              danger
+            >
+              Abmelden
+            </MenuButton>
+          </div>
         </div>
-      ) : null}
+      )}
     </div>
+  );
+}
+
+function MenuButton({
+  children,
+  onClick,
+  danger = false,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition"
+      style={{
+        color: danger ? "hsl(0 72% 57%)" : "hsl(var(--foreground))",
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLElement).style.background = danger
+          ? "hsl(0 72% 57% / 0.1)"
+          : "hsl(var(--secondary))";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLElement).style.background = "transparent";
+      }}
+    >
+      {children}
+    </button>
   );
 }

@@ -295,45 +295,96 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
 
   return (
     <RoleGate routeKey="dashboard">
-      <section className="grid items-start gap-8 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="card relative flex flex-col gap-6 overflow-hidden p-5 lg:sticky lg:top-24">
+      <section className="grid items-start gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
+
+        {/* Sidebar */}
+        <aside className="card relative flex flex-col gap-5 overflow-hidden p-5 lg:sticky lg:top-24">
+          {/* Hintergrund-Glow */}
           <div
-            className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-blue-200/40 blur-2xl"
+            className="pointer-events-none absolute -right-8 -top-12 h-36 w-36 rounded-full blur-3xl"
+            style={{ background: "hsl(var(--primary) / 0.12)" }}
             aria-hidden
           />
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Workspace</p>
-            <h2 className="text-xl font-semibold text-slate-900">Deine Schnellnavigation</h2>
-            <nav className="flex flex-col gap-1">
+
+          {/* Tool-Links */}
+          <div className="space-y-2">
+            <p
+              className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+              style={{ color: "hsl(var(--muted-foreground))" }}
+            >
+              Workspace
+            </p>
+            <h2
+              className="text-base font-semibold"
+              style={{ color: "hsl(var(--foreground))" }}
+            >
+              Schnellnavigation
+            </h2>
+            <nav className="mt-1 flex flex-col gap-0.5">
               {toolLinks.length === 0 ? (
-                <span className="text-xs text-slate-500">Keine Tools freigeschaltet</span>
+                <span
+                  className="text-xs"
+                  style={{ color: "hsl(var(--muted-foreground))" }}
+                >
+                  Keine Tools freigeschaltet
+                </span>
               ) : (
                 toolLinks.map((link) => (
                   <Link
                     key={link.routeKey}
                     href={link.href}
-                    className="group rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-white hover:text-slate-900 hover:shadow-sm"
+                    className="group flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors"
+                    style={{ color: "hsl(var(--foreground))" }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.background =
+                        "hsl(var(--secondary))";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.background =
+                        "transparent";
+                    }}
                   >
-                    <span className="inline-flex items-center gap-2">
-                      <span className="h-1.5 w-1.5 rounded-full bg-slate-300 transition group-hover:bg-blue-500" />
-                      {link.label}
-                    </span>
+                    <span
+                      className="h-1.5 w-1.5 flex-shrink-0 rounded-full transition-colors"
+                      style={{ background: "hsl(var(--primary) / 0.4)" }}
+                    />
+                    {link.label}
                   </Link>
                 ))
               )}
             </nav>
           </div>
+
+          {/* Admin-Links */}
           {adminLinks.length > 0 && (
             <>
-              <div className="h-px w-full bg-slate-200/80" aria-hidden />
-              <div className="space-y-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Admin</div>
-                <nav className="flex flex-col gap-1">
+              <div
+                className="h-px w-full"
+                style={{ background: "hsl(var(--border))" }}
+                aria-hidden
+              />
+              <div className="space-y-2">
+                <p
+                  className="text-[11px] font-semibold uppercase tracking-[0.15em]"
+                  style={{ color: "hsl(var(--muted-foreground))" }}
+                >
+                  Admin
+                </p>
+                <nav className="flex flex-col gap-0.5">
                   {adminLinks.map((link) => (
                     <Link
                       key={link.routeKey}
                       href={link.href}
-                      className="rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-white hover:text-slate-900 hover:shadow-sm"
+                      className="rounded-xl px-3 py-2.5 text-sm font-medium transition-colors"
+                      style={{ color: "hsl(var(--foreground))" }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLElement).style.background =
+                          "hsl(var(--secondary))";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLElement).style.background =
+                          "transparent";
+                      }}
                     >
                       {link.label}
                     </Link>
@@ -342,18 +393,46 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
               </div>
             </>
           )}
-          {isAdmin ? (
+
+          {/* System-Health */}
+          {isAdmin && (
             <>
-              <div className="h-px w-full bg-slate-200/80" aria-hidden />
-              <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm">
-                <div className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">System-Health</div>
-                <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="text-sm font-medium text-slate-800">Status</div>
+              <div
+                className="h-px w-full"
+                style={{ background: "hsl(var(--border))" }}
+                aria-hidden
+              />
+              <div
+                className="space-y-3 rounded-2xl p-3.5"
+                style={{
+                  background: "hsl(var(--secondary))",
+                  border: "1px solid hsl(var(--border))",
+                }}
+              >
+                <p
+                  className="text-[11px] font-semibold uppercase tracking-[0.15em]"
+                  style={{ color: "hsl(var(--muted-foreground))" }}
+                >
+                  System-Health
+                </p>
+                <div
+                  className="flex items-center justify-between rounded-xl p-3"
+                  style={{
+                    background: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                  }}
+                >
                   <span
-                    className={`rounded-lg border px-2 py-0.5 text-xs ${
+                    className="text-sm font-medium"
+                    style={{ color: "hsl(var(--foreground))" }}
+                  >
+                    Status
+                  </span>
+                  <span
+                    className={`rounded-lg px-2 py-0.5 text-xs font-medium ${
                       healthStatus === "ok"
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        : "border-amber-200 bg-amber-50 text-amber-700"
+                        ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        : "border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
                     }`}
                   >
                     {healthLabel}
@@ -361,29 +440,45 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
                 </div>
                 <Link
                   href="/monitoring"
-                  className="inline-flex text-xs font-medium text-blue-700 underline underline-offset-4 hover:text-blue-500"
+                  className="inline-flex text-xs font-medium underline underline-offset-4 transition-opacity hover:opacity-70"
+                  style={{ color: "hsl(var(--primary))" }}
                 >
                   Zum Monitoring →
                 </Link>
               </div>
             </>
-          ) : null}
+          )}
         </aside>
 
-        <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_280px]">
+        {/* Haupt-Inhalt */}
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
           <WelcomeTileCard tile={welcomeTile} isAdmin={isAdmin} onSave={updateWelcomeTile} />
-          <div className="card flex flex-col gap-3 p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Heute im Fokus</p>
-            <h3 className="text-2xl font-semibold text-slate-900">Schnell starten ohne Umwege</h3>
-            <p className="text-sm leading-relaxed text-slate-700">
-              Nutze die Navigation links, um direkt zu Journal, Kalender oder Nachrichten zu springen. Die Oberfläche
-              wurde bewusst heller und klarer gestaltet, damit Inhalte schneller lesbar sind.
+
+          {/* Quick-Start Card */}
+          <div className="soft-surface flex flex-col gap-4 p-6">
+            <p
+              className="text-[11px] font-semibold uppercase tracking-[0.15em]"
+              style={{ color: "hsl(var(--muted-foreground))" }}
+            >
+              Heute im Fokus
+            </p>
+            <h3
+              className="text-xl font-semibold leading-snug"
+              style={{ color: "hsl(var(--foreground))" }}
+            >
+              Schnell starten
+            </h3>
+            <p
+              className="text-sm leading-relaxed"
+              style={{ color: "hsl(var(--muted-foreground))" }}
+            >
+              Nutze die Navigation links, um direkt zu deinen Tools zu springen.
             </p>
             <Link
               href="/tools"
-              className="mt-2 inline-flex w-fit items-center rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+              className="brand-button mt-auto inline-flex w-fit items-center rounded-xl px-4 py-2.5 text-sm font-semibold"
             >
-              Zu allen Tools
+              Zu allen Tools →
             </Link>
           </div>
         </div>
