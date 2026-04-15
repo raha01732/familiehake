@@ -15,6 +15,9 @@ const isPublicRoute = createRouteMatcher([
 
   // ✅ wichtig: Sentry-Tunnel muss öffentlich sein, sonst 500/redirect beim Feedback
   "/api/sentry-tunnel",
+
+  // Cron-Routen haben eigene Auth via isAuthorizedCronRequest
+  "/api/cron(.*)",
 ]);
 
 const clerkPublishableKey = getClerkPublishableKey();
