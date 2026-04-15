@@ -5,6 +5,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { toICS } from "@/lib/ics";
 import { applyRateLimit } from "@/lib/ratelimit";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 export async function GET(req: NextRequest) {
   const rl = await applyRateLimit(req, "api:calender:export");
   if (rl instanceof NextResponse) return rl;
