@@ -273,6 +273,31 @@
   border-radius: calc(var(--radius) + 0.25rem);
 }
 
+/* Navigations-Links (für Server Components ohne Event-Handler) */
+.nav-link {
+  color: hsl(var(--foreground));
+  background: transparent;
+  border-radius: calc(var(--radius) + 0.125rem);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.nav-link:hover {
+  background: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+}
+
+.nav-link-muted {
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border-radius: calc(var(--radius) + 0.125rem);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.nav-link-muted:hover {
+  background: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+}
+
 /* Eingabefelder */
 .input-field {
   width: 100%;

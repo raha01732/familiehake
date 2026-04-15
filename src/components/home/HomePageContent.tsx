@@ -333,19 +333,10 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
                   <Link
                     key={link.routeKey}
                     href={link.href}
-                    className="group flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors"
-                    style={{ color: "hsl(var(--foreground))" }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.background =
-                        "hsl(var(--secondary))";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.background =
-                        "transparent";
-                    }}
+                    className="nav-link flex items-center gap-2 px-3 py-2.5 text-sm font-medium"
                   >
                     <span
-                      className="h-1.5 w-1.5 flex-shrink-0 rounded-full transition-colors"
+                      className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
                       style={{ background: "hsl(var(--primary) / 0.4)" }}
                     />
                     {link.label}
@@ -375,16 +366,7 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
                     <Link
                       key={link.routeKey}
                       href={link.href}
-                      className="rounded-xl px-3 py-2.5 text-sm font-medium transition-colors"
-                      style={{ color: "hsl(var(--foreground))" }}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLElement).style.background =
-                          "hsl(var(--secondary))";
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLElement).style.background =
-                          "transparent";
-                      }}
+                      className="nav-link px-3 py-2.5 text-sm font-medium"
                     >
                       {link.label}
                     </Link>
