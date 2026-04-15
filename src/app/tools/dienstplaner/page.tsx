@@ -168,7 +168,35 @@ function hasTimeOverlap(
   ) {
     return true;
   }
-  return shiftStartMinutes < requirementEndMinutes && shiftEndMinutes > requirementStartMinutes;
+
+  const buildRanges = (start: number, end: number) => {
+    if (end > start) return [{ start, end }];
+    return [
+      { start, end: end + 24 * 60 },
+      { start: start - 24 * 60, end },
+    ];
+  };
+
+  const shiftRanges = buildRanges(shiftStartMinutes, shiftEndMinutes);
+  const requirementRanges = buildRanges(requirementStartMinutes, requirementEndMinutes);
+  return shiftRanges.some((shiftRange) =>
+    requirementRanges.some(
+      (requirementRange) => shiftRange.start < requirementRange.end && shiftRange.end > requirementRange.start
+    )
+  );
+}
+
+function buildShiftDateRange(shiftDate: string, startTime: string | null, endTime: string | null) {
+  if (!startTime || !endTime) return null;
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
+  if (startMinutes === null || endMinutes === null) return null;
+  const startDate = new Date(`${shiftDate}T${startTime.slice(0, 5)}:00Z`);
+  const endDate = new Date(`${shiftDate}T${endTime.slice(0, 5)}:00Z`);
+  if (endMinutes <= startMinutes) {
+    endDate.setUTCDate(endDate.getUTCDate() + 1);
+  }
+  return { startDate, endDate };
 }
 
 export default async function DienstplanerPage({ searchParams }: { searchParams?: { month?: string } }) {
@@ -338,8 +366,11 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
       const previousShift = employeeShifts[index - 1];
       const nextShift = employeeShifts[index];
       if (!previousShift.end_time || !nextShift.start_time) continue;
-      const previousEnd = new Date(`${previousShift.shift_date}T${previousShift.end_time.slice(0, 5)}:00Z`);
-      const nextStart = new Date(`${nextShift.shift_date}T${nextShift.start_time.slice(0, 5)}:00Z`);
+      const previousRange = buildShiftDateRange(previousShift.shift_date, previousShift.start_time, previousShift.end_time);
+      const nextRange = buildShiftDateRange(nextShift.shift_date, nextShift.start_time, nextShift.end_time);
+      if (!previousRange || !nextRange) continue;
+      const previousEnd = previousRange.endDate;
+      const nextStart = nextRange.startDate;
       const restMinutes = Math.round((nextStart.getTime() - previousEnd.getTime()) / 60000);
       if (restMinutes >= 11 * 60 || restMinutes < 0) continue;
       restWarnings.push({
