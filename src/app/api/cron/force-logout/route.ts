@@ -30,6 +30,7 @@ const IDLE_TIMEOUT_HOURS = parseIdleTimeoutHours();
 
 type ClerkSession = {
   id: string;
+  status?: string | null;
   last_active_at?: number | string | null;
   lastActiveAt?: number | string | null;
   updated_at?: number | string | null;
@@ -78,7 +79,6 @@ async function listActiveSessions(): Promise<ClerkSession[]> {
 
   while (true) {
     const page = (await client.sessions.getSessionList({
-      status: "active",
       limit: CLERK_PAGE_SIZE,
       offset,
     })) as unknown as {
@@ -89,7 +89,9 @@ async function listActiveSessions(): Promise<ClerkSession[]> {
     const data = Array.isArray(page.data) ? page.data : [];
     if (data.length === 0) break;
 
-    sessions.push(...data);
+    // Clerk v6: status filter not supported in getSessionList — filter client-side
+    const activePage = data.filter((s) => !s.status || s.status === "active");
+    sessions.push(...activePage);
 
     const totalCount = typeof page.totalCount === "number" ? page.totalCount : 0;
     offset += data.length;
