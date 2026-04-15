@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(node:*)",
+      "Bash(npm run:*)",
+      "Bash(gh pr create --title 'fix: correct audit actions, Next.js 16 async params, and gitignore bug' --body ':*)",
+      "Bash(gh auth:*)",
+      "Bash(cmd /c \"where gh\")",
+      "Bash(cmd /c \"dir /b \\\\\"C:\\\\\\\\Program Files\\\\\\\\GitHub CLI\\\\\\\\gh.exe\\\\\" 2>nul\")",
+      "Bash(cmd:*)",
+      "Bash(powershell:*)",
+      "Bash(gh:*)",
+      "Bash(grep -l \"useState\\\\|useEffect\\\\|useContext\\\\|useReducer\\\\|useCallback\\\\|useMemo\\\\|useRef\" /c/Users/ralfh/Desktop/Projekt/src/components/*.tsx)",
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && head -2 \"$1\"' _ {})"
+    ]
+  }
+}
