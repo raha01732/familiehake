@@ -39,27 +39,33 @@ export default function ShiftModal({
   const [isPending, startTransition] = useTransition();
   const [isDeleting, startDelete] = useTransition();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(employee.id);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   function handleSave(e: { preventDefault: () => void }) {
     e.preventDefault();
     if (!formRef.current) return;
     const fd = new FormData(formRef.current);
+    setSaveError(null);
 
     startTransition(async () => {
-      // If employee changed: move shift first, then update times
-      if (shift && selectedEmployeeId !== employee.id) {
-        const moveFd = new FormData();
-        moveFd.set("from_employee_id", String(employee.id));
-        moveFd.set("to_employee_id", String(selectedEmployeeId));
-        moveFd.set("shift_date", date);
-        await moveAction(moveFd);
-        // Now save updated times on new employee
-        fd.set("employee_id", String(selectedEmployeeId));
-      } else {
-        fd.set("employee_id", String(selectedEmployeeId));
+      try {
+        // If employee changed: move shift first, then update times
+        if (shift && selectedEmployeeId !== employee.id) {
+          const moveFd = new FormData();
+          moveFd.set("from_employee_id", String(employee.id));
+          moveFd.set("to_employee_id", String(selectedEmployeeId));
+          moveFd.set("shift_date", date);
+          await moveAction(moveFd);
+          // Move succeeded — save updated times on new employee
+          fd.set("employee_id", String(selectedEmployeeId));
+        } else {
+          fd.set("employee_id", String(selectedEmployeeId));
+        }
+        await saveAction(fd);
+        onClose();
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : "Fehler beim Speichern.");
       }
-      await saveAction(fd);
-      onClose();
     });
   }
 
@@ -198,6 +204,13 @@ export default function ShiftModal({
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 placeholder:text-zinc-600"
             />
           </div>
+
+          {/* Error */}
+          {saveError && (
+            <div className="px-3 py-2 bg-red-950 border border-red-800 text-red-300 text-sm rounded-lg">
+              {saveError}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-2 pt-1">

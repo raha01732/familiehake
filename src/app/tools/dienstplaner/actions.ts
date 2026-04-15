@@ -101,9 +101,13 @@ export async function saveShiftAction(formData: FormData) {
     throw new Error("INVALID_SHIFT_TIME");
   }
 
+  const breakMinutesRaw = formData.get("break_minutes");
+  const breakMinutes = breakMinutesRaw !== null && breakMinutesRaw !== "" ? Number(breakMinutesRaw) : null;
+  const comment = formData.get("comment") ? String(formData.get("comment")) : null;
+
   const { data: existingShift } = await sb
     .from("dienstplan_shifts")
-    .select("break_minutes, comment, raw_input")
+    .select("raw_input")
     .eq("employee_id", employeeId)
     .eq("shift_date", shiftDate)
     .maybeSingle();
@@ -114,8 +118,8 @@ export async function saveShiftAction(formData: FormData) {
       shift_date: shiftDate,
       start_time: startTime,
       end_time: endTime,
-      break_minutes: existingShift?.break_minutes ?? null,
-      comment: existingShift?.comment ?? null,
+      break_minutes: breakMinutes,
+      comment: comment,
       raw_input: existingShift?.raw_input ?? null,
     },
     { onConflict: "employee_id,shift_date" }
@@ -397,7 +401,7 @@ export async function moveShiftAction(formData: FormData) {
   const toEmployeeId = Number(formData.get("to_employee_id"));
   const shiftDate = String(formData.get("shift_date") || "").trim();
   if (!fromEmployeeId || !toEmployeeId || !shiftDate || fromEmployeeId === toEmployeeId) {
-    return { ok: false, message: "Ungültige Verschiebung." };
+    throw new Error("Ungültige Verschiebung.");
   }
 
   const sb = createAdminClient();
@@ -408,22 +412,20 @@ export async function moveShiftAction(formData: FormData) {
     .eq("shift_date", shiftDate)
     .maybeSingle();
   if (!sourceShift?.start_time || !sourceShift.end_time) {
-    return { ok: false, message: "Quelle der Schicht nicht gefunden." };
+    throw new Error("Quelle der Schicht nicht gefunden.");
   }
 
-  const { error: insertError } = await sb.from("dienstplan_shifts").insert(
-    {
-      employee_id: toEmployeeId,
-      shift_date: shiftDate,
-      start_time: sourceShift.start_time,
-      end_time: sourceShift.end_time,
-      break_minutes: sourceShift.break_minutes ?? null,
-      comment: sourceShift.comment ?? null,
-      raw_input: sourceShift.raw_input ?? "drag-drop",
-    }
-  );
+  const { error: insertError } = await sb.from("dienstplan_shifts").insert({
+    employee_id: toEmployeeId,
+    shift_date: shiftDate,
+    start_time: sourceShift.start_time,
+    end_time: sourceShift.end_time,
+    break_minutes: sourceShift.break_minutes ?? null,
+    comment: sourceShift.comment ?? null,
+    raw_input: sourceShift.raw_input ?? "drag-drop",
+  });
   if (insertError) {
-    return { ok: false, message: "Ziel hat bereits eine Schicht oder die Verschiebung ist fehlgeschlagen." };
+    throw new Error("Ziel hat bereits eine Schicht oder die Verschiebung ist fehlgeschlagen.");
   }
 
   const { error: deleteError } = await sb
@@ -433,11 +435,10 @@ export async function moveShiftAction(formData: FormData) {
     .eq("shift_date", shiftDate);
   if (deleteError) {
     await sb.from("dienstplan_shifts").delete().eq("employee_id", toEmployeeId).eq("shift_date", shiftDate);
-    return { ok: false, message: "Verschiebung konnte nicht abgeschlossen werden." };
+    throw new Error("Verschiebung konnte nicht abgeschlossen werden.");
   }
 
   revalidatePath(PLAN_PATH);
-  return { ok: true };
 }
 
 export async function copyWeekShiftsAction(formData: FormData) {
