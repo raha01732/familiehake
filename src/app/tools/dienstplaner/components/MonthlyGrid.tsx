@@ -337,6 +337,14 @@ export default function MonthlyGrid({
         )}
       </div>
 
+      {/* ── Move error banner ─────────────────────────────────────────────── */}
+      {moveError && (
+        <div className="flex items-center justify-between px-4 py-2 bg-red-950 border-b border-red-800 text-red-300 text-sm">
+          <span>{moveError}</span>
+          <button type="button" onClick={() => setMoveError(null)} className="ml-4 text-red-400 hover:text-red-200">✕</button>
+        </div>
+      )}
+
       {/* ── Grid ───────────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto">
         <table className="w-full border-collapse" style={{ minWidth: `${200 + days.length * 72}px` }}>
