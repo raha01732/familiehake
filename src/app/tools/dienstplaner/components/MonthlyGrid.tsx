@@ -75,7 +75,7 @@ export default function MonthlyGrid({
   const [isAutoPlanning, startAutoPlanning] = useTransition();
   const [isClearing, startClearing] = useTransition();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [isMoving, startMoving] = useTransition();
+  const [_isMoving, startMoving] = useTransition();
   const [moveError, setMoveError] = useState<string | null>(null);
   const dragSource = useRef<{ employeeId: number; date: string } | null>(null);
 
