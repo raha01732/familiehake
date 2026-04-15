@@ -21,11 +21,20 @@ export const AUDIT_ACTIONS = [
   // Files
   "file_upload",
   "file_delete",
+  "file_restore",
+  "file_move",
   "file_download",
   "file_share_create",
   "file_share_revoke",
   "file_share_access",
   "file_share_access_denied",
+
+  // Folders
+  "folder_create",
+  "folder_rename",
+  "folder_move",
+  "folder_delete",
+  "folder_restore",
 
 
   // Journal

@@ -154,11 +154,11 @@ async function createFolderAction(formData: FormData) {
 
   try {
     await logAudit({
-      action: "login_success",
+      action: "folder_create",
       actorUserId: userId,
       actorEmail: null,
-      target: "folder_create",
-      detail: { name },
+      target: name,
+      detail: { parentId },
     });
   } catch (e) {void e; }
   revalidatePath("/tools/files");
@@ -179,11 +179,11 @@ async function renameFolderAction(formData: FormData) {
   await sb.from("folders").update({ name }).eq("id", folderId);
   try {
     await logAudit({
-      action: "login_success",
+      action: "folder_rename",
       actorUserId: userId,
       actorEmail: null,
-      target: "folder_rename",
-      detail: { folderId, name },
+      target: folderId,
+      detail: { name },
     });
   } catch (e) { void e; }
   revalidatePath("/tools/files");
@@ -203,11 +203,11 @@ async function moveFolderAction(formData: FormData) {
   await sb.from("folders").update({ parent_id: destId }).eq("id", folderId);
   try {
     await logAudit({
-      action: "login_success",
+      action: "folder_move",
       actorUserId: userId,
       actorEmail: null,
-      target: "folder_move",
-      detail: { folderId, destId },
+      target: folderId,
+      detail: { destId },
     });
   } catch (e) { void e;}
   revalidatePath("/tools/files");
@@ -231,11 +231,11 @@ async function softDeleteFolderAction(formData: FormData) {
   await sb.from("folders").update({ deleted_at: new Date().toISOString() }).eq("id", folderId);
   try {
     await logAudit({
-      action: "login_success",
+      action: "folder_delete",
       actorUserId: userId,
       actorEmail: null,
-      target: "folder_soft_delete",
-      detail: { folderId },
+      target: folderId,
+      detail: { soft: true },
     });
   } catch (e) { void e;}
   revalidatePath("/tools/files");
@@ -256,11 +256,11 @@ async function moveFileAction(formData: FormData) {
   await sb.from("files_meta").update({ folder_id: destId }).eq("id", fileId);
   try {
     await logAudit({
-      action: "login_success",
+      action: "file_move",
       actorUserId: userId,
       actorEmail: null,
-      target: "file_move",
-      detail: { fileId, destId },
+      target: fileId,
+      detail: { destId },
     });
   } catch (e) { void e;}
   revalidatePath("/tools/files");
@@ -285,11 +285,11 @@ async function softDeleteFileAction(formData: FormData) {
 
   try {
     await logAudit({
-      action: "login_success",
+      action: "file_delete",
       actorUserId: userId,
       actorEmail: null,
       target: row.storage_path,
-      detail: { event: "file_delete_soft", file: row.file_name },
+      detail: { file: row.file_name, soft: true },
     });
   } catch (e) { void e; }
 
@@ -318,11 +318,11 @@ async function hardDeleteFileAction(formData: FormData) {
 
   try {
     await logAudit({
-      action: "login_success",
+      action: "file_delete",
       actorUserId: userId,
       actorEmail: null,
       target: row.storage_path,
-      detail: { event: "file_delete_hard", file: row.file_name },
+      detail: { file: row.file_name, hard: true },
     });
   } catch (e) { void e; }
 
@@ -381,12 +381,11 @@ async function createShareAction(formData: FormData) {
 
   try {
     await logAudit({
-      action: "login_success",
+      action: "file_share_create",
       actorUserId: userId,
       actorEmail: null,
-      target: "file_share_create",
+      target: file.id,
       detail: {
-        event: "file_share_create",
         token_suffix: token.slice(-6),
         file: file.file_name,
         expires_at,
@@ -418,11 +417,11 @@ async function revokeShareAction(formData: FormData) {
 
     try {
       await logAudit({
-        action: "login_success",
+        action: "file_share_revoke",
         actorUserId: userId,
         actorEmail: null,
-        target: "file_share_revoke",
-        detail: { event: "file_share_revoke", share_id: shareId },
+        target: share.file_id,
+        detail: { share_id: shareId },
       });
     } catch (e) { void e; }
   }

@@ -88,15 +88,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: dbErr.message }, { status: 500 });
     }
 
-    // Audit (bestehenden Action-Typ nutzen, damit dein Union nicht bricht)
     try {
       await logAudit({
-        action: "login_success",
+        action: "file_upload",
         actorUserId: userId,
         actorEmail: null,
         target: storagePath,
         detail: {
-          event: "file_upload",
           file_name: fileName,
           content_type: contentType,
           size,
