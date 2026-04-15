@@ -1,4 +1,105 @@
 // /workspace/familiehake/src/app/tools/dienstplaner/utils.ts
+
+// ── Shared domain types ───────────────────────────────────────────────────────
+export type Employee = {
+  id: number;
+  name: string;
+  position: string | null;
+  department: string | null;
+  monthly_hours: number;
+  weekly_hours: number;
+  color: string;
+  is_active: boolean;
+  employment_type: string;
+  sort_order: number;
+};
+
+export type Shift = {
+  employee_id: number;
+  shift_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  break_minutes: number | null;
+  comment: string | null;
+};
+
+export type Availability = {
+  employee_id: number;
+  availability_date: string;
+  status: string | null;
+  fixed_start: string | null;
+  fixed_end: string | null;
+};
+
+export type DateRequirement = {
+  requirement_date: string;
+  required_shifts: number;
+  service_required_shifts: number | null;
+  note: string | null;
+};
+
+export type ShiftTrack = {
+  track_key: string;
+  label: string;
+  start_time: string;
+  end_time: string;
+};
+
+export const EMPLOYEE_COLORS = [
+  "#6366f1", "#8b5cf6", "#ec4899", "#f97316",
+  "#22c55e", "#06b6d4", "#eab308", "#ef4444",
+  "#14b8a6", "#f43f5e",
+];
+
+export const EMPLOYMENT_TYPES = [
+  { value: "vollzeit", label: "Vollzeit" },
+  { value: "teilzeit", label: "Teilzeit" },
+  { value: "minijob", label: "Minijob" },
+  { value: "werkstudent", label: "Werkstudent" },
+  { value: "praktikum", label: "Praktikum" },
+];
+
+export function getInitials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0].toUpperCase())
+    .join("");
+}
+
+export function getPrevMonth(month: string) {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 2, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+export function getNextMonth(month: string) {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+export function buildMonthDays(month: string): string[] {
+  const [y, m] = month.split("-").map(Number);
+  const days: string[] = [];
+  const end = new Date(Date.UTC(y, m, 0));
+  for (let day = 1; day <= end.getUTCDate(); day++) {
+    days.push(`${month}-${String(day).padStart(2, "0")}`);
+  }
+  return days;
+}
+
+export function getCurrentMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function getTodayString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// ── Legacy types kept for auto-plan algorithm ─────────────────────────────────
 export type PauseRule = {
   min_minutes: number;
   pause_minutes: number;

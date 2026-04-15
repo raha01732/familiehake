@@ -12,7 +12,10 @@
       "Bash(powershell:*)",
       "Bash(gh:*)",
       "Bash(grep -l \"useState\\\\|useEffect\\\\|useContext\\\\|useReducer\\\\|useCallback\\\\|useMemo\\\\|useRef\" /c/Users/ralfh/Desktop/Projekt/src/components/*.tsx)",
-      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && head -2 \"$1\"' _ {})"
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && head -2 \"$1\"' _ {})",
+      "Bash(find /c/Users/ralfh/Desktop/Projekt/src -type d -name \"types\" -exec find {} -type f \\\\;)",
+      "Bash(xargs grep:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
