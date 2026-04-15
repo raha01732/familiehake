@@ -16,6 +16,7 @@ import {
   autoGenerateMonthPlanAction,
   bulkSaveShiftsAction,
   clearMonthAction,
+  copyWeekShiftsAction,
   moveShiftAction,
   saveAvailabilityAction,
   saveShiftAction,
@@ -56,6 +57,7 @@ type WeeklyRangeShift = {
   start_time: string | null;
   end_time: string | null;
   break_minutes: number | null;
+  comment?: string | null;
 };
 
 type DienstplanPauseRule = {
@@ -130,6 +132,71 @@ function buildDaysInMonth(date: Date) {
     days.push(new Date(Date.UTC(year, month, day)));
   }
   return { start, end, days };
+}
+
+function addDays(dateValue: string, daysToAdd: number) {
+  const date = new Date(`${dateValue}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() + daysToAdd);
+  return date.toISOString().slice(0, 10);
+}
+
+function parseTimeToMinutes(value: string | null) {
+  if (!value) return null;
+  const [hoursStr, minutesStr] = value.slice(0, 5).split(":");
+  const hours = Number(hoursStr);
+  const minutes = Number(minutesStr);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function hasTimeOverlap(
+  shiftStart: string | null,
+  shiftEnd: string | null,
+  requirementStart: string | null,
+  requirementEnd: string | null
+) {
+  const shiftStartMinutes = parseTimeToMinutes(shiftStart);
+  const shiftEndMinutes = parseTimeToMinutes(shiftEnd);
+  const requirementStartMinutes = parseTimeToMinutes(requirementStart);
+  const requirementEndMinutes = parseTimeToMinutes(requirementEnd);
+  if (
+    shiftStartMinutes === null ||
+    shiftEndMinutes === null ||
+    requirementStartMinutes === null ||
+    requirementEndMinutes === null
+  ) {
+    return true;
+  }
+
+  const buildRanges = (start: number, end: number) => {
+    if (end > start) return [{ start, end }];
+    return [
+      { start, end: end + 24 * 60 },
+      { start: start - 24 * 60, end },
+    ];
+  };
+
+  const shiftRanges = buildRanges(shiftStartMinutes, shiftEndMinutes);
+  const requirementRanges = buildRanges(requirementStartMinutes, requirementEndMinutes);
+  return shiftRanges.some((shiftRange) =>
+    requirementRanges.some(
+      (requirementRange) => shiftRange.start < requirementRange.end && shiftRange.end > requirementRange.start
+    )
+  );
+}
+
+function buildShiftDateRange(shiftDate: string, startTime: string | null, endTime: string | null) {
+  if (!startTime || !endTime) return null;
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
+  if (startMinutes === null || endMinutes === null) return null;
+  const startDate = new Date(`${shiftDate}T${startTime.slice(0, 5)}:00Z`);
+  const endDate = new Date(`${shiftDate}T${endTime.slice(0, 5)}:00Z`);
+  if (endMinutes <= startMinutes) {
+    endDate.setUTCDate(endDate.getUTCDate() + 1);
+  }
+  return { startDate, endDate };
 }
 
 export default async function DienstplanerPage({ searchParams }: { searchParams?: { month?: string } }) {
@@ -243,19 +310,22 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
 
   const { data: weeklyRangeShifts } = await sb
     .from("dienstplan_shifts")
-    .select("employee_id, shift_date, start_time, end_time, break_minutes")
+    .select("employee_id, shift_date, start_time, end_time, break_minutes, comment")
     .gte("shift_date", firstWeekKey)
     .lte("shift_date", weeklyRangeEnd);
 
   const weeklyTotals = new Map<string, number>();
+  const shiftsByEmployee = new Map<number, WeeklyRangeShift[]>();
   for (const shift of (weeklyRangeShifts as WeeklyRangeShift[] | null) ?? []) {
     const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRuleList, shift.break_minutes);
     if (!summary) continue;
     const weekKey = getThursdayWeekKey(shift.shift_date);
     if (!weekKey) continue;
     weeklyTotals.set(`${shift.employee_id}-${weekKey}`, (weeklyTotals.get(`${shift.employee_id}-${weekKey}`) ?? 0) + summary.workMinutes);
+    const employeeShifts = shiftsByEmployee.get(shift.employee_id) ?? [];
+    employeeShifts.push(shift);
+    shiftsByEmployee.set(shift.employee_id, employeeShifts);
   }
-
   const prevMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1));
   const nextMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
   const prevMonthKey = `${prevMonth.getUTCFullYear()}-${String(prevMonth.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -287,6 +357,30 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
   const firstProjectionIndex = employeesOrdered.findIndex((employee) =>
     (employee.position ?? "").trim().toLowerCase().includes("projektion")
   );
+  const restWarnings: Array<{ employeeName: string; previousDate: string; nextDate: string; restHours: string }> = [];
+  for (const employee of employeesOrdered) {
+    const employeeShifts = (shiftsByEmployee.get(employee.id) ?? [])
+      .filter((entry) => entry.start_time && entry.end_time)
+      .sort((left, right) => left.shift_date.localeCompare(right.shift_date));
+    for (let index = 1; index < employeeShifts.length; index += 1) {
+      const previousShift = employeeShifts[index - 1];
+      const nextShift = employeeShifts[index];
+      if (!previousShift.end_time || !nextShift.start_time) continue;
+      const previousRange = buildShiftDateRange(previousShift.shift_date, previousShift.start_time, previousShift.end_time);
+      const nextRange = buildShiftDateRange(nextShift.shift_date, nextShift.start_time, nextShift.end_time);
+      if (!previousRange || !nextRange) continue;
+      const previousEnd = previousRange.endDate;
+      const nextStart = nextRange.startDate;
+      const restMinutes = Math.round((nextStart.getTime() - previousEnd.getTime()) / 60000);
+      if (restMinutes >= 11 * 60 || restMinutes < 0) continue;
+      restWarnings.push({
+        employeeName: employee.name,
+        previousDate: previousShift.shift_date,
+        nextDate: nextShift.shift_date,
+        restHours: formatMinutesAsHours(restMinutes),
+      });
+    }
+  }
 
   const weekdayPositionRequirementMap = new Map<number, WeekdayPositionRequirement[]>();
   for (const requirement of (weekdayPositionRequirements as WeekdayPositionRequirement[] | null) ?? []) {
@@ -304,11 +398,58 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
 
   let requiredSlotsMonth = 0;
   let assignedSlotsMonth = 0;
+  let openSlotsMonth = 0;
+  const openRoleItems: Array<{
+    dateKey: string;
+    position: string;
+    missingCount: number;
+  }> = [];
+  const employeePositionMap = new Map<number, string>();
+  for (const employee of employeesOrdered) {
+    employeePositionMap.set(employee.id, (employee.position ?? "").trim().toLowerCase());
+  }
+
+  const isEmployeeMatchingPosition = (employeeId: number, position: string) => {
+    const employeePosition = employeePositionMap.get(employeeId) ?? "";
+    const normalizedRequiredPosition = position.trim().toLowerCase();
+    if (!normalizedRequiredPosition) return true;
+    return employeePosition.includes(normalizedRequiredPosition);
+  };
+
   for (const day of days) {
     const dateKey = day.toISOString().slice(0, 10);
     const positionRequirementsForDay = positionRequirementMap.get(dateKey) ?? [];
     if (positionRequirementsForDay.length > 0) {
       requiredSlotsMonth += positionRequirementsForDay.length;
+      for (const requirement of positionRequirementsForDay) {
+        const matchingEmployeesWithShift = employeesOrdered.filter((employee) => {
+          const shift = shiftMap.get(`${employee.id}-${dateKey}`);
+          if (!shift) return false;
+          const isPositionMatch = isEmployeeMatchingPosition(employee.id, requirement.position);
+          const isTimeMatch = hasTimeOverlap(
+            shift.start_time,
+            shift.end_time,
+            requirement.start_time,
+            requirement.end_time
+          );
+          return isPositionMatch && isTimeMatch;
+        }).length;
+        if (matchingEmployeesWithShift === 0) {
+          openSlotsMonth += 1;
+          const existingItem = openRoleItems.find(
+            (item) => item.dateKey === dateKey && item.position === requirement.position
+          );
+          if (existingItem) {
+            existingItem.missingCount += 1;
+          } else {
+            openRoleItems.push({
+              dateKey,
+              position: requirement.position,
+              missingCount: 1,
+            });
+          }
+        }
+      }
     } else {
       requiredSlotsMonth += dateRequirementMap.get(dateKey)?.required_shifts ?? weekdayRequirementMap.get(day.getUTCDay()) ?? 0;
     }
@@ -344,7 +485,7 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
             </Link>
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="rounded-xl border border-cyan-900/60 bg-gradient-to-br from-cyan-950/60 to-zinc-900/80 px-4 py-3">
             <div className="text-[11px] uppercase tracking-wide text-cyan-300/80">Planabdeckung</div>
             <div className="text-xl font-semibold text-cyan-100">{coveragePercent}%</div>
@@ -357,7 +498,30 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
             <div className="text-[11px] uppercase tracking-wide text-emerald-300/80">Verplante Slots</div>
             <div className="text-xl font-semibold text-emerald-100">{assignedSlotsMonth}</div>
           </div>
+          <div className="rounded-xl border border-rose-900/60 bg-gradient-to-br from-rose-950/60 to-zinc-900/80 px-4 py-3">
+            <div className="text-[11px] uppercase tracking-wide text-rose-300/80">Offene Rollen-Slots</div>
+            <div className="text-xl font-semibold text-rose-100">{openSlotsMonth}</div>
+          </div>
         </div>
+        {openRoleItems.length > 0 && (
+          <div className="rounded-xl border border-rose-900/60 bg-rose-950/20 px-4 py-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-rose-200">Offene Rollen im Monat</div>
+            <ul className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {openRoleItems.slice(0, 12).map((item) => (
+                <li key={`${item.dateKey}-${item.position}`} className="rounded border border-rose-900/40 bg-zinc-950/70 px-3 py-2 text-xs text-zinc-200">
+                  <span className="font-medium text-rose-200">{formatDateLabel(new Date(`${item.dateKey}T00:00:00Z`))}</span>
+                  <span className="ml-2">{item.position}</span>
+                  <span className="ml-2 text-zinc-400">× {item.missingCount}</span>
+                </li>
+              ))}
+            </ul>
+            {openRoleItems.length > 12 && (
+              <p className="mt-2 text-[11px] text-zinc-400">
+                + {openRoleItems.length - 12} weitere offene Rollen-Slots in diesem Monat
+              </p>
+            )}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <form action={bulkSaveShiftsAction} id="bulk-save" className="flex items-center gap-3">
             <input type="hidden" name="month" value={monthKey} />
@@ -394,6 +558,25 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
             </span>
           )}
         </div>
+        {restWarnings.length > 0 && (
+          <div className="rounded-xl border border-amber-800/70 bg-amber-950/30 px-4 py-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-200">
+              Ruhezeit-Warnungen (&lt; 11h)
+            </div>
+            <ul className="mt-2 grid gap-2 md:grid-cols-2">
+              {restWarnings.slice(0, 8).map((warning) => (
+                <li
+                  key={`${warning.employeeName}-${warning.previousDate}-${warning.nextDate}`}
+                  className="rounded border border-amber-800/50 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-200"
+                >
+                  <span className="font-medium text-amber-200">{warning.employeeName}</span>
+                  <span className="ml-2 text-zinc-300">{warning.previousDate} → {warning.nextDate}</span>
+                  <span className="ml-2 text-amber-100">Ruhezeit: {warning.restHours}h</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </header>
       <SettingsPanelToggle
         employees={(employees as DienstplanEmployee[] | null) ?? []}
@@ -529,9 +712,21 @@ export default async function DienstplanerPage({ searchParams }: { searchParams?
               const weekStart = new Date(`${weekKey}T00:00:00Z`);
               const weekEnd = new Date(`${weekDays[weekDays.length - 1]}T00:00:00Z`);
               const weekLabel = `Woche ${weekStart.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}–${weekEnd.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`;
+              const nextWeekKey = addDays(new Date(`${weekKey}T00:00:00Z`).toISOString().slice(0, 10), 7);
               return (
                 <tr key={`weekly-${weekKey}`} className="border-t border-zinc-800 bg-zinc-900/30">
-                  <td className="py-2 px-4 text-zinc-300 text-xs">{weekLabel}</td>
+                  <td className="py-2 px-4 text-zinc-300 text-xs">
+                    <div>{weekLabel}</div>
+                    {isAdmin && nextWeekKey && (
+                      <form action={copyWeekShiftsAction} className="mt-1">
+                        <input type="hidden" name="from_week_start" value={weekKey} />
+                        <input type="hidden" name="to_week_start" value={nextWeekKey} />
+                        <button type="submit" className="rounded border border-cyan-700/60 px-2 py-0.5 text-[10px] text-cyan-200 hover:bg-cyan-900/30">
+                          In nächste Woche kopieren
+                        </button>
+                      </form>
+                    )}
+                  </td>
                   <td className="py-2 px-4 text-zinc-500 text-xs">Wochensumme (Donnerstag–Mittwoch)</td>
                   {employeesOrdered.map((employee, employeeIndex) => {
                     const weeklyMinutes = weeklyTotals.get(`${employee.id}-${weekKey}`) ?? 0;

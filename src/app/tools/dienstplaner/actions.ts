@@ -34,6 +34,25 @@ function buildMonthDays(startDate: string, endDate: string) {
   return days;
 }
 
+function addDays(dateValue: string, daysToAdd: number) {
+  const date = new Date(`${dateValue}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() + daysToAdd);
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeTimeInput(value: string) {
+  const normalizedValue = value.trim();
+  if (!normalizedValue) return null;
+  const matchedTime = normalizedValue.match(/^(\d{2}):(\d{2})$/);
+  if (!matchedTime) return null;
+  const hours = Number(matchedTime[1]);
+  const minutes = Number(matchedTime[2]);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
 async function assertAdminForDienstplanAutomation() {
   const user = await currentUser();
   if (!user) {
@@ -65,15 +84,20 @@ export async function saveShiftAction(formData: FormData) {
 
   const employeeId = Number(formData.get("employee_id"));
   const shiftDate = String(formData.get("shift_date") || "");
-  const startTime = String(formData.get("start_time") || "").trim();
-  const endTime = String(formData.get("end_time") || "").trim();
+  const startTimeRaw = String(formData.get("start_time") || "");
+  const endTimeRaw = String(formData.get("end_time") || "");
+  const startTime = normalizeTimeInput(startTimeRaw);
+  const endTime = normalizeTimeInput(endTimeRaw);
   if (!employeeId || !shiftDate) return;
 
   const sb = createAdminClient();
-  if (!startTime || !endTime) {
+  if (!startTimeRaw.trim() || !endTimeRaw.trim()) {
     await sb.from("dienstplan_shifts").delete().eq("employee_id", employeeId).eq("shift_date", shiftDate);
     revalidatePath(PLAN_PATH);
     return;
+  }
+  if (!startTime || !endTime) {
+    throw new Error("INVALID_SHIFT_TIME");
   }
 
   const { data: existingShift } = await sb
@@ -104,7 +128,7 @@ export async function bulkSaveShiftsAction(formData: FormData) {
 
   const sb = createAdminClient();
   const entries = Array.from(formData.entries());
-  const shiftEntries = new Map<string, { employeeId: number; date: string; startTime: string; endTime: string }>();
+  const shiftEntries = new Map<string, { employeeId: number; date: string; startTimeRaw: string; endTimeRaw: string }>();
 
   for (const [key, rawValue] of entries) {
     if (!key.startsWith("shift:")) continue;
@@ -113,20 +137,25 @@ export async function bulkSaveShiftsAction(formData: FormData) {
     if (!employeeId || !date || (field !== "start" && field !== "end")) continue;
     const value = String(rawValue || "").trim();
     const entryKey = `${employeeId}-${date}`;
-    const entry = shiftEntries.get(entryKey) ?? { employeeId, date, startTime: "", endTime: "" };
+    const entry = shiftEntries.get(entryKey) ?? { employeeId, date, startTimeRaw: "", endTimeRaw: "" };
     if (field === "start") {
-      entry.startTime = value;
+      entry.startTimeRaw = value;
     }
     if (field === "end") {
-      entry.endTime = value;
+      entry.endTimeRaw = value;
     }
     shiftEntries.set(entryKey, entry);
   }
 
   for (const entry of shiftEntries.values()) {
-    if (!entry.startTime || !entry.endTime) {
+    if (!entry.startTimeRaw || !entry.endTimeRaw) {
       await sb.from("dienstplan_shifts").delete().eq("employee_id", entry.employeeId).eq("shift_date", entry.date);
       continue;
+    }
+    const startTime = normalizeTimeInput(entry.startTimeRaw);
+    const endTime = normalizeTimeInput(entry.endTimeRaw);
+    if (!startTime || !endTime) {
+      throw new Error(`INVALID_SHIFT_TIME_FOR_${entry.employeeId}_${entry.date}`);
     }
 
     const { data: existingShift } = await sb
@@ -140,8 +169,8 @@ export async function bulkSaveShiftsAction(formData: FormData) {
       {
         employee_id: entry.employeeId,
         shift_date: entry.date,
-        start_time: entry.startTime,
-        end_time: entry.endTime,
+        start_time: startTime,
+        end_time: endTime,
         break_minutes: existingShift?.break_minutes ?? null,
         comment: existingShift?.comment ?? null,
         raw_input: existingShift?.raw_input ?? null,
@@ -371,16 +400,80 @@ export async function moveShiftAction(formData: FormData) {
   return { ok: true };
 }
 
+export async function copyWeekShiftsAction(formData: FormData) {
+  await assertAdminForDienstplanAutomation();
+
+  const fromWeekStart = String(formData.get("from_week_start") || "").trim();
+  const toWeekStart = String(formData.get("to_week_start") || "").trim();
+  if (!fromWeekStart || !toWeekStart) return;
+
+  const fromWeekEnd = addDays(fromWeekStart, 6);
+  const toWeekEnd = addDays(toWeekStart, 6);
+  if (!fromWeekEnd || !toWeekEnd) return;
+
+  const sb = createAdminClient();
+  const { data: sourceWeekShifts, error: sourceWeekError } = await sb
+    .from("dienstplan_shifts")
+    .select("employee_id, shift_date, start_time, end_time, break_minutes, comment, raw_input")
+    .gte("shift_date", fromWeekStart)
+    .lte("shift_date", fromWeekEnd);
+  if (sourceWeekError) {
+    throw new Error(`COPY_WEEK_SOURCE_FETCH_FAILED: ${sourceWeekError.message}`);
+  }
+
+  const sourceShifts = sourceWeekShifts ?? [];
+  const { error: deleteTargetWeekError } = await sb
+    .from("dienstplan_shifts")
+    .delete()
+    .gte("shift_date", toWeekStart)
+    .lte("shift_date", toWeekEnd);
+  if (deleteTargetWeekError) {
+    throw new Error(`COPY_WEEK_TARGET_DELETE_FAILED: ${deleteTargetWeekError.message}`);
+  }
+
+  if (sourceShifts.length > 0) {
+    const entriesToInsert = sourceShifts
+      .map((shift) => {
+        const fromDate = new Date(`${shift.shift_date}T00:00:00Z`);
+        const targetDate = new Date(fromDate);
+        targetDate.setUTCDate(targetDate.getUTCDate() + 7);
+        const nextDate = targetDate.toISOString().slice(0, 10);
+        if (nextDate < toWeekStart || nextDate > toWeekEnd) return null;
+        return {
+          employee_id: shift.employee_id,
+          shift_date: nextDate,
+          start_time: shift.start_time,
+          end_time: shift.end_time,
+          break_minutes: shift.break_minutes,
+          comment: shift.comment,
+          raw_input: "week-copy",
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+    if (entriesToInsert.length > 0) {
+      const { error: insertCopiedShiftsError } = await sb.from("dienstplan_shifts").insert(entriesToInsert);
+      if (insertCopiedShiftsError) {
+        throw new Error(`COPY_WEEK_TARGET_INSERT_FAILED: ${insertCopiedShiftsError.message}`);
+      }
+    }
+  }
+
+  revalidatePath(PLAN_PATH);
+}
+
 export async function updateShiftDetailsAction(formData: FormData) {
   await assertAuthenticatedForDienstplanWrite();
 
   const employeeId = Number(formData.get("employee_id"));
   const shiftDate = String(formData.get("shift_date") || "").trim();
-  const startTime = String(formData.get("start_time") || "").trim();
-  const endTime = String(formData.get("end_time") || "").trim();
+  const startTime = normalizeTimeInput(String(formData.get("start_time") || ""));
+  const endTime = normalizeTimeInput(String(formData.get("end_time") || ""));
   const breakMinutesRaw = String(formData.get("break_minutes") || "").trim();
   const comment = String(formData.get("comment") || "").trim();
-  if (!employeeId || !shiftDate || !startTime || !endTime) return;
+  if (!employeeId || !shiftDate || !startTime || !endTime) {
+    throw new Error("INVALID_SHIFT_DETAILS");
+  }
 
   const breakMinutes = breakMinutesRaw ? Number(breakMinutesRaw) : null;
   const normalizedBreakMinutes = Number.isFinite(breakMinutes) && (breakMinutes ?? 0) >= 0 ? breakMinutes : null;
@@ -524,14 +617,17 @@ export async function saveAvailabilityAction(formData: FormData) {
   const employeeId = Number(formData.get("employee_id"));
   const availabilityDate = String(formData.get("availability_date") || "");
   const status = String(formData.get("status") || "").trim();
-  const fixedStart = String(formData.get("fixed_start") || "").trim();
-  const fixedEnd = String(formData.get("fixed_end") || "").trim();
+  const fixedStart = normalizeTimeInput(String(formData.get("fixed_start") || ""));
+  const fixedEnd = normalizeTimeInput(String(formData.get("fixed_end") || ""));
   if (!employeeId || !availabilityDate) return;
 
   const sb = createAdminClient();
   const normalizedStatus = status || null;
   const normalizedStart = status === "fix" && fixedStart ? fixedStart : null;
   const normalizedEnd = status === "fix" && fixedEnd ? fixedEnd : null;
+  if (status === "fix" && (!normalizedStart || !normalizedEnd)) {
+    throw new Error("INVALID_AVAILABILITY_TIME");
+  }
 
   if (!normalizedStatus && !normalizedStart && !normalizedEnd) {
     await sb.from("dienstplan_availability").delete().eq("employee_id", employeeId).eq("availability_date", availabilityDate);

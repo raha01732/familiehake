@@ -47,6 +47,7 @@ export default function ShiftInput({
   const [isPending, startTransition] = useTransition();
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [moveFeedback, setMoveFeedback] = useState<string | null>(null);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const hasAssignedShift = hasShift || Boolean(startValue && endValue);
 
   const handleBlur = () => {
@@ -57,7 +58,9 @@ export default function ShiftInput({
     formData.set("end_time", endValue);
 
     startTransition(() => {
-      void saveAction(formData);
+      void saveAction(formData)
+        .then(() => setSaveFeedback(null))
+        .catch(() => setSaveFeedback("Schicht konnte nicht gespeichert werden."));
     });
   };
 
@@ -74,7 +77,9 @@ export default function ShiftInput({
     formData.set("start_time", normalizedStart);
     formData.set("end_time", normalizedEnd);
     startTransition(() => {
-      void saveAction(formData);
+      void saveAction(formData)
+        .then(() => setSaveFeedback(null))
+        .catch(() => setSaveFeedback("Schicht konnte nicht gespeichert werden."));
     });
   };
 
@@ -120,7 +125,9 @@ export default function ShiftInput({
     formData.set("comment", commentValue);
 
     startTransition(() => {
-      void updateDetailsAction(formData);
+      void updateDetailsAction(formData)
+        .then(() => setSaveFeedback(null))
+        .catch(() => setSaveFeedback("Details konnten nicht gespeichert werden."));
     });
     setIsEditorOpen(false);
   };
@@ -188,6 +195,7 @@ export default function ShiftInput({
       <span className={`text-[10px] ${isPending ? "text-amber-400" : "text-zinc-500"}`}>
         {isPending ? "Speichern..." : "Auto-Save"}
       </span>
+      {saveFeedback && <span className="text-[10px] text-rose-300">{saveFeedback}</span>}
       {moveFeedback && <span className="text-[10px] text-cyan-300">{moveFeedback}</span>}
 
       {isEditorOpen && (
