@@ -700,11 +700,11 @@ function EnvGroup({
   return (
     <details className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
       <summary className="flex cursor-pointer items-center justify-between list-none">
-        <div className="text-sm text-zinc-200">{name}</div>
-        <div className="flex items-center gap-2">
+        <span className="text-sm text-zinc-200">{name}</span>
+        <span className="flex items-center gap-2">
           <span className={`rounded-lg border px-2 py-0.5 text-[11px] ${cls}`}>{allOk ? "OK" : "Fehlt"}</span>
           <span className="text-[11px] text-zinc-500">v</span>
-        </div>
+        </span>
       </summary>
       <div className="mt-2 grid gap-1">
         {checks.map((check) => (
