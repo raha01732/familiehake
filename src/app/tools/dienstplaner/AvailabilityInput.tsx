@@ -34,6 +34,7 @@ export default function AvailabilityInput({
   const [fixedStart, setFixedStart] = useState(initialFixedStart ?? "");
   const [fixedEnd, setFixedEnd] = useState(initialFixedEnd ?? "");
   const [isPending, startTransition] = useTransition();
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
 
   const handleSave = (nextStatus: string, nextStart: string, nextEnd: string) => {
     const formData = new FormData();
@@ -43,8 +44,15 @@ export default function AvailabilityInput({
     formData.set("fixed_start", nextStart);
     formData.set("fixed_end", nextEnd);
 
+    if (nextStatus === "fix" && (!nextStart || !nextEnd)) {
+      setSaveFeedback("Bitte Start- und Endzeit für fixe Verfügbarkeit setzen.");
+      return;
+    }
+
     startTransition(() => {
-      void saveAction(formData);
+      void saveAction(formData)
+        .then(() => setSaveFeedback(null))
+        .catch(() => setSaveFeedback("Verfügbarkeit konnte nicht gespeichert werden."));
     });
   };
 
@@ -84,6 +92,7 @@ export default function AvailabilityInput({
           {isPending ? "Speichern..." : "Auto-Save"}
         </span>
       </div>
+      {saveFeedback && <span className="text-[10px] text-rose-300">{saveFeedback}</span>}
       {showFixed && (
         <div className="flex items-center gap-2">
           <input
