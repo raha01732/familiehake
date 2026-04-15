@@ -30,7 +30,7 @@ export default function AutoPlanConfigModal({ month, onClose, onConfirm, isPendi
   const [, m, y] = ["", ...month.split("-")];
   const monthLabel = `${MONTH_LABELS[m] ?? m} ${y}`;
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: { preventDefault: () => void }) {
     e.preventDefault();
     if (!formRef.current) return;
     const fd = new FormData(formRef.current);

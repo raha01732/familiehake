@@ -57,10 +57,12 @@ export default [
       // React Hooks
       ...reactHooks.configs.recommended.rules,
 
-      // Aufräumen
+      // Aufräumen: Basis-Regel deaktivieren, damit unused-imports/no-unused-vars allein greift
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": "off",
       "unused-imports/no-unused-imports": "warn",
       "unused-imports/no-unused-vars": [
-        "warn",
+        "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", ignoreRestSiblings: true },
       ],
     },

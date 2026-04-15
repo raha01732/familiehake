@@ -23,12 +23,12 @@ type Props = {
   pauseRules: PauseRule[];
   shiftTracks: ShiftTrack[];
   isAdmin: boolean;
-  saveShiftAction: (fd: FormData) => Promise<void>;
-  deleteShiftAction: (fd: FormData) => Promise<void>;
-  moveShiftAction: (fd: FormData) => Promise<void>;
-  saveAvailabilityAction: (fd: FormData) => Promise<void>;
-  autoGenerateAction: (fd: FormData) => Promise<void>;
-  clearMonthAction: (fd: FormData) => Promise<void>;
+  saveShiftAction: (_fd: FormData) => Promise<void>;
+  deleteShiftAction: (_fd: FormData) => Promise<void>;
+  moveShiftAction: (_fd: FormData) => Promise<void>;
+  saveAvailabilityAction: (_fd: FormData) => Promise<void>;
+  autoGenerateAction: (_fd: FormData) => Promise<void>;
+  clearMonthAction: (_fd: FormData) => Promise<void>;
 };
 
 const WEEKDAY_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];

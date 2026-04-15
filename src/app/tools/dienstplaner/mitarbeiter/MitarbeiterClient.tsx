@@ -9,9 +9,9 @@ import EmployeeModal from "../components/EmployeeModal";
 type Props = {
   initialEmployees: Employee[];
   isAdmin: boolean;
-  createAction: (fd: FormData) => Promise<void>;
-  updateAction: (fd: FormData) => Promise<void>;
-  deleteAction: (fd: FormData) => Promise<void>;
+  createAction: (_fd: FormData) => Promise<void>;
+  updateAction: (_fd: FormData) => Promise<void>;
+  deleteAction: (_fd: FormData) => Promise<void>;
 };
 
 export default function MitarbeiterClient({
@@ -106,7 +106,7 @@ function EmployeeSection({
 }: {
   title: string;
   employees: Employee[];
-  onEdit: (e: Employee) => void;
+  onEdit: (_emp: Employee) => void;
   muted?: boolean;
 }) {
   if (employees.length === 0) return null;
@@ -125,7 +125,7 @@ function EmployeeSection({
 }
 
 function EmployeeCard({ employee: emp, onEdit, muted }: {
-  employee: Employee; onEdit: (e: Employee) => void; muted: boolean;
+  employee: Employee; onEdit: (emp: Employee) => void; muted: boolean;
 }) {
   const empType = EMPLOYMENT_TYPES.find((t) => t.value === emp.employment_type)?.label ?? emp.employment_type;
   return (

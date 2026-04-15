@@ -11,9 +11,9 @@ type Props = {
   shift: Shift | null;
   shiftTracks: ShiftTrack[];
   onClose: () => void;
-  saveAction: (formData: FormData) => Promise<void>;
-  deleteAction: (formData: FormData) => Promise<void>;
-  moveAction: (formData: FormData) => Promise<void>;
+  saveAction: (_fd: FormData) => Promise<void>;
+  deleteAction: (_fd: FormData) => Promise<void>;
+  moveAction: (_fd: FormData) => Promise<void>;
 };
 
 const WEEKDAY_LABELS = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
@@ -40,7 +40,7 @@ export default function ShiftModal({
   const [isDeleting, startDelete] = useTransition();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(employee.id);
 
-  function handleSave(e: React.FormEvent) {
+  function handleSave(e: { preventDefault: () => void }) {
     e.preventDefault();
     if (!formRef.current) return;
     const fd = new FormData(formRef.current);
