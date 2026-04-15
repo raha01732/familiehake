@@ -75,6 +75,8 @@ export default function MonthlyGrid({
   const [isAutoPlanning, startAutoPlanning] = useTransition();
   const [isClearing, startClearing] = useTransition();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isMoving, startMoving] = useTransition();
+  const [moveError, setMoveError] = useState<string | null>(null);
   const dragSource = useRef<{ employeeId: number; date: string } | null>(null);
 
   // ── Build lookup maps ──────────────────────────────────────────────────────
@@ -151,7 +153,14 @@ export default function MonthlyGrid({
     fd.set("from_employee_id", String(src.employeeId));
     fd.set("to_employee_id", String(targetEmployeeId));
     fd.set("shift_date", targetDate);
-    moveShiftAction(fd);
+    setMoveError(null);
+    startMoving(async () => {
+      try {
+        await moveShiftAction(fd);
+      } catch {
+        setMoveError("Schicht konnte nicht verschoben werden.");
+      }
+    });
   }
 
   // ── Clear month ────────────────────────────────────────────────────────────

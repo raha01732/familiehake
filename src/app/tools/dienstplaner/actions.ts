@@ -207,6 +207,12 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
   const range = getMonthRange(month);
   if (!range) return;
 
+  const minShiftHours = Math.max(0, Number(formData.get("min_shift_hours") || 0));
+  const maxShiftsPerWeek = Math.max(1, Number(formData.get("max_shifts_per_week") || 7));
+  const skipWeekends = formData.get("skip_weekends") === "true";
+  const respectAvailability = formData.get("respect_availability") !== "false";
+  const overwriteExisting = formData.get("overwrite_existing") === "true";
+
   const sb = createAdminClient();
   const [employeesResult, pauseRulesResult, availabilityResult, weekdayRequirementsResult, dateRequirementsResult, shiftTracksResult, weekdayPositionRequirementsResult, datePositionRequirementsResult] = await Promise.all([
     sb.from("dienstplan_employees").select("id, position, monthly_hours, weekly_hours"),
@@ -278,6 +284,8 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
   for (const day of monthDays) {
     const parsedDay = new Date(`${day}T00:00:00Z`);
     const weekday = parsedDay.getUTCDay();
+
+    if (skipWeekends && (weekday === 0 || weekday === 6)) continue;
     const dateSpecificRequirements = datePositionMap.get(day) ?? [];
 
     if (dateSpecificRequirements.length > 0) {
@@ -324,19 +332,50 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
     }
   }
 
+  // Wenn overwrite_existing=false: bestehende Schichten laden und als belegt markieren
+  let existingShiftsForPlan: { employee_id: number; shift_date: string; start_time: string | null; end_time: string | null }[] = [];
+  if (!overwriteExisting) {
+    const { data: existing } = await sb
+      .from("dienstplan_shifts")
+      .select("employee_id, shift_date, start_time, end_time")
+      .gte("shift_date", range.start)
+      .lte("shift_date", range.end);
+    existingShiftsForPlan = existing ?? [];
+    // Tage mit bestehender Schicht aus den Slots entfernen
+    const occupiedKeys = new Set(existingShiftsForPlan.map((s) => `${s.employee_id}-${s.shift_date}`));
+    // Slots für Tage behalten, die noch nicht vollständig besetzt sind
+    const occupiedDays = new Set(existingShiftsForPlan.map((s) => s.shift_date));
+    // Nur Slots für Tage ohne jegliche Schicht übrig lassen
+    slots.splice(0, slots.length, ...slots.filter((s) => !occupiedDays.has(s.shift_date)));
+    void occupiedKeys; // wird in generateAutoPlanSlots via existingShifts berücksichtigt
+  }
+
+  // min_shift_hours: Slots herausfiltern, die kürzer als das Minimum sind
+  const filteredSlots = minShiftHours > 0
+    ? slots.filter((s) => {
+        const startMins = s.start_time.split(":").reduce((h, m, i) => h + (i === 0 ? Number(m) * 60 : Number(m)), 0);
+        let endMins = s.end_time.split(":").reduce((h, m, i) => h + (i === 0 ? Number(m) * 60 : Number(m)), 0);
+        if (endMins <= startMins) endMins += 24 * 60;
+        return (endMins - startMins) >= minShiftHours * 60;
+      })
+    : slots;
+
   const generatedShifts = generateAutoPlanSlots({
     employees,
-    existingShifts: [],
-    availability,
-    slots,
+    existingShifts: existingShiftsForPlan,
+    availability: respectAvailability ? availability : [],
+    slots: filteredSlots,
     pauseRules,
+    maxShiftsPerWeek,
   });
 
   if (generatedShifts.length === 0) {
     return;
   }
 
-  await sb.from("dienstplan_shifts").delete().gte("shift_date", range.start).lte("shift_date", range.end);
+  if (overwriteExisting) {
+    await sb.from("dienstplan_shifts").delete().gte("shift_date", range.start).lte("shift_date", range.end);
+  }
   if (generatedShifts.length > 0) {
     await sb.from("dienstplan_shifts").insert(
       generatedShifts.map((shift) => ({

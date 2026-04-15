@@ -255,14 +255,16 @@ export function generateAutoPlanSlots(params: {
   availability: AutoPlanAvailability[];
   slots: AutoPlanSlot[];
   pauseRules: PauseRule[];
+  maxShiftsPerWeek?: number;
 }) {
-  const { employees, existingShifts, availability, slots, pauseRules } = params;
+  const { employees, existingShifts, availability, slots, pauseRules, maxShiftsPerWeek = 7 } = params;
   const availabilityMap = new Map(
     availability.map((entry) => [`${entry.employee_id}-${entry.availability_date}`, entry])
   );
   const assignedByDay = new Map<string, Set<number>>();
   const totalMinutesByEmployee = new Map<number, number>();
   const weeklyMinutesByEmployee = new Map<string, number>();
+  const weeklyShiftCountByEmployee = new Map<string, number>();
   const assignmentCount = new Map<number, number>();
 
   for (const shift of existingShifts) {
@@ -315,6 +317,12 @@ export function generateAutoPlanSlots(params: {
       const monthlyFairnessScore =
         monthlyTargetMinutes > 0 ? (currentMinutes / monthlyTargetMinutes) * 100 : currentMinutes / 60;
       const weekKey = getThursdayWeekKey(slot.shift_date);
+      // Max. Schichten pro Woche prüfen
+      const weekShiftCount = weekKey
+        ? (weeklyShiftCountByEmployee.get(`${employee.id}-${weekKey}`) ?? 0)
+        : 0;
+      if (weekShiftCount >= maxShiftsPerWeek) continue;
+
       const weeklyTargetMinutes = Math.max(0, Math.round(employee.weekly_hours * 60));
       const weeklyMinutes = weekKey ? (weeklyMinutesByEmployee.get(`${employee.id}-${weekKey}`) ?? 0) : 0;
       const weeklyFairnessScore =
@@ -345,6 +353,11 @@ export function generateAutoPlanSlots(params: {
     });
     assignedSet.add(selectedEmployeeId);
     assignmentCount.set(selectedEmployeeId, (assignmentCount.get(selectedEmployeeId) ?? 0) + 1);
+    const weekKeyForCount = getThursdayWeekKey(slot.shift_date);
+    if (weekKeyForCount) {
+      const countKey = `${selectedEmployeeId}-${weekKeyForCount}`;
+      weeklyShiftCountByEmployee.set(countKey, (weeklyShiftCountByEmployee.get(countKey) ?? 0) + 1);
+    }
     const summary = calculateShiftMinutes(startTime, endTime, pauseRules);
     if (summary) {
       totalMinutesByEmployee.set(
