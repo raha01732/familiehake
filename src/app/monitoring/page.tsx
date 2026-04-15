@@ -58,6 +58,18 @@ type HeartbeatEvent = {
   pinged_at: string;
 };
 
+type CronJobRun = {
+  id: number;
+  job_name: string;
+  run_day: string;
+  trigger: string | null;
+  success: boolean;
+  skipped: boolean;
+  duration_ms: number | null;
+  error_message: string | null;
+  finished_at: string;
+};
+
 type SentryStats = Awaited<ReturnType<typeof fetchSentryStats>>;
 
 type MonitoringSummary = {
@@ -133,6 +145,28 @@ async function fetchHeartbeatEvents(): Promise<HeartbeatEvent[]> {
   }
 }
 
+const KNOWN_CRON_JOBS = [
+  "keepalive",
+  "cache-warmup",
+  "upstash-heartbeat",
+  "audit-rollup",
+  "force-logout",
+];
+
+async function fetchCronJobRuns(): Promise<CronJobRun[]> {
+  try {
+    const sb = createAdminClient();
+    const { data } = await sb
+      .from("cron_job_runs")
+      .select("id, job_name, run_day, trigger, success, skipped, duration_ms, error_message, finished_at")
+      .order("finished_at", { ascending: false })
+      .limit(40);
+    return (data ?? []) as CronJobRun[];
+  } catch {
+    return [];
+  }
+}
+
 function formatBytes(bytes: number | null) {
   if (!bytes) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -159,11 +193,12 @@ function serverInfo() {
 }
 
 export default async function MonitoringPage() {
-  const [healthResult, summaryResult, auditResult, heartbeatResult] = await Promise.allSettled([
+  const [healthResult, summaryResult, auditResult, heartbeatResult, cronRunsResult] = await Promise.allSettled([
     getHealth(),
     getMonitoringSummary(),
     fetchAuditEvents(),
     fetchHeartbeatEvents(),
+    fetchCronJobRuns(),
   ]);
 
   const health = healthResult.status === "fulfilled" ? healthResult.value : null;
@@ -173,6 +208,7 @@ export default async function MonitoringPage() {
   const clerkStats: ClerkStats = summary?.clerkStats ?? { available: false, error: "data unavailable" };
   const auditEvents = auditResult.status === "fulfilled" ? auditResult.value : [];
   const heartbeatEvents = heartbeatResult.status === "fulfilled" ? heartbeatResult.value : [];
+  const cronJobRuns = cronRunsResult.status === "fulfilled" ? cronRunsResult.value : [];
 
   const status: "ok" | "warn" | "degraded" | "unreachable" =
     (health?.status as any) ?? "unreachable";
@@ -382,6 +418,9 @@ export default async function MonitoringPage() {
           <Permissions />
         </div>
 
+        {/* Cron Jobs */}
+        <CronJobTable runs={cronJobRuns} />
+
         {/* DB Keep-Alive */}
         <div className="card p-6 flex flex-col gap-4">
           <div>
@@ -529,6 +568,123 @@ function EnvRow({ label, ok }: { label: string; ok: boolean }) {
   );
 }
 
+function CronJobTable({ runs }: { runs: CronJobRun[] }) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  const latestByJob = KNOWN_CRON_JOBS.map((jobName) => {
+    const jobRuns = runs.filter((r) => r.job_name === jobName);
+    const lastRun = jobRuns[0] ?? null;
+    const ranToday = jobRuns.some((r) => r.run_day === today && r.success && !r.skipped);
+    return { jobName, lastRun, ranToday };
+  });
+
+  return (
+    <div className="card p-6 flex flex-col gap-4">
+      <div>
+        <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Cron Jobs</h2>
+        <p className="text-zinc-400 text-sm leading-relaxed">
+          Status der letzten 40 Läufe aus <span className="font-mono">cron_job_runs</span>
+        </p>
+      </div>
+
+      {/* Per-job status overview */}
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {latestByJob.map(({ jobName, lastRun, ranToday }) => {
+          const statusColor = !lastRun
+            ? "border-zinc-700 text-zinc-400"
+            : ranToday
+            ? "border-green-700 text-green-300 bg-green-900/20"
+            : lastRun.success && !lastRun.skipped
+            ? "border-amber-600 text-amber-300 bg-amber-900/20"
+            : "border-red-700 text-red-300 bg-red-900/20";
+          const statusLabel = !lastRun
+            ? "Nie gelaufen"
+            : ranToday
+            ? "Heute OK"
+            : lastRun.skipped
+            ? "Übersprungen"
+            : lastRun.success
+            ? "OK (veraltet)"
+            : "Fehler";
+
+          return (
+            <div
+              key={jobName}
+              className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 flex flex-col gap-1"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs text-zinc-200">{jobName}</span>
+                <span className={`rounded-lg border px-2 py-0.5 text-[11px] font-medium ${statusColor}`}>
+                  {statusLabel}
+                </span>
+              </div>
+              {lastRun ? (
+                <div className="text-[11px] text-zinc-500 mt-0.5">
+                  Letzter Lauf: {formatDate(lastRun.finished_at)}
+                  {lastRun.duration_ms != null && ` · ${lastRun.duration_ms} ms`}
+                  {lastRun.error_message && (
+                    <span className="ml-1 text-red-400">· {lastRun.error_message}</span>
+                  )}
+                </div>
+              ) : (
+                <div className="text-[11px] text-zinc-600">Kein Eintrag in cron_job_runs</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Recent runs table */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+        {runs.length === 0 ? (
+          <div className="p-4 text-sm text-zinc-400">Keine Cron-Job-Läufe verfügbar.</div>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
+              <tr>
+                <th className="px-3 py-2 font-medium">Job</th>
+                <th className="px-3 py-2 font-medium">Tag</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Trigger</th>
+                <th className="px-3 py-2 font-medium">Dauer</th>
+                <th className="px-3 py-2 font-medium">Abgeschlossen</th>
+                <th className="px-3 py-2 font-medium">Fehler</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {runs.map((run) => {
+                const statusColor = run.skipped
+                  ? "border-zinc-700 text-zinc-400"
+                  : run.success
+                  ? "border-green-700 text-green-300 bg-green-900/20"
+                  : "border-red-700 text-red-300 bg-red-900/20";
+                const statusLabel = run.skipped ? "Skip" : run.success ? "OK" : "Fehler";
+                return (
+                  <tr key={run.id}>
+                    <td className="px-3 py-2 text-zinc-200 text-xs font-mono whitespace-nowrap">{run.job_name}</td>
+                    <td className="px-3 py-2 text-zinc-400 text-xs whitespace-nowrap">{run.run_day}</td>
+                    <td className="px-3 py-2 text-xs">
+                      <span className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${statusColor}`}>
+                        {statusLabel}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-zinc-400 text-xs whitespace-nowrap">{run.trigger ?? "—"}</td>
+                    <td className="px-3 py-2 text-zinc-400 text-xs whitespace-nowrap">
+                      {run.duration_ms != null ? `${run.duration_ms} ms` : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-zinc-300 text-xs whitespace-nowrap">{formatDate(run.finished_at)}</td>
+                    <td className="px-3 py-2 text-red-400 text-[11px]">{run.error_message ?? "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EnvGroup({
   name,
   checks,
@@ -544,11 +700,11 @@ function EnvGroup({
   return (
     <details className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
       <summary className="flex cursor-pointer items-center justify-between list-none">
-        <div className="text-sm text-zinc-200">{name}</div>
-        <div className="flex items-center gap-2">
+        <span className="text-sm text-zinc-200">{name}</span>
+        <span className="flex items-center gap-2">
           <span className={`rounded-lg border px-2 py-0.5 text-[11px] ${cls}`}>{allOk ? "OK" : "Fehlt"}</span>
           <span className="text-[11px] text-zinc-500">v</span>
-        </div>
+        </span>
       </summary>
       <div className="mt-2 grid gap-1">
         {checks.map((check) => (

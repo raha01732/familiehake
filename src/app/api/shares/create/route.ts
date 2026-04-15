@@ -96,10 +96,10 @@ export async function POST(req: Request) {
 
     try {
       await logAudit({
-        action: "login_success",
+        action: "file_share_create",
         actorUserId: userId,
         actorEmail: null,
-        target: "file_share_create",
+        target: file.id,
         detail: {
           fileId: file.id,
           fileName: file.file_name,

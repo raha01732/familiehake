@@ -12,6 +12,9 @@ type DynamicUserChromeProps = {
   signInUrl: string;
 };
 
+// Theme-IDs die eine dunkle Palette nutzen → .dark-Klasse benötigen
+const DARK_THEME_IDS = new Set(["dark", "mid"]);
+
 function cssVarsToString(vars: Record<string, string>) {
   return Object.entries(vars)
     .map(([key, value]) => `${key}: ${value};`)
@@ -27,10 +30,24 @@ export default async function DynamicUserChrome({ clerkEnabled, signInUrl }: Dyn
   const isSignedIn = Boolean(session?.signedIn);
   const activeTheme = await getActiveTheme(session.userId ?? null);
   const themeCssVars = getThemeCssVars(activeTheme);
-  const isAdmin = Boolean(isSignedIn && (session.isSuperAdmin || session.roles.some((role) => role.name === "admin")));
+  const isDark = DARK_THEME_IDS.has(activeTheme.id);
+  const isAdmin = Boolean(
+    isSignedIn && (session.isSuperAdmin || session.roles.some((role) => role.name === "admin"))
+  );
 
   return (
     <>
+      {/*
+        Inline-Script: Setzt .dark sofort auf <html> bevor CSS gerendert wird.
+        Das verhindert einen kurzen "Flash" des falschen Themes (FOUC).
+      */}
+      <script
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{
+          __html: `(function(){var d=document.documentElement;d.classList.toggle("dark",${isDark});})();`,
+        }}
+      />
+      {/* CSS-Variablen des aktiven Themes in :root injizieren */}
       <style id="dynamic-theme-vars">{`:root { ${cssVarsToString(themeCssVars)} }`}</style>
       <AdminErrorBanner isAdmin={isAdmin} />
       <Header clerkEnabled={isSignedIn} signInUrl={signInUrl} />

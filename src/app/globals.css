@@ -2,91 +2,153 @@
 @import "tailwindcss";
 @config "../../tailwind.config.ts";
 
+/* ─────────────────────────────────────────────
+   Design Tokens  — Light Mode (Standard)
+   ───────────────────────────────────────────── */
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 35% 14%;
+    /* Surfaces */
+    --background: 0 0% 97%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 222 35% 14%;
+    --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 35% 14%;
-    --primary: 217 91% 60%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Brand */
+    --primary: 221 83% 53%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 35% 94%;
-    --secondary-foreground: 222 35% 20%;
-    --muted: 210 35% 95%;
-    --muted-foreground: 222 20% 34%;
-    --accent: 188 83% 43%;
+    --accent: 192 74% 37%;
     --accent-foreground: 0 0% 100%;
+
+    /* Neutrals */
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    /* Feedback */
     --destructive: 0 84% 57%;
     --destructive-foreground: 0 0% 100%;
-    --border: 215 30% 86%;
-    --input: 215 30% 86%;
-    --ring: 217 91% 60%;
-    --chart-1: 217 91% 60%;
-    --chart-2: 188 83% 43%;
+
+    /* Structural */
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 221 83% 53%;
+
+    /* Charts */
+    --chart-1: 221 83% 53%;
+    --chart-2: 192 74% 37%;
     --chart-3: 262 83% 58%;
     --chart-4: 27 96% 61%;
     --chart-5: 142 71% 45%;
-    --accent-glow-1: 59 130 246;
-    --accent-glow-2: 45 212 191;
-    --accent-glow-3: 129 140 248;
-    --radius: 0.9rem;
+
+    /* Glow (RGB für rgba()) */
+    --accent-glow-1: 37 99 235;
+    --accent-glow-2: 8 145 178;
+    --accent-glow-3: 99 102 241;
+
+    /* Header-spezifisch */
+    --header-bg: 0 0% 100%;
+    --header-border: 220 13% 91%;
+
+    /* Shape */
+    --radius: 0.75rem;
+
+    /* Typography */
     --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
     --font-display: "Plus Jakarta Sans", "Inter", "Segoe UI", system-ui, sans-serif;
+
+    /* Legacy-Kompatibilität (für alte zinc-Klassen in Tool-Seiten) */
     --legacy-text-strong: 222 47% 11%;
-    --legacy-text-default: 217 33% 17%;
+    --legacy-text-default: 222 33% 17%;
     --legacy-text-muted: 215 20% 31%;
     --legacy-text-soft: 215 16% 42%;
-    --legacy-panel-bg: 210 40% 98%;
+    --legacy-panel-bg: 0 0% 97%;
     --legacy-panel-bg-strong: 0 0% 100%;
-    --legacy-panel-border: 215 25% 78%;
+    --legacy-panel-border: 220 13% 88%;
+
+    color-scheme: light;
   }
 
+  /* ─────────────────────────────────────────────
+     Design Tokens  — Dark Mode
+     ───────────────────────────────────────────── */
   .dark {
-    --background: 224 32% 10%;
+    /* Surfaces */
+    --background: 222 50% 8%;
     --foreground: 210 40% 96%;
-    --card: 224 31% 13%;
+    --card: 222 44% 12%;
     --card-foreground: 210 40% 96%;
-    --popover: 224 31% 13%;
+    --popover: 222 44% 12%;
     --popover-foreground: 210 40% 96%;
-    --primary: 210 100% 66%;
-    --primary-foreground: 223 44% 10%;
-    --secondary: 221 24% 19%;
+
+    /* Brand */
+    --primary: 217 91% 68%;
+    --primary-foreground: 222 47% 8%;
+    --accent: 188 83% 53%;
+    --accent-foreground: 222 47% 8%;
+
+    /* Neutrals */
+    --secondary: 218 36% 18%;
     --secondary-foreground: 210 40% 96%;
-    --muted: 221 24% 19%;
-    --muted-foreground: 215 20% 71%;
-    --accent: 188 84% 48%;
-    --accent-foreground: 223 44% 10%;
-    --destructive: 0 72% 52%;
+    --muted: 218 36% 18%;
+    --muted-foreground: 218 14% 63%;
+
+    /* Feedback */
+    --destructive: 0 72% 57%;
     --destructive-foreground: 210 40% 96%;
-    --border: 222 20% 26%;
-    --input: 222 20% 26%;
-    --ring: 210 100% 66%;
-    --chart-1: 210 100% 66%;
-    --chart-2: 188 84% 48%;
+
+    /* Structural */
+    --border: 218 36% 20%;
+    --input: 218 36% 20%;
+    --ring: 217 91% 68%;
+
+    /* Charts */
+    --chart-1: 217 91% 68%;
+    --chart-2: 188 83% 53%;
     --chart-3: 262 83% 66%;
     --chart-4: 27 96% 68%;
     --chart-5: 142 71% 51%;
+
+    /* Glow */
     --accent-glow-1: 37 99 235;
     --accent-glow-2: 20 184 166;
     --accent-glow-3: 99 102 241;
+
+    /* Header */
+    --header-bg: 222 44% 11%;
+    --header-border: 218 36% 20%;
+
+    /* Legacy */
+    --legacy-text-strong: 210 40% 96%;
+    --legacy-text-default: 210 30% 85%;
+    --legacy-text-muted: 214 20% 70%;
+    --legacy-text-soft: 214 16% 58%;
+    --legacy-panel-bg: 222 50% 8%;
+    --legacy-panel-bg-strong: 222 44% 12%;
+    --legacy-panel-border: 218 36% 20%;
+
+    color-scheme: dark;
   }
 }
 
+/* ─────────────────────────────────────────────
+   Base Reset & Typography
+   ───────────────────────────────────────────── */
 @layer base {
   * {
     border-color: hsl(var(--border));
   }
 
+  html {
+    /* Sanfte Übergänge beim Theme-Wechsel */
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
   html,
   body {
     min-height: 100%;
-  }
-
-  a {
-    color: inherit;
-    text-decoration: none;
   }
 
   body {
@@ -95,113 +157,299 @@
     font-family: var(--font-sans);
     font-feature-settings: "rlig" 1, "calt" 1;
     text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
   }
 
   main {
     width: 100%;
   }
+
+  /* Fokus-Stile für Barrierefreiheit */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: calc(var(--radius) - 2px);
+  }
+
+  /* Scrollbar (Webkit) */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
 }
 
+/* ─────────────────────────────────────────────
+   Animationen
+   ───────────────────────────────────────────── */
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.2); }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+/* ─────────────────────────────────────────────
+   Utility-Klassen
+   ───────────────────────────────────────────── */
+
+/* Haupt-Card: Glassmorphism */
 .card {
-  background: linear-gradient(160deg, hsl(var(--card) / 0.98), hsl(var(--secondary) / 0.65));
-  backdrop-filter: blur(14px);
-  border: 1px solid hsl(var(--border) / 0.8);
-  border-radius: 1.25rem;
+  background: linear-gradient(
+    160deg,
+    hsl(var(--card) / 0.98),
+    hsl(var(--secondary) / 0.7)
+  );
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid hsl(var(--border) / 0.9);
+  border-radius: calc(var(--radius) + 0.25rem);
   box-shadow:
-    0 26px 50px -34px rgb(15 23 42 / 0.35),
-    0 10px 20px -18px rgb(59 130 246 / 0.4);
+    0 1px 3px 0 rgb(0 0 0 / 0.06),
+    0 4px 16px -4px rgb(0 0 0 / 0.1),
+    0 0 0 0.5px hsl(var(--border) / 0.5);
   color: hsl(var(--card-foreground));
+  transition: box-shadow 0.2s ease;
 }
 
+.card:hover {
+  box-shadow:
+    0 1px 3px 0 rgb(0 0 0 / 0.08),
+    0 8px 24px -6px rgb(0 0 0 / 0.14),
+    0 0 0 0.5px hsl(var(--border) / 0.6);
+}
+
+/* Brand-Elemente */
 .brand-badge {
-  background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
-  box-shadow: 0 12px 28px -14px rgba(var(--accent-glow-1), 0.65);
+  background-image: linear-gradient(
+    135deg,
+    hsl(var(--primary)),
+    hsl(var(--accent))
+  );
+  box-shadow:
+    0 4px 14px -4px rgba(var(--accent-glow-1), 0.5);
   color: hsl(var(--primary-foreground));
 }
 
 .brand-button {
-  background-image: linear-gradient(100deg, hsl(var(--primary)), hsl(var(--accent)));
+  background-image: linear-gradient(
+    105deg,
+    hsl(var(--primary)),
+    hsl(var(--accent))
+  );
   color: hsl(var(--primary-foreground));
+  box-shadow: 0 4px 14px -4px rgba(var(--accent-glow-1), 0.45);
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
 }
 
 .brand-button:hover {
-  filter: brightness(1.04);
+  filter: brightness(1.06);
+  box-shadow: 0 6px 20px -4px rgba(var(--accent-glow-1), 0.55);
 }
 
+/* Sekundäre Oberfläche */
 .soft-surface {
-  background:
-    radial-gradient(circle at 15% 15%, hsl(var(--primary) / 0.18), transparent 45%),
-    linear-gradient(150deg, hsl(var(--card) / 0.95), hsl(var(--secondary) / 0.86));
+  background: radial-gradient(
+      circle at 15% 15%,
+      hsl(var(--primary) / 0.12),
+      transparent 55%
+    ),
+    linear-gradient(
+      150deg,
+      hsl(var(--card) / 0.95),
+      hsl(var(--secondary) / 0.88)
+    );
   border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: calc(var(--radius) + 0.25rem);
 }
 
-/* Legacy dark utility compatibility in light mode */
-html:not(.dark) .text-zinc-100 {
-  color: hsl(var(--legacy-text-strong)) !important;
+/* Navigations-Links (für Server Components ohne Event-Handler) */
+.nav-link {
+  color: hsl(var(--foreground));
+  background: transparent;
+  border-radius: calc(var(--radius) + 0.125rem);
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-html:not(.dark) .text-zinc-200 {
-  color: hsl(var(--legacy-text-default)) !important;
+.nav-link:hover {
+  background: hsl(var(--secondary));
+  color: hsl(var(--foreground));
 }
 
-html:not(.dark) .text-zinc-300 {
-  color: hsl(var(--legacy-text-muted)) !important;
+.nav-link-muted {
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border-radius: calc(var(--radius) + 0.125rem);
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
+.nav-link-muted:hover {
+  background: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+}
+
+/* Hero-Oberfläche für Landing Page */
+.hero-surface {
+  background:
+    radial-gradient(ellipse at 8% 20%, hsl(var(--primary) / 0.18) 0%, transparent 48%),
+    radial-gradient(ellipse at 88% 12%, hsl(var(--accent) / 0.14) 0%, transparent 48%),
+    radial-gradient(ellipse at 45% 95%, rgba(var(--accent-glow-3), 0.09) 0%, transparent 55%),
+    hsl(var(--card) / 0.96);
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: calc(var(--radius) * 3);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Feature-Karte (Landing) */
+.feature-card {
+  background: hsl(var(--card) / 0.7);
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: calc(var(--radius) + 0.25rem);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.feature-card:hover {
+  border-color: hsl(var(--primary) / 0.4);
+  box-shadow:
+    0 4px 24px -8px rgba(var(--accent-glow-1), 0.25),
+    0 0 0 0.5px hsl(var(--primary) / 0.15);
+  transform: translateY(-2px);
+}
+
+/* Gradient-Text */
+.gradient-text {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Shimmer-Badge */
+.shimmer-badge {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--primary) / 0.12) 25%,
+    hsl(var(--primary) / 0.28) 50%,
+    hsl(var(--primary) / 0.12) 75%
+  );
+  background-size: 200% auto;
+  animation: shimmer 3.5s linear infinite;
+}
+
+/* Status-Punkte */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-dot-ok {
+  background: hsl(142 71% 45%);
+  box-shadow: 0 0 0 3px hsl(142 71% 45% / 0.2);
+  animation: status-pulse 2.5s ease-in-out infinite;
+}
+
+.status-dot-warn {
+  background: hsl(27 96% 61%);
+  box-shadow: 0 0 0 3px hsl(27 96% 61% / 0.2);
+  animation: status-pulse 1.8s ease-in-out infinite;
+}
+
+/* Einblend-Animation */
+.animate-fade-up {
+  animation: fade-up 0.45s ease forwards;
+}
+
+/* Eingabefelder */
+.input-field {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid hsl(var(--input));
+  background-color: hsl(var(--background));
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: hsl(var(--foreground));
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: hsl(var(--ring) / 0.7);
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.15);
+}
+
+.input-field::placeholder {
+  color: hsl(var(--muted-foreground) / 0.7);
+}
+
+/* ─────────────────────────────────────────────
+   Legacy-Kompatibilität
+   Viele Tool-Seiten nutzen noch zinc-* Klassen.
+   Diese Map sorgt dafür, dass sie im hellen Theme
+   korrekt lesbar sind. Im Dark Mode (.dark) wirken
+   die zinc-Werte direkt wie gewünscht.
+   ───────────────────────────────────────────── */
+
+html:not(.dark) .text-zinc-100 { color: hsl(var(--legacy-text-strong)) !important; }
+html:not(.dark) .text-zinc-200 { color: hsl(var(--legacy-text-default)) !important; }
+html:not(.dark) .text-zinc-300 { color: hsl(var(--legacy-text-muted)) !important; }
 html:not(.dark) .text-zinc-400,
 html:not(.dark) .text-zinc-500,
-html:not(.dark) .text-zinc-600 {
-  color: hsl(var(--legacy-text-soft)) !important;
-}
+html:not(.dark) .text-zinc-600 { color: hsl(var(--legacy-text-soft)) !important; }
 
 html:not(.dark) .bg-zinc-900,
-html:not(.dark) .bg-zinc-950,
-html:not(.dark) .bg-zinc-900\/40 {
-  background-color: hsl(var(--legacy-panel-bg)) !important;
-}
-
-html:not(.dark) .bg-zinc-900\/60 {
-  background-color: hsl(var(--legacy-panel-bg-strong)) !important;
-}
+html:not(.dark) .bg-zinc-950 { background-color: hsl(var(--legacy-panel-bg)) !important; }
+html:not(.dark) .bg-zinc-900\/40 { background-color: hsl(var(--legacy-panel-bg) / 0.7) !important; }
+html:not(.dark) .bg-zinc-900\/60 { background-color: hsl(var(--legacy-panel-bg-strong)) !important; }
 
 html:not(.dark) .border-zinc-700,
-html:not(.dark) .border-zinc-800 {
-  border-color: hsl(var(--legacy-panel-border)) !important;
-}
+html:not(.dark) .border-zinc-800 { border-color: hsl(var(--legacy-panel-border)) !important; }
 
-/* Card-specific compatibility for nested legacy classes */
-.card .text-zinc-100 {
-  color: rgb(15 23 42) !important;
-}
+/* Input-Felder in Tool-Seiten (zinc bg) */
+html:not(.dark) .bg-zinc-950 { background-color: hsl(var(--card)) !important; }
 
-.card .text-zinc-200 {
-  color: rgb(30 41 59) !important;
-}
-
-.card .text-zinc-300,
-.card .text-zinc-400,
-.card .text-zinc-500,
-.card .text-zinc-600 {
-  color: rgb(71 85 105) !important;
-}
-
-.card .bg-zinc-900,
-.card .bg-zinc-950,
-.card .bg-zinc-900\/40 {
-  background-color: rgb(248 250 252) !important;
-}
-
-.card .border-zinc-700,
-.card .border-zinc-800 {
-  border-color: rgb(203 213 225) !important;
-}
+/* Card-interne Legacy-Overrides (nur Light Mode) */
+html:not(.dark) .card .text-zinc-100 { color: hsl(var(--foreground)) !important; }
+html:not(.dark) .card .text-zinc-200 { color: hsl(220 15% 25%) !important; }
+html:not(.dark) .card .text-zinc-300,
+html:not(.dark) .card .text-zinc-400,
+html:not(.dark) .card .text-zinc-500,
+html:not(.dark) .card .text-zinc-600 { color: hsl(var(--muted-foreground)) !important; }
+html:not(.dark) .card .bg-zinc-900,
+html:not(.dark) .card .bg-zinc-950,
+html:not(.dark) .card .bg-zinc-900\/40 { background-color: hsl(var(--secondary)) !important; }
+html:not(.dark) .card .border-zinc-700,
+html:not(.dark) .card .border-zinc-800 { border-color: hsl(var(--border)) !important; }
