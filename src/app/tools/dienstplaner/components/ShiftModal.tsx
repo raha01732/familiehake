@@ -1,17 +1,19 @@
 "use client";
 
-import { useRef, useTransition } from "react";
+import { useRef, useTransition, useState } from "react";
 import type { Employee, Shift, ShiftTrack } from "../utils";
 import { getInitials } from "../utils";
 
 type Props = {
   employee: Employee;
+  allEmployees: Employee[];
   date: string;
   shift: Shift | null;
   shiftTracks: ShiftTrack[];
   onClose: () => void;
-  saveAction: (formData: FormData) => Promise<void>;
-  deleteAction: (formData: FormData) => Promise<void>;
+  saveAction: (_fd: FormData) => Promise<void>;
+  deleteAction: (_fd: FormData) => Promise<void>;
+  moveAction: (_fd: FormData) => Promise<void>;
 };
 
 const WEEKDAY_LABELS = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
@@ -24,24 +26,46 @@ function formatDateLabel(dateStr: string) {
 
 export default function ShiftModal({
   employee,
+  allEmployees,
   date,
   shift,
   shiftTracks,
   onClose,
   saveAction,
   deleteAction,
+  moveAction,
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
   const [isDeleting, startDelete] = useTransition();
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState(employee.id);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  function handleSave(e: React.FormEvent) {
+  function handleSave(e: { preventDefault: () => void }) {
     e.preventDefault();
     if (!formRef.current) return;
     const fd = new FormData(formRef.current);
+    setSaveError(null);
+
     startTransition(async () => {
-      await saveAction(fd);
-      onClose();
+      try {
+        // If employee changed: move shift first, then update times
+        if (shift && selectedEmployeeId !== employee.id) {
+          const moveFd = new FormData();
+          moveFd.set("from_employee_id", String(employee.id));
+          moveFd.set("to_employee_id", String(selectedEmployeeId));
+          moveFd.set("shift_date", date);
+          await moveAction(moveFd);
+          // Move succeeded — save updated times on new employee
+          fd.set("employee_id", String(selectedEmployeeId));
+        } else {
+          fd.set("employee_id", String(selectedEmployeeId));
+        }
+        await saveAction(fd);
+        onClose();
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : "Fehler beim Speichern.");
+      }
     });
   }
 
@@ -89,9 +113,27 @@ export default function ShiftModal({
           </button>
         </div>
 
-        <form ref={formRef} onSubmit={handleSave} className="p-5 space-y-4">
+        <form ref={formRef} onSubmit={handleSave} className="p-5 space-y-4" style={{ colorScheme: "dark" }}>
           <input type="hidden" name="employee_id" value={employee.id} />
           <input type="hidden" name="shift_date" value={date} />
+
+          {/* Employee selector */}
+          {allEmployees.length > 1 && (
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1.5">Mitarbeiter</label>
+              <select
+                value={selectedEmployeeId}
+                onChange={(e) => setSelectedEmployeeId(Number(e.target.value))}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              >
+                {allEmployees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name}{emp.position ? ` – ${emp.position}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Quick presets */}
           {shiftTracks.length > 0 && (
@@ -162,6 +204,13 @@ export default function ShiftModal({
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 placeholder:text-zinc-600"
             />
           </div>
+
+          {/* Error */}
+          {saveError && (
+            <div className="px-3 py-2 bg-red-950 border border-red-800 text-red-300 text-sm rounded-lg">
+              {saveError}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-2 pt-1">

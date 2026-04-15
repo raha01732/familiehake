@@ -44,7 +44,9 @@ export function isPreviewEnvironment() {
 }
 
 export function isProductionEnvironment() {
-  return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+  // NODE_ENV wird von `next build` immer auf "production" gesetzt (auch im CI).
+  // Nur VERCEL_ENV unterscheidet zuverlässig echte Deployments von CI-Builds.
+  return process.env.VERCEL_ENV === "production";
 }
 
 export function getClerkPublishableKey(input?: {

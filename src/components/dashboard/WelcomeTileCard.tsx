@@ -15,7 +15,7 @@ export type WelcomeTile = {
 type Props = {
   tile: WelcomeTile;
   isAdmin: boolean;
-  // eslint-disable-next-line no-unused-vars
+   
   onSave: (formData: FormData) => Promise<void>;
 };
 

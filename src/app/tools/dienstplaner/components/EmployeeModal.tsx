@@ -7,9 +7,9 @@ import { EMPLOYEE_COLORS, EMPLOYMENT_TYPES } from "../utils";
 type Props = {
   employee?: Employee | null;
   onClose: () => void;
-  createAction: (formData: FormData) => Promise<void>;
-  updateAction: (formData: FormData) => Promise<void>;
-  deleteAction: (formData: FormData) => Promise<void>;
+  createAction: (_fd: FormData) => Promise<void>;
+  updateAction: (_fd: FormData) => Promise<void>;
+  deleteAction: (_fd: FormData) => Promise<void>;
   isAdmin: boolean;
 };
 
@@ -28,7 +28,7 @@ export default function EmployeeModal({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isEdit = Boolean(employee);
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: { preventDefault: () => void }) {
     e.preventDefault();
     if (!formRef.current) return;
     const fd = new FormData(formRef.current);
@@ -79,7 +79,7 @@ export default function EmployeeModal({
           </button>
         </div>
 
-        <form ref={formRef} onSubmit={handleSubmit} className="p-5 space-y-4">
+        <form ref={formRef} onSubmit={handleSubmit} className="p-5 space-y-4" style={{ colorScheme: "dark" }}>
           {/* Name */}
           <div>
             <label className="block text-xs text-zinc-400 mb-1.5">

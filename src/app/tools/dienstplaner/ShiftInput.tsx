@@ -16,11 +16,11 @@ type ShiftInputProps = {
   hasShift: boolean;
   initialPauseMinutes: number | null;
   initialComment: string | null;
-  // eslint-disable-next-line no-unused-vars
+   
   saveAction: (formData: FormData) => Promise<void>;
-  // eslint-disable-next-line no-unused-vars
+   
   moveAction: (formData: FormData) => Promise<{ ok: boolean; message?: string }>;
-  // eslint-disable-next-line no-unused-vars
+   
   updateDetailsAction: (formData: FormData) => Promise<void>;
 };
 

@@ -5,10 +5,15 @@ import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import {
   saveShiftAction,
   deleteShiftAction,
+  moveShiftAction as _moveShiftAction,
   saveAvailabilityAction,
   autoGenerateMonthPlanAction,
   clearMonthAction,
 } from "./actions";
+
+async function moveShiftAction(fd: FormData): Promise<void> {
+  await _moveShiftAction(fd);
+}
 import MonthlyGrid from "./components/MonthlyGrid";
 import type { Employee, Shift, Availability, DateRequirement, ShiftTrack } from "./utils";
 import { buildMonthDays, getCurrentMonth } from "./utils";
@@ -88,6 +93,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       isAdmin={isAdmin}
       saveShiftAction={saveShiftAction}
       deleteShiftAction={deleteShiftAction}
+      moveShiftAction={moveShiftAction}
       saveAvailabilityAction={saveAvailabilityAction}
       autoGenerateAction={autoGenerateMonthPlanAction}
       clearMonthAction={clearMonthAction}

@@ -8,7 +8,7 @@ import { decryptWith, encryptFor, generateRSA, importPrivateKey, importPublicKey
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
 type Msg = { id: string; sender_id: string; recipient_id: string; ciphertext: string; created_at: string };
-// eslint-disable-next-line no-unused-vars
+ 
 type RevealFn = (ciphertext: string) => Promise<string>;
 
 export default function MessagesPage() {

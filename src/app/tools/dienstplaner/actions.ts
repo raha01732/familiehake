@@ -101,9 +101,13 @@ export async function saveShiftAction(formData: FormData) {
     throw new Error("INVALID_SHIFT_TIME");
   }
 
+  const breakMinutesRaw = formData.get("break_minutes");
+  const breakMinutes = breakMinutesRaw !== null && breakMinutesRaw !== "" ? Number(breakMinutesRaw) : null;
+  const comment = formData.get("comment") ? String(formData.get("comment")) : null;
+
   const { data: existingShift } = await sb
     .from("dienstplan_shifts")
-    .select("break_minutes, comment, raw_input")
+    .select("raw_input")
     .eq("employee_id", employeeId)
     .eq("shift_date", shiftDate)
     .maybeSingle();
@@ -114,8 +118,8 @@ export async function saveShiftAction(formData: FormData) {
       shift_date: shiftDate,
       start_time: startTime,
       end_time: endTime,
-      break_minutes: existingShift?.break_minutes ?? null,
-      comment: existingShift?.comment ?? null,
+      break_minutes: breakMinutes,
+      comment: comment,
       raw_input: existingShift?.raw_input ?? null,
     },
     { onConflict: "employee_id,shift_date" }
@@ -207,6 +211,12 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
   const range = getMonthRange(month);
   if (!range) return;
 
+  const minShiftHours = Math.max(0, Number(formData.get("min_shift_hours") || 0));
+  const maxShiftsPerWeek = Math.max(1, Number(formData.get("max_shifts_per_week") || 7));
+  const skipWeekends = formData.get("skip_weekends") === "true";
+  const respectAvailability = formData.get("respect_availability") !== "false";
+  const overwriteExisting = formData.get("overwrite_existing") === "true";
+
   const sb = createAdminClient();
   const [employeesResult, pauseRulesResult, availabilityResult, weekdayRequirementsResult, dateRequirementsResult, shiftTracksResult, weekdayPositionRequirementsResult, datePositionRequirementsResult] = await Promise.all([
     sb.from("dienstplan_employees").select("id, position, monthly_hours, weekly_hours"),
@@ -278,6 +288,8 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
   for (const day of monthDays) {
     const parsedDay = new Date(`${day}T00:00:00Z`);
     const weekday = parsedDay.getUTCDay();
+
+    if (skipWeekends && (weekday === 0 || weekday === 6)) continue;
     const dateSpecificRequirements = datePositionMap.get(day) ?? [];
 
     if (dateSpecificRequirements.length > 0) {
@@ -324,19 +336,50 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
     }
   }
 
+  // Wenn overwrite_existing=false: bestehende Schichten laden und als belegt markieren
+  let existingShiftsForPlan: { employee_id: number; shift_date: string; start_time: string | null; end_time: string | null }[] = [];
+  if (!overwriteExisting) {
+    const { data: existing } = await sb
+      .from("dienstplan_shifts")
+      .select("employee_id, shift_date, start_time, end_time")
+      .gte("shift_date", range.start)
+      .lte("shift_date", range.end);
+    existingShiftsForPlan = existing ?? [];
+    // Tage mit bestehender Schicht aus den Slots entfernen
+    const occupiedKeys = new Set(existingShiftsForPlan.map((s) => `${s.employee_id}-${s.shift_date}`));
+    // Slots für Tage behalten, die noch nicht vollständig besetzt sind
+    const occupiedDays = new Set(existingShiftsForPlan.map((s) => s.shift_date));
+    // Nur Slots für Tage ohne jegliche Schicht übrig lassen
+    slots.splice(0, slots.length, ...slots.filter((s) => !occupiedDays.has(s.shift_date)));
+    void occupiedKeys; // wird in generateAutoPlanSlots via existingShifts berücksichtigt
+  }
+
+  // min_shift_hours: Slots herausfiltern, die kürzer als das Minimum sind
+  const filteredSlots = minShiftHours > 0
+    ? slots.filter((s) => {
+        const startMins = s.start_time.split(":").reduce((h, m, i) => h + (i === 0 ? Number(m) * 60 : Number(m)), 0);
+        let endMins = s.end_time.split(":").reduce((h, m, i) => h + (i === 0 ? Number(m) * 60 : Number(m)), 0);
+        if (endMins <= startMins) endMins += 24 * 60;
+        return (endMins - startMins) >= minShiftHours * 60;
+      })
+    : slots;
+
   const generatedShifts = generateAutoPlanSlots({
     employees,
-    existingShifts: [],
-    availability,
-    slots,
+    existingShifts: existingShiftsForPlan,
+    availability: respectAvailability ? availability : [],
+    slots: filteredSlots,
     pauseRules,
+    maxShiftsPerWeek,
   });
 
   if (generatedShifts.length === 0) {
     return;
   }
 
-  await sb.from("dienstplan_shifts").delete().gte("shift_date", range.start).lte("shift_date", range.end);
+  if (overwriteExisting) {
+    await sb.from("dienstplan_shifts").delete().gte("shift_date", range.start).lte("shift_date", range.end);
+  }
   if (generatedShifts.length > 0) {
     await sb.from("dienstplan_shifts").insert(
       generatedShifts.map((shift) => ({
@@ -358,7 +401,7 @@ export async function moveShiftAction(formData: FormData) {
   const toEmployeeId = Number(formData.get("to_employee_id"));
   const shiftDate = String(formData.get("shift_date") || "").trim();
   if (!fromEmployeeId || !toEmployeeId || !shiftDate || fromEmployeeId === toEmployeeId) {
-    return { ok: false, message: "Ungültige Verschiebung." };
+    throw new Error("Ungültige Verschiebung.");
   }
 
   const sb = createAdminClient();
@@ -369,22 +412,20 @@ export async function moveShiftAction(formData: FormData) {
     .eq("shift_date", shiftDate)
     .maybeSingle();
   if (!sourceShift?.start_time || !sourceShift.end_time) {
-    return { ok: false, message: "Quelle der Schicht nicht gefunden." };
+    throw new Error("Quelle der Schicht nicht gefunden.");
   }
 
-  const { error: insertError } = await sb.from("dienstplan_shifts").insert(
-    {
-      employee_id: toEmployeeId,
-      shift_date: shiftDate,
-      start_time: sourceShift.start_time,
-      end_time: sourceShift.end_time,
-      break_minutes: sourceShift.break_minutes ?? null,
-      comment: sourceShift.comment ?? null,
-      raw_input: sourceShift.raw_input ?? "drag-drop",
-    }
-  );
+  const { error: insertError } = await sb.from("dienstplan_shifts").insert({
+    employee_id: toEmployeeId,
+    shift_date: shiftDate,
+    start_time: sourceShift.start_time,
+    end_time: sourceShift.end_time,
+    break_minutes: sourceShift.break_minutes ?? null,
+    comment: sourceShift.comment ?? null,
+    raw_input: sourceShift.raw_input ?? "drag-drop",
+  });
   if (insertError) {
-    return { ok: false, message: "Ziel hat bereits eine Schicht oder die Verschiebung ist fehlgeschlagen." };
+    throw new Error("Ziel hat bereits eine Schicht oder die Verschiebung ist fehlgeschlagen.");
   }
 
   const { error: deleteError } = await sb
@@ -394,11 +435,10 @@ export async function moveShiftAction(formData: FormData) {
     .eq("shift_date", shiftDate);
   if (deleteError) {
     await sb.from("dienstplan_shifts").delete().eq("employee_id", toEmployeeId).eq("shift_date", shiftDate);
-    return { ok: false, message: "Verschiebung konnte nicht abgeschlossen werden." };
+    throw new Error("Verschiebung konnte nicht abgeschlossen werden.");
   }
 
   revalidatePath(PLAN_PATH);
-  return { ok: true };
 }
 
 export async function copyWeekShiftsAction(formData: FormData) {
