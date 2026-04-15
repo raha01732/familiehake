@@ -10,6 +10,7 @@ import { addHoursToTime, generateAutoPlanSlots, type AutoPlanSlot, type PauseRul
 
 const PLAN_PATH = "/tools/dienstplaner";
 const SETTINGS_PATH = "/tools/dienstplaner/settings";
+const MITARBEITER_PATH = "/tools/dienstplaner/mitarbeiter";
 
 function getMonthRange(month: string) {
   const [yearStr, monthStr] = month.split("-");
@@ -500,19 +501,36 @@ export async function createEmployeeAction(formData: FormData) {
 
   const name = String(formData.get("name") || "").trim();
   const position = String(formData.get("position") || "").trim();
+  const department = String(formData.get("department") || "").trim();
+  const employmentType = String(formData.get("employment_type") || "vollzeit").trim();
   const monthlyHours = Number(formData.get("monthly_hours") || 0);
   const weeklyHours = Number(formData.get("weekly_hours") || 0);
+  const color = String(formData.get("color") || "#6366f1").trim();
   if (!name) return;
 
   const sb = createAdminClient();
+  const { data: lastEmployee } = await sb
+    .from("dienstplan_employees")
+    .select("sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const nextSortOrder = (lastEmployee?.sort_order ?? -1) + 1;
+
   await sb.from("dienstplan_employees").insert({
     name,
     position: position || null,
+    department: department || null,
+    employment_type: employmentType,
     monthly_hours: monthlyHours,
     weekly_hours: weeklyHours,
+    color,
+    sort_order: nextSortOrder,
+    is_active: true,
   });
 
   revalidatePath(SETTINGS_PATH);
+  revalidatePath(MITARBEITER_PATH);
   revalidatePath(PLAN_PATH);
 }
 
@@ -522,12 +540,8 @@ export async function updateEmployeeAction(formData: FormData) {
   const id = Number(formData.get("id"));
   if (!id) return;
 
-  const updates: {
-    name?: string;
-    position?: string | null;
-    monthly_hours?: number;
-    weekly_hours?: number;
-  } = {};
+  const updates: Record<string, unknown> = {};
+
   const rawName = formData.get("name");
   if (typeof rawName === "string") {
     const value = rawName.trim();
@@ -535,29 +549,39 @@ export async function updateEmployeeAction(formData: FormData) {
     updates.name = value;
   }
   const rawPosition = formData.get("position");
-  if (typeof rawPosition === "string") {
-    const value = rawPosition.trim();
-    updates.position = value || null;
+  if (typeof rawPosition === "string") updates.position = rawPosition.trim() || null;
+
+  const rawDepartment = formData.get("department");
+  if (typeof rawDepartment === "string") updates.department = rawDepartment.trim() || null;
+
+  const rawEmploymentType = formData.get("employment_type");
+  if (typeof rawEmploymentType === "string" && rawEmploymentType.trim()) {
+    updates.employment_type = rawEmploymentType.trim();
   }
   const rawMonthlyHours = formData.get("monthly_hours");
-  if (typeof rawMonthlyHours === "string") {
-    updates.monthly_hours = Number(rawMonthlyHours || 0);
-  }
+  if (typeof rawMonthlyHours === "string") updates.monthly_hours = Number(rawMonthlyHours || 0);
+
   const rawWeeklyHours = formData.get("weekly_hours");
-  if (typeof rawWeeklyHours === "string") {
-    updates.weekly_hours = Number(rawWeeklyHours || 0);
-  }
+  if (typeof rawWeeklyHours === "string") updates.weekly_hours = Number(rawWeeklyHours || 0);
+
+  const rawColor = formData.get("color");
+  if (typeof rawColor === "string" && rawColor.trim()) updates.color = rawColor.trim();
+
+  const rawIsActive = formData.get("is_active");
+  if (rawIsActive !== null) updates.is_active = rawIsActive === "true";
+
   if (Object.keys(updates).length === 0) return;
 
   const sb = createAdminClient();
   await sb.from("dienstplan_employees").update(updates).eq("id", id);
 
   revalidatePath(SETTINGS_PATH);
+  revalidatePath(MITARBEITER_PATH);
   revalidatePath(PLAN_PATH);
 }
 
 export async function deleteEmployeeAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  await assertAdminForDienstplanAutomation();
 
   const id = Number(formData.get("id"));
   if (!id) return;
@@ -566,6 +590,20 @@ export async function deleteEmployeeAction(formData: FormData) {
   await sb.from("dienstplan_employees").delete().eq("id", id);
 
   revalidatePath(SETTINGS_PATH);
+  revalidatePath(MITARBEITER_PATH);
+  revalidatePath(PLAN_PATH);
+}
+
+export async function deleteShiftAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const employeeId = Number(formData.get("employee_id"));
+  const shiftDate = String(formData.get("shift_date") || "").trim();
+  if (!employeeId || !shiftDate) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_shifts").delete().eq("employee_id", employeeId).eq("shift_date", shiftDate);
+
   revalidatePath(PLAN_PATH);
 }
 
