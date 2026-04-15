@@ -76,7 +76,8 @@ export async function claimDailyCronRun(jobName: string): Promise<DailyClaimResu
     };
   }
 
-  return { ok: true, claimed: Array.isArray(data) && data.length > 0 };
+  // Kein Fehler = Insert erfolgreich = Claim gesetzt
+  return { ok: true, claimed: true };
 }
 
 function toIsoTimestamp(value: string | number | Date | undefined, fallbackDate: Date) {
