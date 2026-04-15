@@ -67,10 +67,7 @@ export default function ActivityFeed({
     // ===================== MINI-DEBUG END =====================
 
     try {
-      // ✅ WebSocket explizit an Supabase durchreichen (damit Realtime nicht "raten" muss)
-      const sb = createBrowserClient(supabaseUrl!, supabaseAnonKey!, {
-        realtime: { WebSocket: WS } as any,
-      } as any);
+      const sb = createBrowserClient(supabaseUrl!, supabaseAnonKey!);
 
       sbRef.current = sb;
 
