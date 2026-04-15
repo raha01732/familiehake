@@ -55,14 +55,12 @@ export async function hasSuccessfulRunToday(jobName: string) {
 export async function claimDailyCronRun(jobName: string): Promise<DailyClaimResult> {
   const sb = createAdminClient();
   const runDay = new Date().toISOString().slice(0, 10);
-  const { data, error } = await sb
+  const { error } = await sb
     .from("cron_job_daily_claims")
     .insert({
       job_name: jobName,
       run_day: runDay,
-    })
-    .select("job_name")
-    .limit(1);
+    });
 
   if (error) {
     if (error.code === "23505") {
