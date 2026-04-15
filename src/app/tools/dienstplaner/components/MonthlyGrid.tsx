@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type {
   Employee, Shift, Availability, DateRequirement, ShiftTrack,
@@ -11,6 +11,7 @@ import {
   type PauseRule,
 } from "../utils";
 import ShiftModal from "./ShiftModal";
+import AutoPlanConfigModal, { type AutoPlanConfig } from "./AutoPlanConfigModal";
 
 type Props = {
   month: string;
@@ -24,6 +25,7 @@ type Props = {
   isAdmin: boolean;
   saveShiftAction: (fd: FormData) => Promise<void>;
   deleteShiftAction: (fd: FormData) => Promise<void>;
+  moveShiftAction: (fd: FormData) => Promise<void>;
   saveAvailabilityAction: (fd: FormData) => Promise<void>;
   autoGenerateAction: (fd: FormData) => Promise<void>;
   clearMonthAction: (fd: FormData) => Promise<void>;
@@ -62,16 +64,18 @@ const AVAIL_OPTIONS = [
 export default function MonthlyGrid({
   month, days, employees, shifts, availability, requirements,
   pauseRules, shiftTracks, isAdmin,
-  saveShiftAction, deleteShiftAction, saveAvailabilityAction,
+  saveShiftAction, deleteShiftAction, moveShiftAction, saveAvailabilityAction,
   autoGenerateAction, clearMonthAction,
 }: Props) {
   const router = useRouter();
   const today = getTodayString();
   const [modalState, setModalState] = useState<ModalState | null>(null);
   const [availMenu, setAvailMenu] = useState<AvailMenuState | null>(null);
+  const [showAutoPlanConfig, setShowAutoPlanConfig] = useState(false);
   const [isAutoPlanning, startAutoPlanning] = useTransition();
   const [isClearing, startClearing] = useTransition();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const dragSource = useRef<{ employeeId: number; date: string } | null>(null);
 
   // ── Build lookup maps ──────────────────────────────────────────────────────
   const shiftMap = useMemo(() => {
@@ -120,12 +124,34 @@ export default function MonthlyGrid({
   }
 
   // ── Auto plan ─────────────────────────────────────────────────────────────
-  function handleAutoGenerate() {
+  function handleAutoGenerate(config: AutoPlanConfig) {
     const fd = new FormData();
-    fd.set("month", month);
+    fd.set("month", config.month);
+    fd.set("min_shift_hours", String(config.min_shift_hours));
+    fd.set("max_shifts_per_week", String(config.max_shifts_per_week));
+    fd.set("skip_weekends", config.skip_weekends ? "true" : "false");
+    fd.set("respect_availability", config.respect_availability ? "true" : "false");
+    fd.set("overwrite_existing", config.overwrite_existing ? "true" : "false");
     startAutoPlanning(async () => {
       await autoGenerateAction(fd);
+      setShowAutoPlanConfig(false);
     });
+  }
+
+  // ── Drag and drop ──────────────────────────────────────────────────────────
+  function handleDragStart(employeeId: number, date: string) {
+    dragSource.current = { employeeId, date };
+  }
+
+  function handleDrop(targetEmployeeId: number, targetDate: string) {
+    const src = dragSource.current;
+    dragSource.current = null;
+    if (!src || src.employeeId === targetEmployeeId || src.date !== targetDate) return;
+    const fd = new FormData();
+    fd.set("from_employee_id", String(src.employeeId));
+    fd.set("to_employee_id", String(targetEmployeeId));
+    fd.set("shift_date", targetDate);
+    moveShiftAction(fd);
   }
 
   // ── Clear month ────────────────────────────────────────────────────────────
@@ -156,21 +182,25 @@ export default function MonthlyGrid({
       const mins = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules, shift.break_minutes);
       const hours = mins ? formatMinutesAsHours(mins.workMinutes) : null;
       return (
-        <button
-          type="button"
+        <div
+          draggable
+          onDragStart={() => handleDragStart(emp.id, date)}
           onClick={() => setModalState({ employee: emp, date, shift })}
-          className="w-full text-left group"
+          className="w-full text-left group cursor-grab active:cursor-grabbing"
         >
           <div
-            className="rounded-md px-1.5 py-1 text-white text-xs leading-tight group-hover:brightness-110 transition-all"
+            className="rounded-md px-1.5 py-1 text-white text-xs leading-tight group-hover:brightness-110 transition-all select-none"
             style={{ backgroundColor: emp.color }}
           >
             <div className="font-semibold truncate">
               {shift.start_time.slice(0, 5)}–{shift.end_time.slice(0, 5)}
             </div>
             {hours && <div className="opacity-80 text-[10px]">{hours}h</div>}
+            {shift.break_minutes != null && (
+              <div className="opacity-60 text-[10px]">⏸ {shift.break_minutes}min</div>
+            )}
           </div>
-        </button>
+        </div>
       );
     }
 
@@ -271,7 +301,7 @@ export default function MonthlyGrid({
                   Monat leeren
                 </button>
                 <button
-                  onClick={handleAutoGenerate}
+                  onClick={() => setShowAutoPlanConfig(true)}
                   disabled={isAutoPlanning}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors disabled:opacity-60"
                 >
@@ -394,11 +424,13 @@ export default function MonthlyGrid({
                             : ""
                         }`}
                         style={{ height: 52 }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={() => handleDrop(emp.id, day)}
                       >
                         {renderShiftBlock(emp, day)}
                         {/* Right-click for availability */}
                         <div
-                          className="absolute inset-0"
+                          className="absolute inset-0 pointer-events-none"
                           onContextMenu={(e) => {
                             e.preventDefault();
                             setAvailMenu({
@@ -492,16 +524,28 @@ export default function MonthlyGrid({
         </>
       )}
 
+      {/* ── Auto-plan config modal ────────────────────────────────────────── */}
+      {showAutoPlanConfig && (
+        <AutoPlanConfigModal
+          month={month}
+          onClose={() => setShowAutoPlanConfig(false)}
+          onConfirm={handleAutoGenerate}
+          isPending={isAutoPlanning}
+        />
+      )}
+
       {/* ── Shift modal ────────────────────────────────────────────────────── */}
       {modalState && (
         <ShiftModal
           employee={modalState.employee}
+          allEmployees={employees}
           date={modalState.date}
           shift={modalState.shift}
           shiftTracks={shiftTracks}
           onClose={() => setModalState(null)}
           saveAction={saveShiftAction}
           deleteAction={deleteShiftAction}
+          moveAction={moveShiftAction}
         />
       )}
     </div>

@@ -79,7 +79,7 @@ export default function EmployeeModal({
           </button>
         </div>
 
-        <form ref={formRef} onSubmit={handleSubmit} className="p-5 space-y-4">
+        <form ref={formRef} onSubmit={handleSubmit} className="p-5 space-y-4" style={{ colorScheme: "dark" }}>
           {/* Name */}
           <div>
             <label className="block text-xs text-zinc-400 mb-1.5">
