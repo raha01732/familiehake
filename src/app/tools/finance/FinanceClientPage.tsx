@@ -102,6 +102,7 @@ export default function FinanceClientPage() {
   const fetchTransactions = useCallback(async (month: string) => {
     setLoading(true);
     setBarsVisible(false);
+    setError(null);
     try {
       const res = await fetch(`/api/finance/transactions?month=${month}`);
       const json = await res.json();
@@ -195,18 +196,21 @@ export default function FinanceClientPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        if ((await res.json()).ok) {
-          const editedMonth = form.transaction_date.slice(0, 7);
-          if (editedMonth !== monthKey) {
-            // Transaction moved to a different month — remove it from the current view
-            setTransactions((prev) => prev.filter((t) => t.id !== editingTx.id));
-          } else {
-            setTransactions((prev) =>
-              prev.map((t) =>
-                t.id === editingTx.id ? { ...t, ...body, amount } : t
-              )
-            );
-          }
+        const json = await res.json();
+        if (!json.ok) {
+          setError("Buchung konnte nicht gespeichert werden.");
+          return;
+        }
+        const editedMonth = form.transaction_date.slice(0, 7);
+        if (editedMonth !== monthKey) {
+          // Transaction moved to a different month — remove it from the current view
+          setTransactions((prev) => prev.filter((t) => t.id !== editingTx.id));
+        } else {
+          setTransactions((prev) =>
+            prev.map((t) =>
+              t.id === editingTx.id ? { ...t, ...body, amount } : t
+            )
+          );
         }
       } else {
         const res = await fetch("/api/finance/transactions", {
@@ -215,15 +219,19 @@ export default function FinanceClientPage() {
           body: JSON.stringify(body),
         });
         const json = await res.json();
-        if (json.ok) {
-          // Only append to list if this transaction falls in the current month view
-          const txDate = form.transaction_date.slice(0, 7);
-          if (txDate === monthKey) {
-            setTransactions((prev) => [json.data, ...prev]);
-          }
+        if (!json.ok) {
+          setError("Buchung konnte nicht angelegt werden.");
+          return;
+        }
+        // Only append to list if this transaction falls in the current month view
+        const txDate = form.transaction_date.slice(0, 7);
+        if (txDate === monthKey) {
+          setTransactions((prev) => [json.data, ...prev]);
         }
       }
       closeModal();
+    } catch {
+      setError("Netzwerkfehler beim Speichern.");
     } finally {
       setSaving(false);
     }
