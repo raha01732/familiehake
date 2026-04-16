@@ -152,6 +152,7 @@ export async function GET(req: NextRequest) {
     const targets = activeSessions.filter((session) => shouldRevokeSessionByIdlePolicy(session, nowMs));
 
     let revoked = 0;
+    let alreadyGone = 0;
     let revokeErrors = 0;
 
     for (const session of targets) {
@@ -159,16 +160,26 @@ export async function GET(req: NextRequest) {
         await client.sessions.revokeSession(session.id);
         revoked += 1;
       } catch (error) {
-        revokeErrors += 1;
-        Sentry.captureException(error, {
-          tags: {
-            cron: "force-logout",
-            stage: "revoke-session",
-          },
-          extra: {
-            sessionId: session.id,
-          },
-        });
+        // 422 Unprocessable Entity = session already expired/revoked by Clerk — not a real error
+        const status =
+          (error as any)?.status ??
+          (error as any)?.statusCode ??
+          (error as any)?.clerkError?.status;
+        const message = error instanceof Error ? error.message : String(error);
+        const isAlreadyGone =
+          status === 422 ||
+          (typeof message === "string" &&
+            message.toLowerCase().includes("unprocessable"));
+
+        if (isAlreadyGone) {
+          alreadyGone += 1;
+        } else {
+          revokeErrors += 1;
+          Sentry.captureException(error, {
+            tags: { cron: "force-logout", stage: "revoke-session" },
+            extra: { sessionId: session.id },
+          });
+        }
       }
     }
 
@@ -185,6 +196,7 @@ export async function GET(req: NextRequest) {
           activeSessions: activeSessions.length,
           targetedSessions: targets.length,
           revoked,
+          alreadyGone,
           revokeErrors,
           durationMs,
         },
@@ -202,6 +214,7 @@ export async function GET(req: NextRequest) {
         activeSessions: activeSessions.length,
         targetedSessions: targets.length,
         revoked,
+        alreadyGone,
         revokeErrors,
         idleTimeoutHours: Math.max(1, IDLE_TIMEOUT_HOURS),
       },
@@ -212,6 +225,7 @@ export async function GET(req: NextRequest) {
       activeSessions: activeSessions.length,
       targetedSessions: targets.length,
       revoked,
+      alreadyGone,
       revokeErrors,
       durationMs,
     });
