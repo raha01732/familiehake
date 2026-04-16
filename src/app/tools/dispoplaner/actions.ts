@@ -12,7 +12,8 @@ type ShowWithMovie = {
 export async function addMovieAction(formData: FormData) {
   const title = String(formData.get("title") || "").trim();
   const runtime = Number(formData.get("runtime") || 0);
-  const preShow = Number(formData.get("pre_show") ?? 25);
+  const preShowRaw = formData.get("pre_show");
+  const preShow = preShowRaw !== null && preShowRaw !== "" ? Number(preShowRaw) : 25;
   if (!title || runtime <= 0) return;
   const sb = createAdminClient();
   await sb.from("movies").insert({ title, runtime, pre_show: preShow });
@@ -23,7 +24,8 @@ export async function updateMovieAction(formData: FormData) {
   const id = Number(formData.get("id"));
   const title = String(formData.get("title") || "").trim();
   const runtime = Number(formData.get("runtime") || 0);
-  const preShow = Number(formData.get("pre_show") ?? 25);
+  const preShowRaw = formData.get("pre_show");
+  const preShow = preShowRaw !== null && preShowRaw !== "" ? Number(preShowRaw) : 25;
   if (!id || !title || runtime <= 0) return;
   const sb = createAdminClient();
   await sb.from("movies").update({ title, runtime, pre_show: preShow }).eq("id", id);
