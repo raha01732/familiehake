@@ -48,6 +48,11 @@ export const AUDIT_ACTIONS = [
   "theme_preference_update",
   "tool_maintenance_enabled",
 
+  // Finance
+  "finance_transaction_create",
+  "finance_transaction_update",
+  "finance_transaction_delete",
+
   // Errors
   "critical_error",
 ] as const;
