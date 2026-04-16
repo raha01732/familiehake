@@ -55,6 +55,12 @@ export const TOOL_LINKS: NavLink[] = [
     label: "System",
     description: "Systemübersicht & Runtime-Details",
   },
+  {
+    routeKey: "tools/finance",
+    href: "/tools/finance",
+    label: "Budget",
+    description: "Einnahmen, Ausgaben & Kategorien",
+  },
 ];
 
 export const ADMIN_LINKS: NavLink[] = [

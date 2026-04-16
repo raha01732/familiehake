@@ -665,5 +665,30 @@ values
   ('tools/calender', true, null),
   ('tools/messages', true, null),
   ('tools/storage', true, null),
-  ('tools/system', true, null)
+  ('tools/system', true, null),
+  ('tools/finance', true, null)
 on conflict (route_key) do nothing;
+
+-- ─────────────────────────────────────────────
+-- Finance Tracker
+-- ─────────────────────────────────────────────
+
+-- Transactions (amounts/descriptions stored AES-256-GCM encrypted)
+create table if not exists finance_transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  type text not null check (type in ('income', 'expense')),
+  -- AES-256-GCM ciphertext: base64(iv).base64(authTag).base64(ciphertext)
+  amount_enc text not null,
+  description_enc text,
+  category text not null,
+  transaction_date date not null default current_date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists finance_transactions_user_id_idx
+  on finance_transactions(user_id);
+
+create index if not exists finance_transactions_user_date_idx
+  on finance_transactions(user_id, transaction_date desc);

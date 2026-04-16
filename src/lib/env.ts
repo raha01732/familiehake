@@ -24,6 +24,7 @@ const baseSchema = z.object({
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   NEXT_PUBLIC_POSTHOG_KEY: z.string().optional(),
   NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
+  FINANCE_ENCRYPTION_KEY: z.string().min(16).optional(),
 });
 
 const requiredInProduction = [
