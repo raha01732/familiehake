@@ -83,7 +83,10 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     patch.due_date = body.due_date || null;
   }
   if ("category" in body) patch.category = body.category?.trim() || null;
-  if (typeof body.position === "number") patch.position = body.position;
+  // Only apply explicit position if no status change triggered auto-positioning
+  if (typeof body.position === "number" && !(body.status !== undefined && body.status !== existing.status)) {
+    patch.position = body.position;
+  }
 
   // Guard: if only updated_at was set, there is nothing to update
   if (Object.keys(patch).length === 1) {
