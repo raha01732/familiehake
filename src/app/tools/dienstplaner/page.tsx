@@ -5,15 +5,11 @@ import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import {
   saveShiftAction,
   deleteShiftAction,
-  moveShiftAction as _moveShiftAction,
+  moveShiftAction,
   saveAvailabilityAction,
   autoGenerateMonthPlanAction,
   clearMonthAction,
 } from "./actions";
-
-async function moveShiftAction(fd: FormData): Promise<void> {
-  await _moveShiftAction(fd);
-}
 import MonthlyGrid from "./components/MonthlyGrid";
 import type { Employee, Shift, Availability, DateRequirement, ShiftTrack } from "./utils";
 import { buildMonthDays, getCurrentMonth } from "./utils";
