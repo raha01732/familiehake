@@ -35,8 +35,8 @@ export default async function ActivityPage() {
   return (
     <RoleGate routeKey="activity">
       <section className="p-6 flex flex-col gap-6">
-        <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">Aktivitäten</h1>
-        <p className="text-sm text-zinc-400">Die letzten Systemereignisse aus der Datenbank.</p>
+        <h1 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Aktivitäten</h1>
+        <p className="text-sm text-[hsl(var(--muted-foreground))]">Die letzten Systemereignisse aus der Datenbank.</p>
 
         <ActivityFeed initial={(events ?? []) as any} debug />
       </section>

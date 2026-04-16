@@ -41,8 +41,8 @@ export default async function ToolsPage() {
   return (
     <section className="p-6 flex flex-col gap-6">
       <header>
-        <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">Werkzeuge</h1>
-        <p className="text-sm text-zinc-400">
+        <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Werkzeuge</h1>
+        <p className="text-sm text-[hsl(var(--muted-foreground))]">
           Alle für deine Rolle sichtbaren Module inklusive globalem Tool-Status.
         </p>
       </header>
@@ -53,9 +53,9 @@ export default async function ToolsPage() {
       />
 
       {visible.length === 0 ? (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
-          <div className="text-zinc-300 text-sm">Für deine Rolle sind derzeit keine Werkzeuge freigeschaltet.</div>
-          <div className="text-[11px] text-zinc-500 mt-2">
+        <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6">
+          <div className="text-[hsl(var(--foreground))] text-sm">Für deine Rolle sind derzeit keine Werkzeuge freigeschaltet.</div>
+          <div className="text-[11px] text-[hsl(var(--muted-foreground))] mt-2">
             Konfiguriere die Zugriffe in <span className="font-mono">/admin/settings</span> (Keys:{" "}
             <span className="font-mono">
               {TOOL_LINKS.map((link) => link.routeKey).join(", ")}
@@ -77,17 +77,17 @@ export default async function ToolsPage() {
                 <Link
                   key={t.routeKey}
                   href={t.href}
-                  className="group rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5 hover:bg-zinc-900/60 hover:border-zinc-700 transition-colors"
+                  className="group rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 hover:bg-[hsl(var(--secondary))] hover:border-[hsl(var(--primary)/0.3)] transition-colors"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="text-zinc-100 font-medium text-base group-hover:underline">{t.label}</div>
+                    <div className="text-[hsl(var(--foreground))] font-medium text-base group-hover:underline">{t.label}</div>
                     {showDisabledBadge ? (
                       <span className="inline-flex items-center rounded-full border border-amber-600/80 bg-amber-900/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
                         {disabledLabel}
                       </span>
                     ) : null}
                   </div>
-                  <div className="text-zinc-400 text-sm mt-1">{t.description}</div>
+                  <div className="text-[hsl(var(--muted-foreground))] text-sm mt-1">{t.description}</div>
                   {!enabled ? (
                     <div className="text-amber-200/90 text-xs mt-2 line-clamp-2">
                       {maintenanceMessage || "Dieses Tool ist aktuell vorübergehend deaktiviert."}

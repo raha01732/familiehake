@@ -343,15 +343,15 @@ export default async function AdminSettingsPage({
       <section className="flex flex-col gap-8">
         <header className="card p-6 flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">
+            <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))] tracking-tight">
               Rollen &amp; Berechtigungen
             </h1>
-            <div className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-xs">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] px-3 py-1 text-xs">
               <span
                 className={`h-2 w-2 rounded-full ${liveStatus.live ? "bg-emerald-400" : "bg-rose-400"}`}
                 aria-hidden="true"
               />
-              <span className="text-zinc-200">{liveStatus.live ? "Live" : "Nicht-Live"}</span>
+              <span className="text-[hsl(var(--foreground))]">{liveStatus.live ? "Live" : "Nicht-Live"}</span>
             </div>
           </div>
           <p className="text-sm text-zinc-400">
@@ -381,14 +381,14 @@ export default async function AdminSettingsPage({
 
         {/* Neue Route hinzufügen */}
         <div className="card p-6">
-          <div className="text-sm font-medium text-zinc-100 mb-3">Neue Route anlegen</div>
+          <div className="text-sm font-medium text-[hsl(var(--foreground))] mb-3">Neue Route anlegen</div>
           <form action={addRouteAction} className="flex flex-col sm:flex-row gap-3 sm:items-center">
             <input
               name="route"
               placeholder="z. B. admin/reports"
-              className="flex-1 rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+              className="flex-1 input-field"
             />
-            <button className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60">
+            <button className="rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs font-medium px-3 py-2 hover:bg-[hsl(var(--secondary))]">
               Route hinzufügen
             </button>
           </form>
@@ -402,15 +402,15 @@ export default async function AdminSettingsPage({
 
         {/* Matrix */}
         <div className="card p-6">
-          <div className="text-sm font-medium text-zinc-100 mb-4">Zugriffs-Matrix</div>
+          <div className="text-sm font-medium text-[hsl(var(--foreground))] mb-4">Zugriffs-Matrix</div>
 
           {routes.length === 0 ? (
             <div className="text-sm text-zinc-500">Noch keine Routen vorhanden.</div>
           ) : (
             <form action={upsertAccessAction} className="flex flex-col gap-4">
-              <div className="overflow-x-auto rounded-xl border border-zinc-800">
+              <div className="overflow-x-auto rounded-xl border border-[hsl(var(--border))]">
                 <table className="min-w-full text-sm">
-                  <thead className="bg-zinc-900/60 text-zinc-400">
+                  <thead className="bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]">
                     <tr>
                       <th className="px-4 py-2 text-left font-medium">Route</th>
                       {roles.map((role) => (
@@ -420,11 +420,11 @@ export default async function AdminSettingsPage({
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-zinc-800">
+                  <tbody className="divide-y divide-[hsl(var(--border))]">
                     {routes.map((route) => {
                       const row = matrix.get(route) ?? new Map<string, boolean>();
                       return (
-                        <tr key={route} className="hover:bg-zinc-900/40">
+                        <tr key={route} className="hover:bg-[hsl(var(--secondary))]">
                           <td className="px-4 py-2 text-zinc-200 font-medium">/{route}</td>
                           {roles.map((role) => {
                             const roleKey = normalizeRoleKey(role.name);
@@ -438,7 +438,7 @@ export default async function AdminSettingsPage({
                                     type="checkbox"
                                     name={fieldName}
                                     defaultChecked={isAllowed}
-                                    className="h-4 w-4 rounded border-zinc-700 bg-zinc-950 text-emerald-400"
+                                    className="h-4 w-4 rounded border-[hsl(var(--border))] bg-[hsl(var(--background))] text-[hsl(var(--primary))]"
                                     aria-label={`Zugriff für ${role.name} auf ${route}`}
                                   />
                                   <span className="text-xs text-zinc-500">{role.name}</span>
@@ -454,7 +454,7 @@ export default async function AdminSettingsPage({
               </div>
 
               <div>
-                <button className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60">
+                <button className="rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs font-medium px-3 py-2 hover:bg-[hsl(var(--secondary))]">
                   Speichern
                 </button>
               </div>
@@ -464,7 +464,7 @@ export default async function AdminSettingsPage({
 
         {/* Tool-Status */}
         <div className="card p-6">
-          <div className="text-sm font-medium text-zinc-100 mb-4">Tool-Wartungsmodus</div>
+          <div className="text-sm font-medium text-[hsl(var(--foreground))] mb-4">Tool-Wartungsmodus</div>
           <p className="text-xs text-zinc-500 mb-4">
             Hier steuerst du pro Tool den globalen Status (aktiv/deaktiviert) und optional eine
             Wartungsmeldung.
@@ -482,7 +482,7 @@ export default async function AdminSettingsPage({
                 </thead>
                 <tbody className="divide-y divide-zinc-800">
                   {toolStatusList.map((tool) => (
-                    <tr key={tool.routeKey} className="hover:bg-zinc-900/40">
+                    <tr key={tool.routeKey} className="hover:bg-[hsl(var(--secondary))]">
                       <td className="px-4 py-2 text-zinc-200 font-medium">/{tool.routeKey}</td>
                       <td className="px-4 py-2">
                         <label className="inline-flex items-center gap-2 text-zinc-200">
@@ -490,7 +490,7 @@ export default async function AdminSettingsPage({
                             type="checkbox"
                             name={buildToolEnabledFieldName(tool.routeKey)}
                             defaultChecked={tool.enabled}
-                            className="h-4 w-4 rounded border-zinc-700 bg-zinc-950 text-emerald-400"
+                            className="h-4 w-4 rounded border-[hsl(var(--border))] bg-[hsl(var(--background))] text-[hsl(var(--primary))]"
                             aria-label={`Tool ${tool.routeKey} aktiv`}
                           />
                           <span className="text-xs text-zinc-500">enabled</span>
@@ -502,7 +502,7 @@ export default async function AdminSettingsPage({
                           name={buildToolMessageFieldName(tool.routeKey)}
                           defaultValue={tool.maintenanceMessage}
                           placeholder="Optional: Hinweistext bei Deaktivierung"
-                          className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-xs text-zinc-100"
+                          className="w-full input-field text-xs"
                         />
                       </td>
                     </tr>
@@ -512,7 +512,7 @@ export default async function AdminSettingsPage({
             </div>
 
             <div>
-              <button className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60">
+              <button className="rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs font-medium px-3 py-2 hover:bg-[hsl(var(--secondary))]">
                 Tool-Status speichern
               </button>
             </div>

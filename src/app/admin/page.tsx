@@ -8,8 +8,8 @@ export default function AdminHomePage() {
     <RoleGate routeKey="admin">
       <section className="card p-6 flex flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">Admin</h1>
-          <p className="text-zinc-400 text-sm mt-1">
+          <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Admin</h1>
+          <p className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
             Verwaltung, Module und Systemfunktionen.
           </p>
         </div>
@@ -18,10 +18,10 @@ export default function AdminHomePage() {
           {/* Benutzerverwaltung */}
           <Link
             href="/admin/users"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
+            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 hover:bg-[hsl(var(--secondary))] transition-colors"
           >
-            <div className="text-zinc-100 font-medium">Benutzerverwaltung</div>
-            <div className="text-zinc-500 text-sm mt-1">
+            <div className="text-[hsl(var(--foreground))] font-medium">Benutzerverwaltung</div>
+            <div className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
               Nutzer suchen, bearbeiten, Rollen setzen, E-Mails verwalten.
             </div>
           </Link>
@@ -29,10 +29,10 @@ export default function AdminHomePage() {
           {/* Einstellungen (vormals /settings) */}
           <Link
             href="/admin/settings"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
+            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 hover:bg-[hsl(var(--secondary))] transition-colors"
           >
-            <div className="text-zinc-100 font-medium">Einstellungen</div>
-            <div className="text-zinc-500 text-sm mt-1">
+            <div className="text-[hsl(var(--foreground))] font-medium">Einstellungen</div>
+            <div className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
               Module & Berechtigungen konfigurieren (aus DB).
             </div>
           </Link>
@@ -40,10 +40,10 @@ export default function AdminHomePage() {
           {/* Monitoring */}
           <Link
             href="/monitoring"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
+            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 hover:bg-[hsl(var(--secondary))] transition-colors"
           >
-            <div className="text-zinc-100 font-medium">Monitoring</div>
-            <div className="text-zinc-500 text-sm mt-1">
+            <div className="text-[hsl(var(--foreground))] font-medium">Monitoring</div>
+            <div className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
               Health-Check, Systemstatus & Audit-Logs.
             </div>
           </Link>
@@ -51,10 +51,10 @@ export default function AdminHomePage() {
           {/* Tools-Hub */}
           <Link
             href="/tools"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
+            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 hover:bg-[hsl(var(--secondary))] transition-colors"
           >
-            <div className="text-zinc-100 font-medium">Tools</div>
-            <div className="text-zinc-500 text-sm mt-1">
+            <div className="text-[hsl(var(--foreground))] font-medium">Tools</div>
+            <div className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
               Journal, Dateien, Storage-Insights &amp; Systemübersicht.
             </div>
           </Link>
@@ -62,10 +62,10 @@ export default function AdminHomePage() {
           {/* Activity (Live-Feed) */}
           <Link
             href="/activity"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 hover:bg-zinc-900/60 transition"
+            className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 hover:bg-[hsl(var(--secondary))] transition-colors"
           >
-            <div className="text-zinc-100 font-medium">Activity (live)</div>
-            <div className="text-zinc-500 text-sm mt-1">
+            <div className="text-[hsl(var(--foreground))] font-medium">Activity (live)</div>
+            <div className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
               Echtzeit-Feed aus Audit-Logs.
             </div>
           </Link>
