@@ -1,6 +1,7 @@
 import RoleGate from "@/components/RoleGate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import ActivityFeed from "@/components/ActivityFeed";
+import { BarChart2 } from "lucide-react";
 
 export const metadata = { title: "Aktivitäten" };
 
@@ -34,9 +35,30 @@ export default async function ActivityPage() {
 
   return (
     <RoleGate routeKey="activity">
-      <section className="p-6 flex flex-col gap-6">
-        <h1 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Aktivitäten</h1>
-        <p className="text-sm text-[hsl(var(--muted-foreground))]">Die letzten Systemereignisse aus der Datenbank.</p>
+      <section className="flex flex-col gap-8 animate-fade-up">
+        {/* Header */}
+        <div className="flex flex-col gap-3">
+          <div
+            className="shimmer-badge inline-flex w-fit items-center gap-2 rounded-full px-3 py-1"
+            style={{ border: "1px solid hsl(var(--primary) / 0.3)" }}
+          >
+            <BarChart2 size={11} style={{ color: "hsl(var(--primary))" }} aria-hidden />
+            <span
+              className="text-[10px] font-semibold uppercase tracking-[0.2em]"
+              style={{ color: "hsl(var(--primary))" }}
+            >
+              Audit-Log
+            </span>
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">
+              <span className="gradient-text">Aktivitäten</span>
+            </h1>
+            <p className="mt-1.5 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Die letzten Systemereignisse aus der Datenbank.
+            </p>
+          </div>
+        </div>
 
         <ActivityFeed initial={(events ?? []) as any} debug />
       </section>

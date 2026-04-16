@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DbRole } from "@/lib/access-db";
 import { env } from "@/lib/env";
+import { Users } from "lucide-react";
 
 export const metadata = { title: "Admin | Benutzer & Rollen" };
 
@@ -580,41 +581,59 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
 
   return (
     <RoleGate routeKey="admin/users">
-      <section className="card p-6 flex flex-col gap-6">
+      <section className="flex flex-col gap-8 animate-fade-up">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-2">
+            <div
+              className="shimmer-badge inline-flex w-fit items-center gap-2 rounded-full px-3 py-1"
+              style={{ border: "1px solid hsl(var(--primary) / 0.3)" }}
+            >
+              <Users size={11} style={{ color: "hsl(var(--primary))" }} aria-hidden />
+              <span
+                className="text-[10px] font-semibold uppercase tracking-[0.2em]"
+                style={{ color: "hsl(var(--primary))" }}
+              >
+                Admin
+              </span>
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">
+                <span className="gradient-text">Benutzer &amp; Rollen</span>
+              </h1>
+              <p className="mt-1.5 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+                Suche Benutzer, verwalte Profile und weise Rollen zu.
+              </p>
+            </div>
+          </div>
+          <div className="text-right text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+            <div className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>{counts.total} Nutzer</div>
+            {Object.entries(counts.byRole).map(([roleName, amount]) => (
+              <div key={roleName}>{roleName}: {amount}</div>
+            ))}
+          </div>
+        </div>
+
         {status && (
           <div
-            className={`rounded-lg border px-4 py-3 text-sm ${
-              status === "success"
-                ? "border-emerald-700/60 bg-emerald-950/30 text-emerald-200"
-                : "border-rose-700/60 bg-rose-950/30 text-rose-200"
-            }`}
+            className="rounded-xl border px-4 py-3 text-sm"
+            style={{
+              borderColor: status === "success" ? "hsl(142 71% 45% / 0.4)" : "hsl(0 84% 60% / 0.4)",
+              background: status === "success" ? "hsl(142 71% 45% / 0.06)" : "hsl(0 84% 60% / 0.06)",
+              color: status === "success" ? "hsl(142 71% 55%)" : "hsl(0 84% 65%)",
+            }}
           >
             {status === "success" ? "Speichern erfolgreich." : "Fehler beim Speichern."}
             {statusMessage ? <div className="mt-1 text-xs opacity-80">Info: {statusMessage}</div> : null}
             {errorCode ? <div className="mt-1 text-xs opacity-80">Fehlercode: {errorCode}</div> : null}
           </div>
         )}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Benutzer &amp; Rollen</h2>
-            <p className="text-zinc-400 text-sm leading-relaxed">
-              Suche Benutzer, verwalte Profile und weise Rollen zu. Admin-Änderungen sind nur für den freigegebenen Admin oder
-              den Superadmin möglich.
-            </p>
-          </div>
-          <div className="text-[11px] text-zinc-500">
-            <div>Gesamt: {counts.total}</div>
-            {Object.entries(counts.byRole).map(([roleName, amount]) => (
-              <div key={roleName}>
-                {roleName}: {amount}
-              </div>
-            ))}
-          </div>
-        </div>
 
-        <form method="get" className="grid gap-3 sm:grid-cols-3">
+        <form method="get" className="feature-card grid gap-3 p-4 sm:grid-cols-3">
           <div className="sm:col-span-2">
-            <label className="text-xs text-zinc-400">Suche (E-Mail, Name, Benutzername)</label>
+            <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Suche (E-Mail, Name, Benutzername)
+            </label>
             <input
               name="q"
               defaultValue={q}
@@ -623,7 +642,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
             />
           </div>
           <div>
-            <label className="text-xs text-zinc-400">Rolle</label>
+            <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Rolle</label>
             <select
               name="role"
               defaultValue={roleFilter}
@@ -638,31 +657,45 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
             </select>
           </div>
           <div className="sm:col-span-3 flex gap-2">
-            <button className="rounded-xl border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60">
+            <button
+              className="rounded-xl px-3 py-2 text-xs font-medium transition-colors"
+              style={{
+                border: "1px solid hsl(var(--border))",
+                color: "hsl(var(--foreground))",
+                background: "transparent",
+              }}
+            >
               Anwenden
             </button>
             <a
               href="/admin/users"
-              className="rounded-xl border border-zinc-800 text-zinc-400 text-xs font-medium px-3 py-2 hover:bg-zinc-900/60"
+              className="rounded-xl px-3 py-2 text-xs font-medium transition-colors"
+              style={{
+                border: "1px solid hsl(var(--border) / 0.5)",
+                color: "hsl(var(--muted-foreground))",
+                background: "transparent",
+              }}
             >
               Zurücksetzen
             </a>
           </div>
         </form>
 
-        <form action={createUserAction} className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 grid gap-3">
+        <form action={createUserAction} className="feature-card p-4 grid gap-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold text-zinc-100">Neuen Benutzer anlegen</h3>
-              <p className="text-xs text-zinc-400">
-                Erstellt einen Clerk-Benutzer und weist automatisch die Standardrolle „User“ zu.
+              <h3 className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+                Neuen Benutzer anlegen
+              </h3>
+              <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                Erstellt einen Clerk-Benutzer und weist automatisch die Standardrolle „User" zu.
               </p>
             </div>
-            <span className="text-[11px] text-zinc-500">Nur Admins</span>
+            <span className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>Nur Admins</span>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs text-zinc-400">E-Mail</label>
+              <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>E-Mail</label>
               <input
                 name="email"
                 type="email"
@@ -673,7 +706,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
               />
             </div>
             <div>
-              <label className="text-xs text-zinc-400">Benutzername</label>
+              <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Benutzername</label>
               <input
                 name="username"
                 placeholder="optional"
@@ -684,7 +717,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs text-zinc-400">Vorname</label>
+              <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Vorname</label>
               <input
                 name="firstName"
                 placeholder="optional"
@@ -693,7 +726,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
               />
             </div>
             <div>
-              <label className="text-xs text-zinc-400">Nachname</label>
+              <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Nachname</label>
               <input
                 name="lastName"
                 placeholder="optional"
@@ -703,7 +736,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
             </div>
           </div>
           <div>
-            <label className="text-xs text-zinc-400">Temporäres Passwort (optional)</label>
+            <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Temporäres Passwort (optional)</label>
             <input
               name="password"
               type="password"
@@ -713,11 +746,11 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
             />
           </div>
           {!actorIsAdmin && (
-            <div className="text-[11px] text-amber-400">Nur Admins dürfen neue Benutzer anlegen.</div>
+            <div className="text-[11px]" style={{ color: "hsl(27 96% 61%)" }}>Nur Admins dürfen neue Benutzer anlegen.</div>
           )}
           <div className="flex justify-end">
             <button
-              className="rounded-lg border border-emerald-600 text-emerald-200 text-xs font-medium px-3 py-2 hover:bg-emerald-900/30 disabled:opacity-60"
+              className="brand-button rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-60"
               disabled={!actorIsAdmin}
             >
               Benutzer anlegen
@@ -738,25 +771,30 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
             </thead>
             <tbody className="divide-y divide-[hsl(var(--border))]">
               {filtered.map((user) => (
-                <tr key={user.id}>
-                  <td className="px-3 py-2 text-zinc-200">{user.email}</td>
-                  <td className="px-3 py-2 text-zinc-400">
+                <tr key={user.id} className="hover:bg-[hsl(var(--secondary)/0.5)] transition-colors">
+                  <td className="px-3 py-2.5 text-xs" style={{ color: "hsl(var(--foreground))" }}>{user.email}</td>
+                  <td className="px-3 py-2.5 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
                     {user.firstName} {user.lastName}
                   </td>
-                  <td className="px-3 py-2 text-zinc-400">{user.username || "—"}</td>
-                  <td className="px-3 py-2 text-zinc-300">
+                  <td className="px-3 py-2.5 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>{user.username || "—"}</td>
+                  <td className="px-3 py-2.5">
                     <div className="flex flex-wrap gap-1">
                       {user.roles.map((role) => (
                         <span
                           key={role.id}
-                          className="rounded-lg border border-zinc-700 bg-zinc-900/60 px-2 py-0.5 text-[11px] text-zinc-300"
+                          className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                          style={{
+                            background: "hsl(var(--primary) / 0.08)",
+                            color: "hsl(var(--primary))",
+                            border: "1px solid hsl(var(--primary) / 0.15)",
+                          }}
                         >
                           {role.label}
                         </span>
                       ))}
                     </div>
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2.5">
                     <Link
                       href={{
                         pathname: "/admin/users",
@@ -766,7 +804,12 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                           edit: user.id,
                         },
                       }}
-                      className="rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs font-medium px-3 py-1.5 hover:bg-[hsl(var(--secondary))]"
+                      className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+                      style={{
+                        border: "1px solid hsl(var(--border))",
+                        color: "hsl(var(--foreground))",
+                        background: "transparent",
+                      }}
                     >
                       Bearbeiten
                     </Link>
@@ -775,7 +818,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-3 py-6 text-center text-xs text-zinc-500">
+                  <td colSpan={5} className="px-3 py-6 text-center text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
                     Keine Benutzer gefunden.
                   </td>
                 </tr>
@@ -790,14 +833,18 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
           <div className="absolute inset-0 bg-black/60" />
           <div className="relative mx-auto mt-24 w-full max-w-lg card p-0 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[hsl(var(--border))]">
-              <div className="text-sm font-semibold text-zinc-100">Benutzer bearbeiten</div>
+              <div className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>Benutzer bearbeiten</div>
               <a
                 href={`/admin/users?${new URLSearchParams(
                   Object.fromEntries(
                     Object.entries({ q, role: roleFilter }).filter(([, v]) => (v ?? "") !== "" && v !== "all")
                   )
                 ).toString()}`}
-                className="text-xs rounded-lg border border-zinc-700 text-zinc-300 px-2 py-1 hover:bg-zinc-800/60"
+                className="text-xs rounded-lg px-2 py-1 transition-colors"
+                style={{
+                  border: "1px solid hsl(var(--border))",
+                  color: "hsl(var(--muted-foreground))",
+                }}
               >
                 Schließen
               </a>
@@ -808,7 +855,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                 <input type="hidden" name="userId" value={editUser.id} />
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-zinc-400">Vorname</label>
+                    <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Vorname</label>
                     <input
                       name="firstName"
                       defaultValue={editUser.firstName}
@@ -816,7 +863,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-zinc-400">Nachname</label>
+                    <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Nachname</label>
                     <input
                       name="lastName"
                       defaultValue={editUser.lastName}
@@ -826,7 +873,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                 </div>
 
                 <div>
-                  <label className="text-xs text-zinc-400">Benutzername</label>
+                  <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Benutzername</label>
                   <input
                     name="username"
                     defaultValue={editUser.username}
@@ -835,42 +882,40 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <span className="text-xs text-zinc-400">Rollen</span>
+                  <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Rollen</span>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {rolesCatalog.map((role) => {
                       const checked = editUser.roles.some((r) => r.id === role.id);
                       const disabled = role.isSuperAdmin && !actorIsSuper;
                       return (
-                        <label key={role.id} className="flex items-center gap-2 text-sm text-zinc-200">
+                        <label key={role.id} className="flex items-center gap-2 text-sm" style={{ color: "hsl(var(--foreground))" }}>
                           <input
                             type="checkbox"
                             name="roles"
                             value={role.id}
                             defaultChecked={checked}
                             disabled={disabled}
-                            className="accent-zinc-200"
+                            style={{ accentColor: "hsl(var(--primary))" }}
                           />
-                          <span>
-                            {role.label}
-                          </span>
+                          <span>{role.label}</span>
                         </label>
                       );
                     })}
                   </div>
                   {actorIsPrimarySuper && editUserIsAdmin ? (
-                    <label className="mt-2 flex items-center gap-2 text-xs text-zinc-300">
+                    <label className="mt-2 flex items-center gap-2 text-xs" style={{ color: "hsl(var(--foreground))" }}>
                       <input type="hidden" name="allowAdminManagement" value="off" />
                       <input
                         type="checkbox"
                         name="allowAdminManagement"
                         defaultChecked={editUser.allowAdminManagement}
-                        className="accent-zinc-200"
+                        style={{ accentColor: "hsl(var(--primary))" }}
                       />
                       Andere Admins dürfen diesen Admin verwalten
                     </label>
                   ) : null}
                   {!actorIsAdmin && (
-                    <div className="text-[11px] text-amber-400">
+                    <div className="text-[11px]" style={{ color: "hsl(27 96% 61%)" }}>
                       Nur der freigegebene Admin oder der Superadmin darf Rollen verändern.
                     </div>
                   )}
@@ -879,8 +924,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                 <div className="mt-4 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] p-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <div className="text-sm font-semibold text-zinc-100">Supabase-Verknüpfung</div>
-                      <p className="text-xs text-zinc-400">
+                      <div className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>Supabase-Verknüpfung</div>
+                      <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
                         {!editUser.roleMappingAvailable
                           ? "Die Tabelle user_roles fehlt in Supabase. Bitte das Schema aus db/schema.sql ausführen."
                           : editUser.hasDatabaseRole
@@ -918,7 +963,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                     Abbrechen
                   </a>
                   <button
-                    className="rounded-lg border border-green-700 text-green-300 text-xs font-medium px-3 py-2 hover:bg-green-900/30"
+                    className="brand-button rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-60"
                     disabled={!actorIsAdmin}
                   >
                     Speichern
@@ -927,7 +972,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
               </form>
 
               <div className="border-t border-[hsl(var(--border))] pt-4">
-                <div className="text-sm font-semibold text-zinc-100 mb-2">E-Mail-Adressen</div>
+                <div className="text-sm font-semibold mb-2" style={{ color: "hsl(var(--foreground))" }}>E-Mail-Adressen</div>
                 <div className="grid gap-2">
                   {editUser.emails.map((email) => {
                     const status = email.verification?.status ?? "unverified";
@@ -937,15 +982,17 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                         key={email.id}
                         className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] px-3 py-2 gap-2"
                       >
-                        <div className="text-xs text-zinc-300">
+                        <div className="text-xs" style={{ color: "hsl(var(--foreground))" }}>
                           {email.email}
                           {email.isPrimary ? (
-                            <span className="ml-2 rounded border border-purple-700 text-purple-300 px-2 py-0.5">primary</span>
+                            <span className="ml-2 rounded px-2 py-0.5" style={{ border: "1px solid hsl(var(--primary) / 0.4)", color: "hsl(var(--primary))", background: "hsl(var(--primary) / 0.08)" }}>primary</span>
                           ) : null}
                           <span
-                            className={`ml-2 rounded border px-2 py-0.5 ${
-                              verified ? "border-green-700 text-green-300" : "border-amber-600 text-amber-300"
-                            }`}
+                            className="ml-2 rounded px-2 py-0.5"
+                            style={verified
+                              ? { border: "1px solid hsl(142 71% 45% / 0.4)", color: "hsl(142 71% 55%)", background: "hsl(142 71% 45% / 0.08)" }
+                              : { border: "1px solid hsl(27 96% 61% / 0.4)", color: "hsl(27 96% 61%)", background: "hsl(27 96% 61% / 0.08)" }
+                            }
                           >
                             {verified ? "verified" : status}
                           </span>
