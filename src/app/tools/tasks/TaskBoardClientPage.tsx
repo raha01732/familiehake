@@ -774,7 +774,11 @@ export default function TaskBoardClientPage() {
   const tasksByStatus = (status: Task["status"]) =>
     tasks
       .filter((t) => t.status === status)
-      .sort((a, b) => a.position - b.position);
+      .sort(
+        (a, b) =>
+          a.position - b.position ||
+          a.created_at.localeCompare(b.created_at)
+      );
 
   const totalOpen = tasks.filter((t) => t.status !== "done").length;
 

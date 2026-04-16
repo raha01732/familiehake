@@ -40,7 +40,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 
   const { data: existing } = await sb
     .from("task_board_tasks")
-    .select("id")
+    .select("id,status")
     .eq("id", id)
     .single();
 
@@ -57,6 +57,17 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       return NextResponse.json({ ok: false, error: "invalid status" }, { status: 400 });
     }
     patch.status = body.status;
+    // When moving to a different column, place task at the end of the target column
+    if (body.status !== existing.status) {
+      const { data: maxRow } = await sb
+        .from("task_board_tasks")
+        .select("position")
+        .eq("status", body.status)
+        .order("position", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      patch.position = maxRow ? (maxRow.position ?? 0) + 1 : 0;
+    }
   }
   if (body.priority !== undefined) {
     if (!["low", "medium", "high"].includes(body.priority)) {

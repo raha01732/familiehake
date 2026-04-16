@@ -35,7 +35,8 @@ export async function GET(req: NextRequest) {
   const { data, error } = await sb
     .from("task_board_tasks")
     .select("*")
-    .order("position", { ascending: true });
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
 
   if (error) {
     console.error("tasks GET error:", error.message);
