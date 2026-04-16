@@ -307,36 +307,35 @@ async function upsertToolStatusAction(formData: FormData): Promise<void> {
 
 /* ===================== Page ===================== */
 
+type SettingsSearchParams = Promise<Record<string, string | string[] | undefined>>;
+
 export default async function AdminSettingsPage({
   searchParams,
 }: {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams: SettingsSearchParams;
 }) {
-  const [{ roles, routes, matrix, toolStatusList }, { isAdmin }, liveStatus] = await Promise.all([
-    getData(),
-    getAdminStatus(),
-    checkDatabaseLive(),
-  ]);
+  const [{ roles, routes, matrix, toolStatusList }, { isAdmin }, liveStatus, sp] =
+    await Promise.all([getData(), getAdminStatus(), checkDatabaseLive(), searchParams]);
 
   const saved =
-    searchParams?.saved === "1" ||
-    (Array.isArray(searchParams?.saved) && searchParams?.saved.includes("1"));
+    sp?.saved === "1" ||
+    (Array.isArray(sp?.saved) && sp?.saved.includes("1"));
 
   const added =
-    searchParams?.added === "1" ||
-    (Array.isArray(searchParams?.added) && searchParams?.added.includes("1"));
+    sp?.added === "1" ||
+    (Array.isArray(sp?.added) && sp?.added.includes("1"));
 
   const toolStatusSaved =
-    searchParams?.toolStatusSaved === "1" ||
-    (Array.isArray(searchParams?.toolStatusSaved) && searchParams?.toolStatusSaved.includes("1"));
+    sp?.toolStatusSaved === "1" ||
+    (Array.isArray(sp?.toolStatusSaved) && sp?.toolStatusSaved.includes("1"));
 
   const error =
-    searchParams?.error === "1" ||
-    (Array.isArray(searchParams?.error) && searchParams?.error.includes("1"));
+    sp?.error === "1" ||
+    (Array.isArray(sp?.error) && sp?.error.includes("1"));
 
   const errorDetail =
-    isAdmin && typeof searchParams?.errorDetail === "string"
-      ? decodeURIComponent(searchParams?.errorDetail)
+    isAdmin && typeof sp?.errorDetail === "string"
+      ? decodeURIComponent(sp?.errorDetail)
       : null;
 
   return (

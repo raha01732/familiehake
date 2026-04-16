@@ -22,6 +22,8 @@ type SearchParams = {
   errorCode?: string;
 };
 
+type PageProps = { searchParams: Promise<SearchParams> };
+
 type EmailInfo = {
   id: string;
   email: string;
@@ -536,16 +538,16 @@ async function deleteEmailAction(formData: FormData): Promise<void> {
   redirect("/admin/users?status=success&message=email_deleted");
 }
 
-export default async function AdminUsersPage({ searchParams }: { searchParams?: SearchParams }) {
-  const rolesCatalog = await fetchRoles();
+export default async function AdminUsersPage({ searchParams }: PageProps) {
+  const [rolesCatalog, sp] = await Promise.all([fetchRoles(), searchParams]);
   const users = await getUsers(rolesCatalog);
 
-  const q = (searchParams?.q ?? "").trim().toLowerCase();
-  const roleFilter = (searchParams?.role ?? "all").toLowerCase();
-  const editId = searchParams?.edit;
-  const status = searchParams?.status === "error" ? "error" : searchParams?.status === "success" ? "success" : null;
-  const statusMessage = (searchParams?.message ?? "").trim();
-  const errorCode = (searchParams?.errorCode ?? "").trim();
+  const q = (sp?.q ?? "").trim().toLowerCase();
+  const roleFilter = (sp?.role ?? "all").toLowerCase();
+  const editId = sp?.edit;
+  const status = sp?.status === "error" ? "error" : sp?.status === "success" ? "success" : null;
+  const statusMessage = (sp?.message ?? "").trim();
+  const errorCode = (sp?.errorCode ?? "").trim();
 
   const { userId: actorId } = await auth();
   const actorAssignments = actorId ? await fetchAssignments([actorId], rolesCatalog) : {};

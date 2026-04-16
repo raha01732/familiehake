@@ -66,13 +66,18 @@ function localDateStr(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-export default async function DispoplanerPage({
-  searchParams,
-}: {
-  searchParams?: Record<string, string | string[] | undefined>;
-}) {
-  const [session, toolStatusMap] = await Promise.all([getSessionInfo(), getToolStatusMap()]);
+type PageProps = {
+  searchParams: Promise<{ week?: string }>;
+};
+
+export default async function DispoplanerPage({ searchParams }: PageProps) {
+  const [session, toolStatusMap, params] = await Promise.all([
+    getSessionInfo(),
+    getToolStatusMap(),
+    searchParams,
+  ]);
   const toolStatus = toolStatusMap["tools/dispoplaner"];
+
   if (toolStatus && !toolStatus.enabled && !session.isSuperAdmin) {
     return <ToolMaintenanceNotice message={toolStatus.maintenanceMessage} />;
   }
@@ -101,7 +106,7 @@ export default async function DispoplanerPage({
     );
   }
 
-  const weekParam = typeof searchParams?.week === "string" ? searchParams.week : undefined;
+  const weekParam = typeof params.week === "string" ? params.week : undefined;
   const weekStart = getWeekStart(weekParam);
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 7);
