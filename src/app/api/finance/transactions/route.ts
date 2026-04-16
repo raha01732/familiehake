@@ -33,8 +33,9 @@ export async function GET(req: NextRequest) {
   }
 
   const [year, mon] = month.split("-").map(Number);
-  const from = new Date(year, mon - 1, 1).toISOString().split("T")[0];
-  const to = new Date(year, mon, 0).toISOString().split("T")[0];
+  const from = month + "-01";
+  const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+  const to = `${month}-${String(lastDay).padStart(2, "0")}`;
 
   const sb = createAdminClient();
   const { data, error } = await sb
