@@ -3,6 +3,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import SettingsPanel from "../SettingsPanel";
+import { Settings } from "lucide-react";
 
 export const metadata = { title: "Dienstplaner – Einstellungen" };
 export const dynamic = "force-dynamic";
@@ -35,10 +36,29 @@ export default async function EinstellungenPage() {
   ]);
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="mb-8">
-        <h1 className="text-xl font-semibold text-zinc-100">Einstellungen</h1>
-        <p className="text-sm text-zinc-500 mt-1">Pausenregeln, Schienen, Wochentag-Anforderungen</p>
+    <div className="max-w-4xl mx-auto px-4 py-8 flex flex-col gap-8 animate-fade-up">
+      {/* Header */}
+      <div className="flex flex-col gap-2">
+        <div
+          className="shimmer-badge inline-flex w-fit items-center gap-2 rounded-full px-3 py-1"
+          style={{ border: "1px solid hsl(var(--primary) / 0.3)" }}
+        >
+          <Settings size={11} style={{ color: "hsl(var(--primary))" }} aria-hidden />
+          <span
+            className="text-[10px] font-semibold uppercase tracking-[0.2em]"
+            style={{ color: "hsl(var(--primary))" }}
+          >
+            Konfiguration
+          </span>
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            <span className="gradient-text">Einstellungen</span>
+          </h1>
+          <p className="mt-1 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Pausenregeln, Schienen, Wochentag-Anforderungen
+          </p>
+        </div>
       </div>
       <SettingsPanel
         employees={empResult.data ?? []}

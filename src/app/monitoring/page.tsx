@@ -1,5 +1,6 @@
 // /workspace/familiehake/src/app/monitoring/page.tsx
 import RoleGate from "@/components/RoleGate";
+import { Activity } from "lucide-react";
 import { getPermissionOverview } from "@/lib/access-db";
 import { ACCESS_LABELS } from "@/lib/rbac";
 import { type ClerkStats } from "@/lib/clerk-metrics";
@@ -265,7 +266,31 @@ export default async function MonitoringPage() {
 
   return (
     <RoleGate routeKey="monitoring">
-      <section className="p-6 flex flex-col gap-6">
+      <section className="flex flex-col gap-8 animate-fade-up">
+        {/* Header */}
+        <div className="flex flex-col gap-3">
+          <div
+            className="shimmer-badge inline-flex w-fit items-center gap-2 rounded-full px-3 py-1"
+            style={{ border: "1px solid hsl(var(--primary) / 0.3)" }}
+          >
+            <Activity size={11} style={{ color: "hsl(var(--primary))" }} aria-hidden />
+            <span
+              className="text-[10px] font-semibold uppercase tracking-[0.2em]"
+              style={{ color: "hsl(var(--primary))" }}
+            >
+              System
+            </span>
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">
+              <span className="gradient-text">Monitoring</span>
+            </h1>
+            <p className="mt-1.5 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Health-Check, Systemstatus &amp; Cron-Job-Logs.
+            </p>
+          </div>
+        </div>
+
         {/* Health */}
         <div className="card p-6 flex flex-col gap-4">
           <div>
@@ -277,14 +302,14 @@ export default async function MonitoringPage() {
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
-                  <div className="text-zinc-300 text-sm">Status</div>
-                  <span className="rounded-lg border border-zinc-700 px-2 py-0.5 text-xs text-zinc-200">
+                  <div className="text-sm" style={{ color: "hsl(var(--foreground))" }}>Status</div>
+                  <span className="rounded-lg px-2 py-0.5 text-xs" style={{ border: "1px solid hsl(var(--border))", color: "hsl(var(--foreground))" }}>
                     {status}
                   </span>
                 </div>
 
                 <div className="mt-3 grid gap-2">
-                  <div className="text-xs text-zinc-400 uppercase tracking-wide">Environment</div>
+                  <div className="text-xs uppercase tracking-wide" style={{ color: "hsl(var(--muted-foreground))" }}>Environment</div>
                   <div className="grid gap-2">
                     {envGroups.map((group) => (
                       <EnvGroup key={group.name} name={group.name} checks={group.checks} />
@@ -293,9 +318,9 @@ export default async function MonitoringPage() {
                 </div>
 
                 <div className="mt-3 grid gap-1">
-                  <div className="text-xs text-zinc-400 uppercase tracking-wide">Datenbank</div>
+                  <div className="text-xs uppercase tracking-wide" style={{ color: "hsl(var(--muted-foreground))" }}>Datenbank</div>
                   <div className="flex items-center justify-between">
-                    <div className="text-zinc-200 text-sm">Connectivity</div>
+                    <div className="text-sm" style={{ color: "hsl(var(--foreground))" }}>Connectivity</div>
                     <span
                       className={`px-2 py-0.5 border rounded-lg text-xs font-medium ${
                         db.ok
@@ -306,9 +331,9 @@ export default async function MonitoringPage() {
                       {db.ok ? "OK" : "Fehler"}
                     </span>
                   </div>
-                  <div className="text-[11px] text-zinc-500">{db.info ?? "–"}</div>
+                  <div className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>{db.info ?? "–"}</div>
                   {db.tables && (
-                    <div className="text-[11px] text-zinc-400">
+                    <div className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
                       Tabellen erreichbar: {db.tables.reachable}/{db.tables.total}
                     </div>
                   )}
@@ -318,8 +343,8 @@ export default async function MonitoringPage() {
                     </div>
                   ) : null}
                   {db.heartbeat && (
-                    <div className="mt-2 text-[11px] text-zinc-400">
-                      <span className="uppercase tracking-wide text-zinc-500">Heartbeat</span>:{" "}
+                    <div className="mt-2 text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      <span className="uppercase tracking-wide" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>Heartbeat</span>:{" "}
                       <span className={db.heartbeat.ok ? "text-emerald-300" : "text-amber-300"}>
                         {db.heartbeat.info ?? "–"}
                       </span>{" "}
@@ -328,9 +353,9 @@ export default async function MonitoringPage() {
                   )}
 
                   <div className="mt-3 grid gap-1">
-                    <div className="text-xs text-zinc-400 uppercase tracking-wide">Upstash</div>
+                    <div className="text-xs uppercase tracking-wide" style={{ color: "hsl(var(--muted-foreground))" }}>Upstash</div>
                     <div className="flex items-center justify-between">
-                      <div className="text-zinc-200 text-sm">Redis Health</div>
+                      <div className="text-sm" style={{ color: "hsl(var(--foreground))" }}>Redis Health</div>
                       <span
                         className={`px-2 py-0.5 border rounded-lg text-xs font-medium ${
                           upstash.ok
@@ -341,10 +366,10 @@ export default async function MonitoringPage() {
                         {upstash.ok ? "OK" : "Fehler"}
                       </span>
                     </div>
-                    <div className="text-[11px] text-zinc-500">{upstash.info ?? "–"}</div>
+                    <div className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>{upstash.info ?? "–"}</div>
                     {upstash.heartbeat && (
-                      <div className="text-[11px] text-zinc-400">
-                        <span className="uppercase tracking-wide text-zinc-500">Heartbeat</span>: {" "}
+                      <div className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                        <span className="uppercase tracking-wide" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>Heartbeat</span>:{" "}
                         <span className={upstash.heartbeat.ok ? "text-emerald-300" : "text-amber-300"}>
                           {upstash.heartbeat.info ?? "–"}
                         </span>{" "}
@@ -352,8 +377,8 @@ export default async function MonitoringPage() {
                       </div>
                     )}
                     {upstash.force_logout && (
-                      <div className="text-[11px] text-zinc-400">
-                        <span className="uppercase tracking-wide text-zinc-500">Force Logout</span>: {" "}
+                      <div className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                        <span className="uppercase tracking-wide" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>Force Logout</span>:{" "}
                         <span className={upstash.force_logout.ok ? "text-emerald-300" : "text-amber-300"}>
                           {upstash.force_logout.info ?? "–"}
                         </span>{" "}
@@ -367,24 +392,24 @@ export default async function MonitoringPage() {
 
             <Card>
               <CardContent className="p-4">
-                <div className="text-xs text-zinc-400 uppercase tracking-wide">Server</div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-300">
+                <div className="text-xs uppercase tracking-wide" style={{ color: "hsl(var(--muted-foreground))" }}>Server</div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
                   <div>Node</div>
-                  <div className="text-zinc-200">{srv.node}</div>
+                  <div style={{ color: "hsl(var(--foreground))" }}>{srv.node}</div>
                   <div>Env</div>
-                  <div className="text-zinc-200">{srv.env}</div>
+                  <div style={{ color: "hsl(var(--foreground))" }}>{srv.env}</div>
                   <div>Region</div>
-                  <div className="text-zinc-200">{srv.region ?? "–"}</div>
+                  <div style={{ color: "hsl(var(--foreground))" }}>{srv.region ?? "–"}</div>
                   <div>RSS</div>
-                  <div className="text-zinc-200">{formatBytes(srv.rss)}</div>
+                  <div style={{ color: "hsl(var(--foreground))" }}>{formatBytes(srv.rss)}</div>
                   <div>Heap</div>
-                  <div className="text-zinc-200">{formatBytes(srv.heap)}</div>
+                  <div style={{ color: "hsl(var(--foreground))" }}>{formatBytes(srv.heap)}</div>
                   <div>Uptime</div>
-                  <div className="text-zinc-200">{health?.checks?.uptime_s ?? "–"}s</div>
+                  <div style={{ color: "hsl(var(--foreground))" }}>{health?.checks?.uptime_s ?? "–"}s</div>
                 </div>
 
-                <div className="mt-4 text-xs text-zinc-400 uppercase tracking-wide">Sentry</div>
-                <div className="mt-1 grid gap-1 text-xs text-zinc-300">
+                <div className="mt-4 text-xs uppercase tracking-wide" style={{ color: "hsl(var(--muted-foreground))" }}>Sentry</div>
+                <div className="mt-1 grid gap-1 text-xs" style={{ color: "hsl(var(--foreground))" }}>
                   <div>Events 24h: {sentry?.events24h ?? "—"}</div>
                   <div>Rejected 24h: {sentry?.rejected24h ?? "—"}</div>
                   <div>Unresolved Issues: {sentry?.unresolvedIssues ?? "—"}</div>
@@ -395,8 +420,8 @@ export default async function MonitoringPage() {
                 </div>
 
 
-                <div className="mt-4 text-xs text-zinc-400 uppercase tracking-wide">Clerk</div>
-                <div className="mt-1 grid gap-1 text-xs text-zinc-300">
+                <div className="mt-4 text-xs uppercase tracking-wide" style={{ color: "hsl(var(--muted-foreground))" }}>Clerk</div>
+                <div className="mt-1 grid gap-1 text-xs" style={{ color: "hsl(var(--foreground))" }}>
                   <div>Aktive Sessions: {clerkStats?.activeSessions ?? "data unavailable"}</div>
                   <div>Ausstehende Einladungen: {clerkStats?.pendingInvitations ?? "data unavailable"}</div>
                   <div>Gesperrte Einladungen: {clerkStats?.revokedInvitations ?? "data unavailable"}</div>
@@ -413,7 +438,7 @@ export default async function MonitoringPage() {
         <div className="card p-6 flex flex-col gap-4">
           <div>
             <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Module &amp; Rechte</h2>
-            <p className="text-zinc-400 text-sm leading-relaxed">Wer darf was? (live aus DB)</p>
+            <p className="text-sm leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>Wer darf was? (live aus DB)</p>
           </div>
           <Permissions />
         </div>
@@ -425,13 +450,13 @@ export default async function MonitoringPage() {
         <div className="card p-6 flex flex-col gap-4">
           <div>
             <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">DB Keep-Alive</h2>
-            <p className="text-zinc-400 text-sm leading-relaxed">
+            <p className="text-sm leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>
               Letzte 10 Pings aus <span className="font-mono">public.db_heartbeat</span>.
             </p>
           </div>
           <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
             {heartbeatEvents.length === 0 ? (
-              <div className="p-4 text-sm text-zinc-400">Keine Heartbeats verfügbar.</div>
+              <div className="p-4 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>Keine Heartbeats verfügbar.</div>
             ) : (
               <table className="w-full text-left text-sm">
                 <thead className="bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] text-xs uppercase tracking-wide">
@@ -443,8 +468,8 @@ export default async function MonitoringPage() {
                 <tbody className="divide-y divide-[hsl(var(--border))]">
                   {heartbeatEvents.map((entry) => (
                     <tr key={entry.id}>
-                      <td className="px-3 py-2 text-zinc-300 text-xs">{entry.id}</td>
-                      <td className="px-3 py-2 text-zinc-300 text-xs">{formatDate(entry.pinged_at)}</td>
+                      <td className="px-3 py-2 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>{entry.id}</td>
+                      <td className="px-3 py-2 text-xs" style={{ color: "hsl(var(--foreground))" }}>{formatDate(entry.pinged_at)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -457,7 +482,7 @@ export default async function MonitoringPage() {
         <div className="card p-6 flex flex-col gap-4">
           <div>
             <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Speicher</h2>
-            <p className="text-zinc-400 text-sm leading-relaxed">Dateien &amp; Freigaben (Supabase)</p>
+            <p className="text-sm leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>Dateien &amp; Freigaben (Supabase)</p>
           </div>
           <div className="grid gap-2 text-sm">
             <KV label="Dateien gesamt" value={String(storage.totalFiles)} />
@@ -487,8 +512,8 @@ async function Permissions() {
           className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between"
         >
           <div className="mb-2 sm:mb-0">
-            <div className="text-zinc-100 font-medium text-sm">/{route}</div>
-            <div className="text-zinc-500 text-xs">
+            <div className="font-medium text-sm" style={{ color: "hsl(var(--foreground))" }}>/{route}</div>
+            <div className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
               {roles
                 .map((r) => {
                   const allowed = roleLevels[r.name] ?? false;
@@ -497,7 +522,7 @@ async function Permissions() {
                 .join(" • ")}
             </div>
           </div>
-          <span className="text-[11px] text-zinc-400">Status: aktiv</span>
+          <span className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>Status: aktiv</span>
         </div>
       ))}
     </div>
@@ -509,14 +534,14 @@ function AuditTable({ events }: { events: AuditEvent[] }) {
     <div className="card p-6 flex flex-col gap-4">
       <div>
         <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Letzte Ereignisse</h2>
-        <p className="text-zinc-400 text-sm leading-relaxed">Neueste 50 aus audit_events</p>
+        <p className="text-sm leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>Neueste 50 aus audit_events</p>
       </div>
       <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
         {events.length === 0 ? (
-          <div className="p-4 text-sm text-zinc-400">Keine Audit-Einträge verfügbar.</div>
+          <div className="p-4 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>Keine Audit-Einträge verfügbar.</div>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
+            <thead style={{ background: "hsl(var(--secondary))", color: "hsl(var(--muted-foreground))" }} className="text-xs uppercase tracking-wide">
               <tr>
                 <th className="px-3 py-2 font-medium">Zeit</th>
                 <th className="px-3 py-2 font-medium">Aktion</th>
@@ -525,14 +550,14 @@ function AuditTable({ events }: { events: AuditEvent[] }) {
                 <th className="px-3 py-2 font-medium">Details</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800">
+            <tbody className="divide-y divide-[hsl(var(--border))]">
               {events.map((e, idx) => (
-                <tr key={`${e.ts}-${idx}`}>
-                  <td className="px-3 py-2 text-zinc-300 text-xs whitespace-nowrap">{formatDate(e.ts)}</td>
-                  <td className="px-3 py-2 text-zinc-300 text-xs">{e.action}</td>
-                  <td className="px-3 py-2 text-zinc-400 text-xs">{e.actor_email ?? "—"}</td>
-                  <td className="px-3 py-2 text-zinc-400 text-xs">{e.target ?? "—"}</td>
-                  <td className="px-3 py-2 text-zinc-500 text-[11px]">
+                <tr key={`${e.ts}-${idx}`} className="hover:bg-[hsl(var(--secondary)/0.5)] transition-colors">
+                  <td className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: "hsl(var(--foreground))" }}>{formatDate(e.ts)}</td>
+                  <td className="px-3 py-2 text-xs" style={{ color: "hsl(var(--foreground))" }}>{e.action}</td>
+                  <td className="px-3 py-2 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>{e.actor_email ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>{e.target ?? "—"}</td>
+                  <td className="px-3 py-2 text-[11px]" style={{ color: "hsl(var(--muted-foreground) / 0.7)" }}>
                     {e.detail ? JSON.stringify(e.detail) : "—"}
                   </td>
                 </tr>
@@ -548,8 +573,8 @@ function AuditTable({ events }: { events: AuditEvent[] }) {
 function KV({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between">
-      <div className="text-zinc-300">{label}</div>
-      <div className="text-zinc-100 font-medium">{value}</div>
+      <div style={{ color: "hsl(var(--muted-foreground))" }}>{label}</div>
+      <div className="font-medium" style={{ color: "hsl(var(--foreground))" }}>{value}</div>
     </div>
   );
 }
@@ -561,7 +586,7 @@ function EnvRow({ label, ok }: { label: string; ok: boolean }) {
   return (
     <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] p-2">
       <div className="flex items-center justify-between">
-        <div className="text-sm text-zinc-200">{label}</div>
+        <div className="text-sm" style={{ color: "hsl(var(--foreground))" }}>{label}</div>
         <span className={`rounded-lg border px-2 py-0.5 text-[11px] ${cls}`}>{ok ? "OK" : "Fehlt"}</span>
       </div>
     </div>
@@ -582,7 +607,7 @@ function CronJobTable({ runs }: { runs: CronJobRun[] }) {
     <div className="card p-6 flex flex-col gap-4">
       <div>
         <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Cron Jobs</h2>
-        <p className="text-zinc-400 text-sm leading-relaxed">
+        <p className="text-sm leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>
           Status der letzten 40 Läufe aus <span className="font-mono">cron_job_runs</span>
         </p>
       </div>
@@ -591,7 +616,7 @@ function CronJobTable({ runs }: { runs: CronJobRun[] }) {
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {latestByJob.map(({ jobName, lastRun, ranToday }) => {
           const statusColor = !lastRun
-            ? "border-zinc-700 text-zinc-400"
+            ? "border-[hsl(var(--border))]"
             : ranToday
             ? "border-green-700 text-green-300 bg-green-900/20"
             : lastRun.success && !lastRun.skipped
@@ -613,13 +638,13 @@ function CronJobTable({ runs }: { runs: CronJobRun[] }) {
               className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 flex flex-col gap-1"
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs text-zinc-200">{jobName}</span>
+                <span className="font-mono text-xs" style={{ color: "hsl(var(--foreground))" }}>{jobName}</span>
                 <span className={`rounded-lg border px-2 py-0.5 text-[11px] font-medium ${statusColor}`}>
                   {statusLabel}
                 </span>
               </div>
               {lastRun ? (
-                <div className="text-[11px] text-zinc-500 mt-0.5">
+                <div className="text-[11px] mt-0.5" style={{ color: "hsl(var(--muted-foreground))" }}>
                   Letzter Lauf: {formatDate(lastRun.finished_at)}
                   {lastRun.duration_ms != null && ` · ${lastRun.duration_ms} ms`}
                   {lastRun.error_message && (
@@ -627,7 +652,7 @@ function CronJobTable({ runs }: { runs: CronJobRun[] }) {
                   )}
                 </div>
               ) : (
-                <div className="text-[11px] text-zinc-600">Kein Eintrag in cron_job_runs</div>
+                <div className="text-[11px]" style={{ color: "hsl(var(--muted-foreground) / 0.5)" }}>Kein Eintrag in cron_job_runs</div>
               )}
             </div>
           );
@@ -637,10 +662,10 @@ function CronJobTable({ runs }: { runs: CronJobRun[] }) {
       {/* Recent runs table */}
       <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
         {runs.length === 0 ? (
-          <div className="p-4 text-sm text-zinc-400">Keine Cron-Job-Läufe verfügbar.</div>
+          <div className="p-4 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>Keine Cron-Job-Läufe verfügbar.</div>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
+            <thead style={{ background: "hsl(var(--secondary))", color: "hsl(var(--muted-foreground))" }} className="text-xs uppercase tracking-wide">
               <tr>
                 <th className="px-3 py-2 font-medium">Job</th>
                 <th className="px-3 py-2 font-medium">Tag</th>
@@ -651,29 +676,29 @@ function CronJobTable({ runs }: { runs: CronJobRun[] }) {
                 <th className="px-3 py-2 font-medium">Fehler</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800">
+            <tbody className="divide-y divide-[hsl(var(--border))]">
               {runs.map((run) => {
                 const statusColor = run.skipped
-                  ? "border-zinc-700 text-zinc-400"
+                  ? "border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]"
                   : run.success
                   ? "border-green-700 text-green-300 bg-green-900/20"
                   : "border-red-700 text-red-300 bg-red-900/20";
                 const statusLabel = run.skipped ? "Skip" : run.success ? "OK" : "Fehler";
                 return (
                   <tr key={run.id}>
-                    <td className="px-3 py-2 text-zinc-200 text-xs font-mono whitespace-nowrap">{run.job_name}</td>
-                    <td className="px-3 py-2 text-zinc-400 text-xs whitespace-nowrap">{run.run_day}</td>
+                    <td className="px-3 py-2 text-xs font-mono whitespace-nowrap" style={{ color: "hsl(var(--foreground))" }}>{run.job_name}</td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: "hsl(var(--muted-foreground))" }}>{run.run_day}</td>
                     <td className="px-3 py-2 text-xs">
                       <span className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${statusColor}`}>
                         {statusLabel}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-zinc-400 text-xs whitespace-nowrap">{run.trigger ?? "—"}</td>
-                    <td className="px-3 py-2 text-zinc-400 text-xs whitespace-nowrap">
+                    <td className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: "hsl(var(--muted-foreground))" }}>{run.trigger ?? "—"}</td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: "hsl(var(--muted-foreground))" }}>
                       {run.duration_ms != null ? `${run.duration_ms} ms` : "—"}
                     </td>
-                    <td className="px-3 py-2 text-zinc-300 text-xs whitespace-nowrap">{formatDate(run.finished_at)}</td>
-                    <td className="px-3 py-2 text-red-400 text-[11px]">{run.error_message ?? "—"}</td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: "hsl(var(--foreground))" }}>{formatDate(run.finished_at)}</td>
+                    <td className="px-3 py-2 text-[11px]" style={{ color: "hsl(0 84% 60%)" }}>{run.error_message ?? "—"}</td>
                   </tr>
                 );
               })}
@@ -700,10 +725,10 @@ function EnvGroup({
   return (
     <details className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] p-2">
       <summary className="flex cursor-pointer items-center justify-between list-none">
-        <span className="text-sm text-zinc-200">{name}</span>
+        <span className="text-sm" style={{ color: "hsl(var(--foreground))" }}>{name}</span>
         <span className="flex items-center gap-2">
           <span className={`rounded-lg border px-2 py-0.5 text-[11px] ${cls}`}>{allOk ? "OK" : "Fehlt"}</span>
-          <span className="text-[11px] text-zinc-500">v</span>
+          <span className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>▾</span>
         </span>
       </summary>
       <div className="mt-2 grid gap-1">

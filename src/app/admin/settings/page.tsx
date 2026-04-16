@@ -1,5 +1,6 @@
 // /workspace/familiehake/src/app/admin/settings/page.tsx
 import RoleGate from "@/components/RoleGate";
+import { Settings2 } from "lucide-react";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
 import { checkDatabaseLive } from "@/lib/access-db";
 import { TOOL_LINKS } from "@/lib/navigation";
@@ -340,24 +341,47 @@ export default async function AdminSettingsPage({
 
   return (
     <RoleGate routeKey="admin/settings">
-      <section className="flex flex-col gap-8">
-        <header className="card p-6 flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))] tracking-tight">
-              Rollen &amp; Berechtigungen
-            </h1>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] px-3 py-1 text-xs">
+      <section className="flex flex-col gap-8 animate-fade-up">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-2">
+            <div
+              className="shimmer-badge inline-flex w-fit items-center gap-2 rounded-full px-3 py-1"
+              style={{ border: "1px solid hsl(var(--primary) / 0.3)" }}
+            >
+              <Settings2 size={11} style={{ color: "hsl(var(--primary))" }} aria-hidden />
               <span
-                className={`h-2 w-2 rounded-full ${liveStatus.live ? "bg-emerald-400" : "bg-rose-400"}`}
-                aria-hidden="true"
-              />
-              <span className="text-[hsl(var(--foreground))]">{liveStatus.live ? "Live" : "Nicht-Live"}</span>
+                className="text-[10px] font-semibold uppercase tracking-[0.2em]"
+                style={{ color: "hsl(var(--primary))" }}
+              >
+                Admin
+              </span>
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">
+                <span className="gradient-text">Berechtigungen</span>
+              </h1>
+              <p className="mt-1.5 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+                Definiere per Checkbox, welche Rolle eine Route aufrufen darf.
+              </p>
             </div>
           </div>
-          <p className="text-sm text-zinc-400">
-            Definiere per Checkbox, welche Rolle eine Route aufrufen darf.
-          </p>
-        </header>
+          <div
+            className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs"
+            style={{
+              border: "1px solid hsl(var(--border))",
+              background: "hsl(var(--secondary))",
+              color: "hsl(var(--foreground))",
+            }}
+          >
+            <span
+              className={`h-2 w-2 rounded-full`}
+              style={{ background: liveStatus.live ? "hsl(142 71% 55%)" : "hsl(0 84% 60%)" }}
+              aria-hidden="true"
+            />
+            {liveStatus.live ? "Live" : "Nicht-Live"}
+          </div>
+        </div>
 
         {(saved || added || toolStatusSaved || error) && (
           <div
@@ -392,11 +416,11 @@ export default async function AdminSettingsPage({
               Route hinzufügen
             </button>
           </form>
-          <div className="text-[11px] text-zinc-500 mt-2">
-            Hinweis: führende „/“ werden automatisch entfernt. Verwende konsistente Keys wie{" "}
-            <span className="font-mono text-zinc-400">admin/settings</span>,{" "}
-            <span className="font-mono text-zinc-400">monitoring</span>,{" "}
-            <span className="font-mono text-zinc-400">tools/files</span>.
+          <div className="text-[11px] mt-2" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Hinweis: führende „/" werden automatisch entfernt. Verwende konsistente Keys wie{" "}
+            <span className="font-mono" style={{ color: "hsl(var(--foreground))" }}>admin/settings</span>,{" "}
+            <span className="font-mono" style={{ color: "hsl(var(--foreground))" }}>monitoring</span>,{" "}
+            <span className="font-mono" style={{ color: "hsl(var(--foreground))" }}>tools/files</span>.
           </div>
         </div>
 
@@ -405,7 +429,7 @@ export default async function AdminSettingsPage({
           <div className="text-sm font-medium text-[hsl(var(--foreground))] mb-4">Zugriffs-Matrix</div>
 
           {routes.length === 0 ? (
-            <div className="text-sm text-zinc-500">Noch keine Routen vorhanden.</div>
+            <div className="text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>Noch keine Routen vorhanden.</div>
           ) : (
             <form action={upsertAccessAction} className="flex flex-col gap-4">
               <div className="overflow-x-auto rounded-xl border border-[hsl(var(--border))]">
@@ -425,7 +449,7 @@ export default async function AdminSettingsPage({
                       const row = matrix.get(route) ?? new Map<string, boolean>();
                       return (
                         <tr key={route} className="hover:bg-[hsl(var(--secondary))]">
-                          <td className="px-4 py-2 text-zinc-200 font-medium">/{route}</td>
+                          <td className="px-4 py-2 font-mono text-xs font-medium" style={{ color: "hsl(var(--foreground))" }}>/{route}</td>
                           {roles.map((role) => {
                             const roleKey = normalizeRoleKey(role.name);
                             const isAllowed = row.get(roleKey) ?? false;
@@ -433,15 +457,16 @@ export default async function AdminSettingsPage({
 
                             return (
                               <td key={role.name} className="px-4 py-2">
-                                <label className="inline-flex items-center gap-2 text-zinc-200">
+                                <label className="inline-flex items-center gap-2" style={{ color: "hsl(var(--foreground))" }}>
                                   <input
                                     type="checkbox"
                                     name={fieldName}
                                     defaultChecked={isAllowed}
-                                    className="h-4 w-4 rounded border-[hsl(var(--border))] bg-[hsl(var(--background))] text-[hsl(var(--primary))]"
+                                    className="h-4 w-4 rounded"
+                                    style={{ accentColor: "hsl(var(--primary))" }}
                                     aria-label={`Zugriff für ${role.name} auf ${route}`}
                                   />
-                                  <span className="text-xs text-zinc-500">{role.name}</span>
+                                  <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>{role.name}</span>
                                 </label>
                               </td>
                             );
@@ -465,35 +490,36 @@ export default async function AdminSettingsPage({
         {/* Tool-Status */}
         <div className="card p-6">
           <div className="text-sm font-medium text-[hsl(var(--foreground))] mb-4">Tool-Wartungsmodus</div>
-          <p className="text-xs text-zinc-500 mb-4">
+          <p className="text-xs mb-4" style={{ color: "hsl(var(--muted-foreground))" }}>
             Hier steuerst du pro Tool den globalen Status (aktiv/deaktiviert) und optional eine
             Wartungsmeldung.
           </p>
 
           <form action={upsertToolStatusAction} className="flex flex-col gap-4">
-            <div className="overflow-x-auto rounded-xl border border-zinc-800">
+            <div className="overflow-x-auto rounded-xl border border-[hsl(var(--border))]">
               <table className="min-w-full text-sm">
-                <thead className="bg-zinc-900/60 text-zinc-400">
+                <thead style={{ background: "hsl(var(--secondary))", color: "hsl(var(--muted-foreground))" }}>
                   <tr>
-                    <th className="px-4 py-2 text-left font-medium">Route</th>
-                    <th className="px-4 py-2 text-left font-medium">Aktiv</th>
-                    <th className="px-4 py-2 text-left font-medium">Wartungsmeldung</th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide">Route</th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide">Aktiv</th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide">Wartungsmeldung</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-800">
+                <tbody className="divide-y divide-[hsl(var(--border))]">
                   {toolStatusList.map((tool) => (
-                    <tr key={tool.routeKey} className="hover:bg-[hsl(var(--secondary))]">
-                      <td className="px-4 py-2 text-zinc-200 font-medium">/{tool.routeKey}</td>
+                    <tr key={tool.routeKey} className="hover:bg-[hsl(var(--secondary)/0.5)] transition-colors">
+                      <td className="px-4 py-2 font-mono text-xs font-medium" style={{ color: "hsl(var(--foreground))" }}>/{tool.routeKey}</td>
                       <td className="px-4 py-2">
-                        <label className="inline-flex items-center gap-2 text-zinc-200">
+                        <label className="inline-flex items-center gap-2" style={{ color: "hsl(var(--foreground))" }}>
                           <input
                             type="checkbox"
                             name={buildToolEnabledFieldName(tool.routeKey)}
                             defaultChecked={tool.enabled}
-                            className="h-4 w-4 rounded border-[hsl(var(--border))] bg-[hsl(var(--background))] text-[hsl(var(--primary))]"
+                            className="h-4 w-4 rounded"
+                            style={{ accentColor: "hsl(var(--primary))" }}
                             aria-label={`Tool ${tool.routeKey} aktiv`}
                           />
-                          <span className="text-xs text-zinc-500">enabled</span>
+                          <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>enabled</span>
                         </label>
                       </td>
                       <td className="px-4 py-2">
