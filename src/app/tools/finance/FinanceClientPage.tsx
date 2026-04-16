@@ -109,6 +109,8 @@ export default function FinanceClientPage() {
         setTransactions(json.data);
         // Stagger bar animation after data loads
         setTimeout(() => setBarsVisible(true), 80);
+      } else {
+        setError("Transaktionen konnten nicht geladen werden.");
       }
     } catch {
       setError("Fehler beim Laden der Transaktionen.");
@@ -194,11 +196,17 @@ export default function FinanceClientPage() {
           body: JSON.stringify(body),
         });
         if ((await res.json()).ok) {
-          setTransactions((prev) =>
-            prev.map((t) =>
-              t.id === editingTx.id ? { ...t, ...body, amount } : t
-            )
-          );
+          const editedMonth = form.transaction_date.slice(0, 7);
+          if (editedMonth !== monthKey) {
+            // Transaction moved to a different month — remove it from the current view
+            setTransactions((prev) => prev.filter((t) => t.id !== editingTx.id));
+          } else {
+            setTransactions((prev) =>
+              prev.map((t) =>
+                t.id === editingTx.id ? { ...t, ...body, amount } : t
+              )
+            );
+          }
         }
       } else {
         const res = await fetch("/api/finance/transactions", {
@@ -487,7 +495,6 @@ export default function FinanceClientPage() {
                   isLast={i === recent.length - 1}
                   deleting={deleting === tx.id}
                   onEdit={() => openEditModal(tx)}
-                  onDelete={() => handleDelete(tx.id)}
                 />
               ))}
             </div>
@@ -916,7 +923,6 @@ function TransactionRow({
   isLast: boolean;
   deleting: boolean;
   onEdit: () => void;
-  onDelete?: () => void;
 }) {
   const meta = getCategoryMeta(tx.category);
 
