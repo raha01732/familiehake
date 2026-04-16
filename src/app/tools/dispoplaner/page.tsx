@@ -58,6 +58,14 @@ function fmtTime(d: Date) {
   return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
 
+/** Formats a Date as "YYYY-MM-DD" using local calendar date, never UTC. */
+function localDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export default async function DispoplanerPage({
   searchParams,
 }: {
@@ -159,7 +167,7 @@ export default async function DispoplanerPage({
         {/* Week navigation */}
         <div className="flex items-center gap-2">
           <Link
-            href={`/tools/dispoplaner?week=${prevWeek.toISOString().slice(0, 10)}`}
+            href={`/tools/dispoplaner?week=${localDateStr(prevWeek)}`}
             className="flex h-9 w-9 items-center justify-center rounded-xl transition-colors hover:bg-[hsl(var(--secondary))]"
             style={{ border: "1px solid hsl(var(--border))", color: "hsl(var(--foreground))" }}
             aria-label="Vorherige Woche"
@@ -178,7 +186,7 @@ export default async function DispoplanerPage({
             {weekLabel}
           </div>
           <Link
-            href={`/tools/dispoplaner?week=${nextWeek.toISOString().slice(0, 10)}`}
+            href={`/tools/dispoplaner?week=${localDateStr(nextWeek)}`}
             className="flex h-9 w-9 items-center justify-center rounded-xl transition-colors hover:bg-[hsl(var(--secondary))]"
             style={{ border: "1px solid hsl(var(--border))", color: "hsl(var(--foreground))" }}
             aria-label="Nächste Woche"
@@ -334,7 +342,7 @@ export default async function DispoplanerPage({
                           {/* Add show inline form */}
                           <form action={addShowAction} className="mt-0.5">
                             <input type="hidden" name="hall" value={hallNum} />
-                            <input type="hidden" name="date" value={day.toISOString().slice(0, 10)} />
+                            <input type="hidden" name="date" value={localDateStr(day)} />
                             <div className="flex flex-wrap items-center gap-1">
                               <input
                                 type="time"
