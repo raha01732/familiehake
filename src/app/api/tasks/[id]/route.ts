@@ -74,6 +74,11 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   if ("category" in body) patch.category = body.category?.trim() || null;
   if (typeof body.position === "number") patch.position = body.position;
 
+  // Guard: if only updated_at was set, there is nothing to update
+  if (Object.keys(patch).length === 1) {
+    return NextResponse.json({ ok: false, error: "no fields to update" }, { status: 400 });
+  }
+
   const { data, error } = await sb
     .from("task_board_tasks")
     .update(patch)
@@ -106,6 +111,16 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
 
   const { id } = await ctx.params;
   const sb = createAdminClient();
+
+  const { data: existing } = await sb
+    .from("task_board_tasks")
+    .select("id")
+    .eq("id", id)
+    .single();
+
+  if (!existing) {
+    return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
+  }
 
   const { error } = await sb.from("task_board_tasks").delete().eq("id", id);
 

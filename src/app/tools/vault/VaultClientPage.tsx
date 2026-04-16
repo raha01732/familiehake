@@ -64,6 +64,7 @@ function VaultCard({
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState<"pw" | "user" | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reveal = () => {
     setRevealed(true);
@@ -74,6 +75,7 @@ function VaultCard({
   useEffect(
     () => () => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     },
     []
   );
@@ -82,7 +84,8 @@ function VaultCard({
     try {
       await navigator.clipboard.writeText(text);
       setCopied(kind);
-      setTimeout(() => setCopied(null), 2000);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(null), 2000);
     } catch {
       /* ignore */
     }
@@ -378,11 +381,11 @@ function EntryModal({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !saving) onClose();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [onClose, saving]);
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
@@ -626,14 +629,14 @@ export default function VaultClientPage() {
   });
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const fetchEntries = useCallback(async () => {
-    setLoading(true);
+  const fetchEntries = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch("/api/vault/entries");
       const json = await res.json();
       if (json.ok) setEntries(json.data);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -657,10 +660,15 @@ export default function VaultClientPage() {
     const id = deleteId;
     setDeleteId(null);
     try {
-      await fetch(`/api/vault/entries/${id}`, { method: "DELETE" });
-      setEntries((prev) => prev.filter((e) => e.id !== id));
+      const res = await fetch(`/api/vault/entries/${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.ok) {
+        setEntries((prev) => prev.filter((e) => e.id !== id));
+      } else {
+        fetchEntries(true);
+      }
     } catch {
-      /* ignore */
+      fetchEntries(true);
     }
   };
 

@@ -41,7 +41,10 @@ function formatDate(d: string | null): string | null {
 
 function isOverdue(due_date: string | null): boolean {
   if (!due_date) return false;
-  return new Date(due_date) < new Date(new Date().toDateString());
+  // Compare ISO date strings directly to avoid UTC vs. local-midnight mismatch
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  return due_date < todayStr;
 }
 
 // ─── Task card ─────────────────────────────────────────────────────────────────
@@ -350,11 +353,11 @@ function TaskModal({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !saving) onClose();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [onClose, saving]);
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
@@ -688,14 +691,14 @@ export default function TaskBoardClientPage() {
   }>({ open: false, task: null, defaultStatus: "todo" });
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const fetchTasks = useCallback(async () => {
-    setLoading(true);
+  const fetchTasks = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch("/api/tasks");
       const json = await res.json();
       if (json.ok) setTasks(json.data);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -737,7 +740,7 @@ export default function TaskBoardClientPage() {
       const json = await res.json();
       if (!json.ok) {
         // API returned an error (e.g. task deleted by another user) — revert
-        fetchTasks();
+        fetchTasks(true);
       } else if (json.data) {
         setTasks((prev) =>
           prev.map((t) => (t.id === id ? json.data : t))
@@ -745,7 +748,7 @@ export default function TaskBoardClientPage() {
       }
     } catch {
       // Network error — revert
-      fetchTasks();
+      fetchTasks(true);
     }
   };
 
@@ -761,10 +764,10 @@ export default function TaskBoardClientPage() {
       const json = await res.json();
       if (!json.ok) {
         // API returned an error — revert
-        fetchTasks();
+        fetchTasks(true);
       }
     } catch {
-      fetchTasks();
+      fetchTasks(true);
     }
   };
 
