@@ -36,3 +36,5 @@ Thumbs.db
 # Sentry Config File
 .env.sentry-build-plugin
 src/lib/crypto.ts
+.vercel
+.env*.local

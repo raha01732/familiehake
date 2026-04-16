@@ -692,3 +692,67 @@ create index if not exists finance_transactions_user_id_idx
 
 create index if not exists finance_transactions_user_date_idx
   on finance_transactions(user_id, transaction_date desc);
+
+-- ─────────────────────────────────────────────
+-- Passwort-Safe
+-- ─────────────────────────────────────────────
+
+-- All fields except category are AES-256-GCM encrypted (base64(iv).base64(authTag).base64(ciphertext))
+create table if not exists password_vault_entries (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  label_enc text not null,
+  username_enc text,
+  password_enc text not null,
+  url_enc text,
+  notes_enc text,
+  category text not null default 'sonstiges',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists password_vault_user_id_idx on password_vault_entries(user_id);
+
+-- ─────────────────────────────────────────────
+-- Aufgaben-Board (shared family Kanban)
+-- ─────────────────────────────────────────────
+
+create table if not exists task_board_tasks (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  description text,
+  status text not null default 'todo' check (status in ('todo', 'in_progress', 'done')),
+  priority text not null default 'medium' check (priority in ('low', 'medium', 'high')),
+  assignee text,
+  due_date date,
+  category text,
+  position integer not null default 0,
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists task_board_status_idx on task_board_tasks(status, position);
+create index if not exists task_board_created_by_idx on task_board_tasks(created_by);
+
+insert into tool_status (route_key, enabled, maintenance_message)
+values
+  ('tools/vault', true, null),
+  ('tools/tasks', true, null)
+on conflict (route_key) do nothing;
+
+-- Role permissions for new tools
+with new_perms(role_name, route, level) as (
+  values
+    ('user',  'tools/vault',  2),
+    ('user',  'tools/tasks',  2),
+    ('admin', 'tools/vault',  3),
+    ('admin', 'tools/tasks',  3)
+)
+insert into role_permissions (role_id, route, level)
+select r.id, np.route, np.level
+from new_perms np
+join roles r on r.name = np.role_name
+on conflict (role_id, route) do update
+  set level = excluded.level,
+      updated_at = now();

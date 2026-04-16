@@ -61,6 +61,18 @@ export const TOOL_LINKS: NavLink[] = [
     label: "Budget",
     description: "Einnahmen, Ausgaben & Kategorien",
   },
+  {
+    routeKey: "tools/vault",
+    href: "/tools/vault",
+    label: "Passwort-Safe",
+    description: "Verschlüsselte Zugangsdaten & Passwörter",
+  },
+  {
+    routeKey: "tools/tasks",
+    href: "/tools/tasks",
+    label: "Aufgaben",
+    description: "Gemeinsames Kanban-Board für alle",
+  },
 ];
 
 export const ADMIN_LINKS: NavLink[] = [

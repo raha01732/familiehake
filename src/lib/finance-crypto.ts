@@ -14,9 +14,10 @@ let _key: Buffer | null = null;
 
 function getKey(): Buffer {
   if (_key) return _key;
-  const secret =
-    process.env.FINANCE_ENCRYPTION_KEY ??
-    "familiehake-dev-placeholder-key-unsafe";
+  const secret = process.env.FINANCE_ENCRYPTION_KEY;
+  if (!secret) {
+    throw new Error("FINANCE_ENCRYPTION_KEY is not set. Set it in your .env.local for local development.");
+  }
   // Derive deterministic 256-bit key from the secret
   _key = scryptSync(secret, SALT, KEY_LEN);
   return _key;

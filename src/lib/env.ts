@@ -33,6 +33,7 @@ const requiredInProduction = [
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
   "PRIMARY_SUPERADMIN_ID",
+  "FINANCE_ENCRYPTION_KEY",
 ] as const;
 
 type Env = z.infer<typeof baseSchema> &
