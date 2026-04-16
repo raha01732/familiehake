@@ -619,7 +619,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
               name="q"
               defaultValue={q}
               placeholder="z. B. ralf, @username, name@example.com"
-              className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+              className="mt-1 input-field"
             />
           </div>
           <div>
@@ -627,7 +627,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
             <select
               name="role"
               defaultValue={roleFilter}
-              className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+              className="mt-1 input-field"
             >
               <option value="all">alle</option>
               {rolesCatalog.map((role) => (
@@ -650,7 +650,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
           </div>
         </form>
 
-        <form action={createUserAction} className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 grid gap-3">
+        <form action={createUserAction} className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 grid gap-3">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-zinc-100">Neuen Benutzer anlegen</h3>
@@ -669,7 +669,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                 required
                 placeholder="name@example.com"
                 disabled={!actorIsAdmin}
-                className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+                className="mt-1 input-field disabled:opacity-60"
               />
             </div>
             <div>
@@ -678,7 +678,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                 name="username"
                 placeholder="optional"
                 disabled={!actorIsAdmin}
-                className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+                className="mt-1 input-field disabled:opacity-60"
               />
             </div>
           </div>
@@ -689,7 +689,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                 name="firstName"
                 placeholder="optional"
                 disabled={!actorIsAdmin}
-                className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+                className="mt-1 input-field disabled:opacity-60"
               />
             </div>
             <div>
@@ -698,7 +698,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                 name="lastName"
                 placeholder="optional"
                 disabled={!actorIsAdmin}
-                className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+                className="mt-1 input-field disabled:opacity-60"
               />
             </div>
           </div>
@@ -709,7 +709,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
               type="password"
               placeholder="optional"
               disabled={!actorIsAdmin}
-              className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+              className="mt-1 input-field disabled:opacity-60"
             />
           </div>
           {!actorIsAdmin && (
@@ -725,9 +725,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
           </div>
         </form>
 
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+        <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
           <table className="w-full text-left text-sm">
-            <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
+            <thead className="bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] text-xs uppercase tracking-wide">
               <tr>
                 <th className="px-3 py-2 font-medium">E-Mail</th>
                 <th className="px-3 py-2 font-medium">Name</th>
@@ -736,7 +736,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                 <th className="px-3 py-2 font-medium">Aktion</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800">
+            <tbody className="divide-y divide-[hsl(var(--border))]">
               {filtered.map((user) => (
                 <tr key={user.id}>
                   <td className="px-3 py-2 text-zinc-200">{user.email}</td>
@@ -766,7 +766,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                           edit: user.id,
                         },
                       }}
-                      className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-1.5 hover:bg-zinc-800/60"
+                      className="rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs font-medium px-3 py-1.5 hover:bg-[hsl(var(--secondary))]"
                     >
                       Bearbeiten
                     </Link>
@@ -789,7 +789,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
         <div className="fixed inset-0 z-[100]">
           <div className="absolute inset-0 bg-black/60" />
           <div className="relative mx-auto mt-24 w-full max-w-lg card p-0 overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[hsl(var(--border))]">
               <div className="text-sm font-semibold text-zinc-100">Benutzer bearbeiten</div>
               <a
                 href={`/admin/users?${new URLSearchParams(
@@ -812,7 +812,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                     <input
                       name="firstName"
                       defaultValue={editUser.firstName}
-                      className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+                      className="mt-1 input-field"
                     />
                   </div>
                   <div>
@@ -820,7 +820,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                     <input
                       name="lastName"
                       defaultValue={editUser.lastName}
-                      className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+                      className="mt-1 input-field"
                     />
                   </div>
                 </div>
@@ -830,7 +830,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                   <input
                     name="username"
                     defaultValue={editUser.username}
-                    className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+                    className="mt-1 input-field"
                   />
                 </div>
 
@@ -876,7 +876,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                   )}
                 </div>
 
-                <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                <div className="mt-4 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] p-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <div className="text-sm font-semibold text-zinc-100">Supabase-Verknüpfung</div>
@@ -913,7 +913,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                         Object.entries({ q, role: roleFilter }).filter(([, v]) => (v ?? "") !== "" && v !== "all")
                       )
                     ).toString()}`}
-                    className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60"
+                    className="rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs font-medium px-3 py-2 hover:bg-[hsl(var(--secondary))]"
                   >
                     Abbrechen
                   </a>
@@ -926,7 +926,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                 </div>
               </form>
 
-              <div className="border-t border-zinc-800 pt-4">
+              <div className="border-t border-[hsl(var(--border))] pt-4">
                 <div className="text-sm font-semibold text-zinc-100 mb-2">E-Mail-Adressen</div>
                 <div className="grid gap-2">
                   {editUser.emails.map((email) => {
@@ -935,7 +935,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                     return (
                       <div
                         key={email.id}
-                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 gap-2"
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] px-3 py-2 gap-2"
                       >
                         <div className="text-xs text-zinc-300">
                           {email.email}
@@ -955,7 +955,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                             <form action={makePrimaryEmailAction}>
                               <input type="hidden" name="userId" value={editUser.id} />
                               <input type="hidden" name="emailId" value={email.id} />
-                              <button className="rounded-lg border border-zinc-700 text-zinc-200 text-[11px] px-2 py-1 hover:bg-zinc-800/60">
+                              <button className="rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-[11px] px-2 py-1 hover:bg-[hsl(var(--secondary))]">
                                 Als primär setzen
                               </button>
                             </form>
@@ -981,9 +981,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
                     name="newEmail"
                     type="email"
                     placeholder="Neue E-Mail-Adresse"
-                    className="flex-1 rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100"
+                    className="flex-1 input-field"
                   />
-                  <button className="rounded-lg border border-zinc-700 text-zinc-200 text-xs font-medium px-3 py-2 hover:bg-zinc-800/60">
+                  <button className="rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs font-medium px-3 py-2 hover:bg-[hsl(var(--secondary))]">
                     Hinzufügen
                   </button>
                 </form>

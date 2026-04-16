@@ -438,6 +438,20 @@ html:not(.dark) .bg-zinc-900\/60 { background-color: hsl(var(--legacy-panel-bg-s
 html:not(.dark) .border-zinc-700,
 html:not(.dark) .border-zinc-800 { border-color: hsl(var(--legacy-panel-border)) !important; }
 
+/* bg-zinc-800: Eingabefelder und sekundäre Panels */
+html:not(.dark) .bg-zinc-800 { background-color: hsl(var(--secondary)) !important; }
+html:not(.dark) .bg-zinc-800\/60 { background-color: hsl(var(--secondary) / 0.8) !important; }
+html:not(.dark) .bg-zinc-800\/40 { background-color: hsl(var(--secondary) / 0.6) !important; }
+
+/* Hover-Varianten */
+html:not(.dark) .hover\:bg-zinc-800:hover { background-color: hsl(var(--secondary)) !important; }
+html:not(.dark) .hover\:bg-zinc-700:hover { background-color: hsl(var(--muted)) !important; }
+
+/* Text auf zinc-800 Hintergründen */
+html:not(.dark) .bg-zinc-800 .text-zinc-100,
+html:not(.dark) .bg-zinc-800 .text-zinc-200,
+html:not(.dark) .bg-zinc-800 .text-zinc-300 { color: hsl(var(--foreground)) !important; }
+
 /* Input-Felder in Tool-Seiten (zinc bg) */
 html:not(.dark) .bg-zinc-950 { background-color: hsl(var(--card)) !important; }
 
@@ -451,5 +465,6 @@ html:not(.dark) .card .text-zinc-600 { color: hsl(var(--muted-foreground)) !impo
 html:not(.dark) .card .bg-zinc-900,
 html:not(.dark) .card .bg-zinc-950,
 html:not(.dark) .card .bg-zinc-900\/40 { background-color: hsl(var(--secondary)) !important; }
+html:not(.dark) .card .bg-zinc-800 { background-color: hsl(var(--muted)) !important; }
 html:not(.dark) .card .border-zinc-700,
 html:not(.dark) .card .border-zinc-800 { border-color: hsl(var(--border)) !important; }

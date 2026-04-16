@@ -269,8 +269,8 @@ export default async function MonitoringPage() {
         {/* Health */}
         <div className="card p-6 flex flex-col gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Health-Check</h2>
-            <p className="text-zinc-400 text-sm leading-relaxed">/api/health – Server &amp; DB</p>
+            <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Health-Check</h2>
+            <p className="text-[hsl(var(--muted-foreground))] text-sm leading-relaxed">/api/health – Server &amp; DB</p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -412,7 +412,7 @@ export default async function MonitoringPage() {
         {/* Berechtigungen – lädt sich selbst */}
         <div className="card p-6 flex flex-col gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Module &amp; Rechte</h2>
+            <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Module &amp; Rechte</h2>
             <p className="text-zinc-400 text-sm leading-relaxed">Wer darf was? (live aus DB)</p>
           </div>
           <Permissions />
@@ -424,23 +424,23 @@ export default async function MonitoringPage() {
         {/* DB Keep-Alive */}
         <div className="card p-6 flex flex-col gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">DB Keep-Alive</h2>
+            <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">DB Keep-Alive</h2>
             <p className="text-zinc-400 text-sm leading-relaxed">
               Letzte 10 Pings aus <span className="font-mono">public.db_heartbeat</span>.
             </p>
           </div>
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+          <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
             {heartbeatEvents.length === 0 ? (
               <div className="p-4 text-sm text-zinc-400">Keine Heartbeats verfügbar.</div>
             ) : (
               <table className="w-full text-left text-sm">
-                <thead className="bg-zinc-900 text-zinc-400 text-xs uppercase tracking-wide">
+                <thead className="bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] text-xs uppercase tracking-wide">
                   <tr>
                     <th className="px-3 py-2 font-medium">ID</th>
                     <th className="px-3 py-2 font-medium">Pinged At</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-800">
+                <tbody className="divide-y divide-[hsl(var(--border))]">
                   {heartbeatEvents.map((entry) => (
                     <tr key={entry.id}>
                       <td className="px-3 py-2 text-zinc-300 text-xs">{entry.id}</td>
@@ -456,7 +456,7 @@ export default async function MonitoringPage() {
         {/* Storage */}
         <div className="card p-6 flex flex-col gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Speicher</h2>
+            <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Speicher</h2>
             <p className="text-zinc-400 text-sm leading-relaxed">Dateien &amp; Freigaben (Supabase)</p>
           </div>
           <div className="grid gap-2 text-sm">
@@ -484,7 +484,7 @@ async function Permissions() {
       {Object.entries(matrix).map(([route, roleLevels]) => (
         <div
           key={route}
-          className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between"
+          className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between"
         >
           <div className="mb-2 sm:mb-0">
             <div className="text-zinc-100 font-medium text-sm">/{route}</div>
@@ -508,10 +508,10 @@ function AuditTable({ events }: { events: AuditEvent[] }) {
   return (
     <div className="card p-6 flex flex-col gap-4">
       <div>
-        <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Letzte Ereignisse</h2>
+        <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Letzte Ereignisse</h2>
         <p className="text-zinc-400 text-sm leading-relaxed">Neueste 50 aus audit_events</p>
       </div>
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+      <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
         {events.length === 0 ? (
           <div className="p-4 text-sm text-zinc-400">Keine Audit-Einträge verfügbar.</div>
         ) : (
@@ -559,7 +559,7 @@ function EnvRow({ label, ok }: { label: string; ok: boolean }) {
     ? "border-green-700 text-green-300 bg-green-900/20"
     : "border-amber-600 text-amber-300 bg-amber-900/20";
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
+    <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] p-2">
       <div className="flex items-center justify-between">
         <div className="text-sm text-zinc-200">{label}</div>
         <span className={`rounded-lg border px-2 py-0.5 text-[11px] ${cls}`}>{ok ? "OK" : "Fehlt"}</span>
@@ -581,7 +581,7 @@ function CronJobTable({ runs }: { runs: CronJobRun[] }) {
   return (
     <div className="card p-6 flex flex-col gap-4">
       <div>
-        <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Cron Jobs</h2>
+        <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Cron Jobs</h2>
         <p className="text-zinc-400 text-sm leading-relaxed">
           Status der letzten 40 Läufe aus <span className="font-mono">cron_job_runs</span>
         </p>
@@ -610,7 +610,7 @@ function CronJobTable({ runs }: { runs: CronJobRun[] }) {
           return (
             <div
               key={jobName}
-              className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 flex flex-col gap-1"
+              className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 flex flex-col gap-1"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-xs text-zinc-200">{jobName}</span>
@@ -635,7 +635,7 @@ function CronJobTable({ runs }: { runs: CronJobRun[] }) {
       </div>
 
       {/* Recent runs table */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+      <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
         {runs.length === 0 ? (
           <div className="p-4 text-sm text-zinc-400">Keine Cron-Job-Läufe verfügbar.</div>
         ) : (
@@ -698,7 +698,7 @@ function EnvGroup({
     : "border-amber-600 text-amber-300 bg-amber-900/20";
 
   return (
-    <details className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
+    <details className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] p-2">
       <summary className="flex cursor-pointer items-center justify-between list-none">
         <span className="text-sm text-zinc-200">{name}</span>
         <span className="flex items-center gap-2">

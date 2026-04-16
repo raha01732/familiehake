@@ -24,6 +24,9 @@ function formatDateLabel(dateStr: string) {
   return `${wd}, ${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.${d.getUTCFullYear()}`;
 }
 
+const inputCls =
+  "w-full bg-[hsl(var(--background))] border border-[hsl(var(--border))] rounded-lg px-3 py-2 text-[hsl(var(--foreground))] text-sm focus:outline-none focus:border-[hsl(var(--ring))] focus:ring-2 focus:ring-[hsl(var(--ring)/0.2)] placeholder:text-[hsl(var(--muted-foreground)/0.6)]";
+
 export default function ShiftModal({
   employee,
   allEmployees,
@@ -49,14 +52,12 @@ export default function ShiftModal({
 
     startTransition(async () => {
       try {
-        // If employee changed: move shift first, then update times
         if (shift && selectedEmployeeId !== employee.id) {
           const moveFd = new FormData();
           moveFd.set("from_employee_id", String(employee.id));
           moveFd.set("to_employee_id", String(selectedEmployeeId));
           moveFd.set("shift_date", date);
           await moveAction(moveFd);
-          // Move succeeded — save updated times on new employee
           fd.set("employee_id", String(selectedEmployeeId));
         } else {
           fd.set("employee_id", String(selectedEmployeeId));
@@ -90,9 +91,9 @@ export default function ShiftModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-md shadow-2xl">
+      <div className="relative bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl w-full max-w-md shadow-2xl">
         {/* Header */}
-        <div className="flex items-center gap-3 p-5 border-b border-zinc-800">
+        <div className="flex items-center gap-3 p-5 border-b border-[hsl(var(--border))]">
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
             style={{ backgroundColor: employee.color }}
@@ -100,12 +101,12 @@ export default function ShiftModal({
             {getInitials(employee.name)}
           </div>
           <div className="min-w-0">
-            <div className="font-semibold text-zinc-100 truncate">{employee.name}</div>
-            <div className="text-xs text-zinc-400">{formatDateLabel(date)}</div>
+            <div className="font-semibold text-[hsl(var(--foreground))] truncate">{employee.name}</div>
+            <div className="text-xs text-[hsl(var(--muted-foreground))]">{formatDateLabel(date)}</div>
           </div>
           <button
             onClick={onClose}
-            className="ml-auto text-zinc-400 hover:text-zinc-100 p-1 rounded-lg hover:bg-zinc-800 transition-colors"
+            className="ml-auto text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] p-1 rounded-lg hover:bg-[hsl(var(--secondary))] transition-colors"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -113,18 +114,18 @@ export default function ShiftModal({
           </button>
         </div>
 
-        <form ref={formRef} onSubmit={handleSave} className="p-5 space-y-4" style={{ colorScheme: "dark" }}>
+        <form ref={formRef} onSubmit={handleSave} className="p-5 space-y-4">
           <input type="hidden" name="employee_id" value={employee.id} />
           <input type="hidden" name="shift_date" value={date} />
 
           {/* Employee selector */}
           {allEmployees.length > 1 && (
             <div>
-              <label className="block text-xs text-zinc-400 mb-1.5">Mitarbeiter</label>
+              <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Mitarbeiter</label>
               <select
                 value={selectedEmployeeId}
                 onChange={(e) => setSelectedEmployeeId(Number(e.target.value))}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className={inputCls}
               >
                 {allEmployees.map((emp) => (
                   <option key={emp.id} value={emp.id}>
@@ -138,17 +139,17 @@ export default function ShiftModal({
           {/* Quick presets */}
           {shiftTracks.length > 0 && (
             <div>
-              <div className="text-xs text-zinc-500 uppercase tracking-wide mb-2">Schnellauswahl</div>
+              <div className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-2">Schnellauswahl</div>
               <div className="flex flex-wrap gap-2">
                 {shiftTracks.map((track) => (
                   <button
                     key={track.track_key}
                     type="button"
                     onClick={() => applyTrack(track)}
-                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-xs rounded-lg transition-colors"
+                    className="px-3 py-1.5 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs rounded-lg transition-colors"
                   >
                     <span className="font-medium">{track.label}</span>
-                    <span className="text-zinc-500 ml-1.5">
+                    <span className="text-[hsl(var(--muted-foreground))] ml-1.5">
                       {track.start_time.slice(0, 5)}–{track.end_time.slice(0, 5)}
                     </span>
                   </button>
@@ -160,28 +161,28 @@ export default function ShiftModal({
           {/* Time inputs */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-zinc-400 mb-1.5">Beginn</label>
+              <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Beginn</label>
               <input
                 type="time"
                 name="start_time"
                 defaultValue={shift?.start_time?.slice(0, 5) ?? ""}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className={inputCls}
               />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1.5">Ende</label>
+              <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Ende</label>
               <input
                 type="time"
                 name="end_time"
                 defaultValue={shift?.end_time?.slice(0, 5) ?? ""}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className={inputCls}
               />
             </div>
           </div>
 
           {/* Break */}
           <div>
-            <label className="block text-xs text-zinc-400 mb-1.5">Pause (Minuten, optional)</label>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Pause (Minuten, optional)</label>
             <input
               type="number"
               name="break_minutes"
@@ -189,25 +190,25 @@ export default function ShiftModal({
               min={0}
               max={480}
               placeholder="Automatisch aus Pausenregeln"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 placeholder:text-zinc-600"
+              className={inputCls}
             />
           </div>
 
           {/* Comment */}
           <div>
-            <label className="block text-xs text-zinc-400 mb-1.5">Notiz (optional)</label>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Notiz (optional)</label>
             <input
               type="text"
               name="comment"
               defaultValue={shift?.comment ?? ""}
               placeholder="z.B. Vertretung, früher raus …"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 placeholder:text-zinc-600"
+              className={inputCls}
             />
           </div>
 
           {/* Error */}
           {saveError && (
-            <div className="px-3 py-2 bg-red-950 border border-red-800 text-red-300 text-sm rounded-lg">
+            <div className="px-3 py-2 bg-[hsl(var(--destructive)/0.1)] border border-[hsl(var(--destructive)/0.5)] text-[hsl(var(--destructive))] text-sm rounded-lg">
               {saveError}
             </div>
           )}
@@ -219,7 +220,7 @@ export default function ShiftModal({
                 type="button"
                 onClick={handleDelete}
                 disabled={isDeleting}
-                className="px-4 py-2 bg-red-950 hover:bg-red-900 border border-red-800 text-red-300 hover:text-red-100 text-sm rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 bg-[hsl(var(--destructive)/0.1)] hover:bg-[hsl(var(--destructive)/0.2)] border border-[hsl(var(--destructive)/0.4)] text-[hsl(var(--destructive))] text-sm rounded-lg transition-colors disabled:opacity-50"
               >
                 {isDeleting ? "…" : "Schicht löschen"}
               </button>
@@ -227,14 +228,14 @@ export default function ShiftModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm rounded-lg transition-colors ml-auto"
+              className="px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] text-sm rounded-lg transition-colors ml-auto"
             >
               Abbrechen
             </button>
             <button
               type="submit"
               disabled={isPending}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+              className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg transition-all disabled:opacity-50"
             >
               {isPending ? "Speichern …" : shift ? "Speichern" : "Schicht anlegen"}
             </button>
