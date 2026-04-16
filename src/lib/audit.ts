@@ -53,6 +53,16 @@ export const AUDIT_ACTIONS = [
   "finance_transaction_update",
   "finance_transaction_delete",
 
+  // Vault
+  "vault_entry_create",
+  "vault_entry_update",
+  "vault_entry_delete",
+
+  // Tasks
+  "task_create",
+  "task_update",
+  "task_delete",
+
   // Errors
   "critical_error",
 ] as const;
