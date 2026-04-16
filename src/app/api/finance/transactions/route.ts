@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   const sb = createAdminClient();
   const { data, error } = await sb
     .from("finance_transactions")
-    .select("id,type,amount_enc,description_enc,category,transaction_date,created_at")
+    .select("id,type,amount_enc,description_enc,category_enc,transaction_date,created_at")
     .eq("user_id", userId)
     .gte("transaction_date", from)
     .lte("transaction_date", to)
@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
   const transactions: FinanceTransaction[] = (data ?? []).map((row) => {
     let amount = 0;
     let description: string | null = null;
+    let category = "sonstiges";
     try {
       amount = parseFloat(decryptValue(row.amount_enc, userId));
     } catch {
@@ -66,12 +67,17 @@ export async function GET(req: NextRequest) {
         description = null;
       }
     }
+    try {
+      category = decryptValue(row.category_enc, userId);
+    } catch {
+      category = "sonstiges";
+    }
     return {
       id: row.id,
       type: row.type as "income" | "expense",
       amount,
       description,
-      category: row.category,
+      category,
       transaction_date: row.transaction_date,
       created_at: row.created_at,
     };
@@ -117,6 +123,7 @@ export async function POST(req: NextRequest) {
   }
 
   const amount_enc = encryptValue(String(amount), userId);
+  const category_enc = encryptValue(category, userId);
   const description_enc =
     description && description.trim()
       ? encryptValue(description.trim().slice(0, 500), userId)
@@ -130,10 +137,10 @@ export async function POST(req: NextRequest) {
       type,
       amount_enc,
       description_enc,
-      category,
+      category_enc,
       transaction_date,
     })
-    .select("id,type,category,transaction_date,created_at")
+    .select("id,type,transaction_date,created_at")
     .single();
 
   if (error) {
@@ -146,7 +153,7 @@ export async function POST(req: NextRequest) {
     actorUserId: userId,
     actorEmail: null,
     target: `finance_transactions:${data.id}`,
-    detail: { type, category, transaction_date },
+    detail: { type, transaction_date },
   });
 
   const result: FinanceTransaction = {
@@ -154,7 +161,7 @@ export async function POST(req: NextRequest) {
     type: data.type as "income" | "expense",
     amount,
     description: description?.trim() ?? null,
-    category: data.category,
+    category,
     transaction_date: data.transaction_date,
     created_at: data.created_at,
   };

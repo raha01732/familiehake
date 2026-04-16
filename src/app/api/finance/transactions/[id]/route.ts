@@ -71,7 +71,7 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
     if (typeof body.category !== "string" || body.category.length > 64) {
       return NextResponse.json({ ok: false, error: "invalid category" }, { status: 400 });
     }
-    patch.category = body.category;
+    patch.category_enc = encryptValue(body.category, userId);
   }
   if (body.transaction_date !== undefined) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(body.transaction_date)) {
