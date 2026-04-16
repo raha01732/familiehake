@@ -30,6 +30,7 @@ const IDLE_TIMEOUT_HOURS = parseIdleTimeoutHours();
 
 type ClerkSession = {
   id: string;
+  userId?: string | null;
   status?: string | null;
   last_active_at?: number | string | null;
   lastActiveAt?: number | string | null;
@@ -72,30 +73,42 @@ function shouldRevokeSessionByIdlePolicy(session: ClerkSession, nowMs: number) {
   return idleMs >= idleTimeoutMs;
 }
 
+/**
+ * Lists all active sessions by first paginating through all users,
+ * then fetching sessions per user.
+ *
+ * Clerk v6 rejects getSessionList() without a userId/clientId filter (422),
+ * so we must always scope the session query to a specific user.
+ */
 async function listActiveSessions(): Promise<ClerkSession[]> {
   const client = await clerkClient();
   const sessions: ClerkSession[] = [];
   let offset = 0;
 
   while (true) {
-    const page = (await client.sessions.getSessionList({
+    const usersPage = (await client.users.getUserList({
       limit: CLERK_PAGE_SIZE,
       offset,
-    })) as unknown as {
-      data?: ClerkSession[];
-      totalCount?: number;
-    };
+    })) as unknown as { data?: { id: string }[]; totalCount?: number };
 
-    const data = Array.isArray(page.data) ? page.data : [];
-    if (data.length === 0) break;
+    const users = Array.isArray(usersPage.data) ? usersPage.data : [];
+    if (users.length === 0) break;
 
-    // Clerk v6: status filter not supported in getSessionList — filter client-side
-    const activePage = data.filter((s) => !s.status || s.status === "active");
-    sessions.push(...activePage);
+    for (const user of users) {
+      const sessionPage = (await client.sessions.getSessionList({
+        userId: user.id,
+        limit: 100,
+      })) as unknown as { data?: ClerkSession[] };
 
-    const totalCount = typeof page.totalCount === "number" ? page.totalCount : 0;
-    offset += data.length;
-    if (offset >= totalCount || data.length < CLERK_PAGE_SIZE) break;
+      const activeSessions = (sessionPage.data ?? []).filter(
+        (s) => !s.status || s.status === "active"
+      );
+      sessions.push(...activeSessions);
+    }
+
+    const totalCount = typeof usersPage.totalCount === "number" ? usersPage.totalCount : 0;
+    offset += users.length;
+    if (offset >= totalCount || users.length < CLERK_PAGE_SIZE) break;
   }
 
   return sessions;
