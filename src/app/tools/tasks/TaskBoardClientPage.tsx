@@ -735,13 +735,16 @@ export default function TaskBoardClientPage() {
         body: JSON.stringify({ status }),
       });
       const json = await res.json();
-      if (json.ok && json.data) {
+      if (!json.ok) {
+        // API returned an error (e.g. task deleted by another user) — revert
+        fetchTasks();
+      } else if (json.data) {
         setTasks((prev) =>
           prev.map((t) => (t.id === id ? json.data : t))
         );
       }
     } catch {
-      // Revert on error
+      // Network error — revert
       fetchTasks();
     }
   };
@@ -754,7 +757,12 @@ export default function TaskBoardClientPage() {
     setDeleteId(null);
     setTasks((prev) => prev.filter((t) => t.id !== id));
     try {
-      await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!json.ok) {
+        // API returned an error — revert
+        fetchTasks();
+      }
     } catch {
       fetchTasks();
     }
