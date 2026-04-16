@@ -223,13 +223,20 @@ export default function FinanceClientPage() {
 
   // ── Delete ───────────────────────────────────────────────────────────────
 
-  async function handleDelete(id: string) {
+  async function handleDelete(id: string): Promise<boolean> {
     setDeleting(id);
     try {
       const res = await fetch(`/api/finance/transactions/${id}`, { method: "DELETE" });
-      if ((await res.json()).ok) {
+      const json = await res.json();
+      if (json.ok) {
         setTransactions((prev) => prev.filter((t) => t.id !== id));
+        return true;
       }
+      setError("Buchung konnte nicht gelöscht werden.");
+      return false;
+    } catch {
+      setError("Netzwerkfehler beim Löschen.");
+      return false;
     } finally {
       setDeleting(null);
     }
@@ -677,9 +684,9 @@ export default function FinanceClientPage() {
           >
             {editingTx && (
               <button
-                onClick={() => {
-                  handleDelete(editingTx.id);
-                  closeModal();
+                onClick={async () => {
+                  const ok = await handleDelete(editingTx.id);
+                  if (ok) closeModal();
                 }}
                 style={{
                   padding: "0.6rem 0.9rem",
