@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FinanceTransaction } from "@/app/api/finance/transactions/route";
+import ThemeToggleButton from "@/components/ThemeToggleButton";
 
 // ─── Category definitions ────────────────────────────────────────────────────
 
@@ -338,7 +339,9 @@ export default function FinanceClientPage() {
             </p>
           </div>
 
-          {/* Month navigator */}
+          {/* Theme toggle + Month navigator */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <ThemeToggleButton />
           <div
             style={{
               display: "flex",
@@ -419,6 +422,7 @@ export default function FinanceClientPage() {
             >
               ›
             </button>
+          </div>
           </div>
         </div>
 

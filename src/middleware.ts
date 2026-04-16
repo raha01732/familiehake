@@ -13,6 +13,9 @@ const isPublicRoute = createRouteMatcher([
   "/api/health(.*)",
   "/api/keepalive",
 
+  // Legal pages — publicly accessible without login
+  "/legal(.*)",
+
   // ✅ wichtig: Sentry-Tunnel muss öffentlich sein, sonst 500/redirect beim Feedback
   "/api/sentry-tunnel",
 

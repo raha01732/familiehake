@@ -1,5 +1,6 @@
 // /workspace/familiehake/src/app/layout.tsx
 import React from "react";
+import Link from "next/link";
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/next";
@@ -73,6 +74,32 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <PreviewTopBanner />
         {children}
       </main>
+      <footer
+        style={{
+          borderTop: "1px solid hsl(var(--border))",
+          padding: "1rem 1.5rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "1.5rem",
+          fontSize: "0.75rem",
+          color: "hsl(var(--muted-foreground))",
+        }}
+      >
+        <span>© {new Date().getFullYear()} FamilieHake</span>
+        <Link
+          href="/legal/terms"
+          style={{ color: "hsl(var(--muted-foreground))", textDecoration: "none" }}
+        >
+          Nutzungsbedingungen
+        </Link>
+        <Link
+          href="/legal/privacy"
+          style={{ color: "hsl(var(--muted-foreground))", textDecoration: "none" }}
+        >
+          Datenschutz
+        </Link>
+      </footer>
     </div>
   );
   const analyticsShell = <PostHogProvider enableIdentity={session.signedIn}>{shell}</PostHogProvider>;
