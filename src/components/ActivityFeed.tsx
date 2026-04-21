@@ -1,8 +1,7 @@
-// /workspace/familiehake/src/components/ActivityFeed.tsx
+// src/components/ActivityFeed.tsx
 "use client";
 
-import { useEffect, useReducer, useRef, useState } from "react";
-import { createBrowserClient } from "@supabase/ssr";
+import { useEffect, useRef, useState } from "react";
 
 type AuditRow = {
   ts: string;
@@ -12,6 +11,8 @@ type AuditRow = {
   detail: any | null;
 };
 
+const POLL_INTERVAL_MS = 10_000;
+
 export default function ActivityFeed({
   initial,
   debug = false,
@@ -19,117 +20,64 @@ export default function ActivityFeed({
   initial: AuditRow[];
   debug?: boolean;
 }) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey);
-  const missingEnvMessage =
-    "Realtime disabled: NEXT_PUBLIC_SUPABASE_URL oder NEXT_PUBLIC_SUPABASE_ANON_KEY fehlt.";
-
   const [items, setItems] = useState<AuditRow[]>(initial);
-  const [rtState, setRtState] = useReducer(
-    (state: { status: string; error: string | null }, next: Partial<{ status: string; error: string | null }>) => ({
-      ...state,
-      ...next,
-    }),
-    {
-      status: hasSupabaseEnv ? "init" : "env_missing",
-      error: hasSupabaseEnv ? null : missingEnvMessage,
-    }
-  );
-
-  const sbRef = useRef<ReturnType<typeof createBrowserClient> | null>(null);
+  const [pollStatus, setPollStatus] = useState<"idle" | "polling" | "error">("idle");
+  const latestTsRef = useRef<string | null>(initial[0]?.ts ?? null);
 
   useEffect(() => {
-    // ===================== MINI-DEBUG START =====================
-    if (!hasSupabaseEnv) {
-      console.warn("[ActivityFeed MINI-DEBUG]", missingEnvMessage, {
-        url: !!supabaseUrl,
-        anon: !!supabaseAnonKey,
-      });
-      return;
-    }
+    let cancelled = false;
 
-    // Wichtiger als window.WebSocket: globalThis.WebSocket (wird von Libraries oft genutzt)
-    const WS: any = (globalThis as any).WebSocket;
+    async function poll() {
+      setPollStatus("polling");
+      try {
+        const url = latestTsRef.current
+          ? `/api/audit/recent?after=${encodeURIComponent(latestTsRef.current)}`
+          : "/api/audit/recent";
 
-    // ✅ Strenger Guard: muss ein echter Constructor sein
-    if (typeof WS !== "function") {
-      const msg = "Realtime disabled: globalThis.WebSocket is not available.";
-      console.warn("[ActivityFeed MINI-DEBUG]", msg, {
-        hasWindow: typeof window !== "undefined",
-        windowWS: typeof window !== "undefined" ? typeof (window as any).WebSocket : "n/a",
-        globalWS: typeof WS,
-        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "n/a",
-      });
-      setRtState({ status: "ws_missing", error: msg });
-      return;
-    }
-    // ===================== MINI-DEBUG END =====================
-
-    try {
-      const sb = createBrowserClient(supabaseUrl!, supabaseAnonKey!);
-
-      sbRef.current = sb;
-
-      const channel = sb
-        .channel("audit_events_stream")
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "audit_events" },
-          (payload: any) => {
-            try {
-              const row = payload.new as AuditRow;
-              setItems((prev) => [row, ...prev].slice(0, 100));
-            } catch (e: any) {
-              console.error("[ActivityFeed] payload handling failed", e);
-              setRtState({ error: e?.message ?? "payload_handling_failed" });
-            }
-          }
-        );
-
-      channel.subscribe((status) => {
-        setRtState({ status: String(status) });
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          console.warn("[ActivityFeed] realtime subscribe status:", status);
+        const res = await fetch(url);
+        if (!res.ok) {
+          console.warn("[ActivityFeed] poll failed:", res.status);
+          setPollStatus("error");
+          return;
         }
-      });
 
-      return () => {
-        try {
-          channel.unsubscribe();
-        } catch (e) {
-          console.warn("[ActivityFeed] unsubscribe failed", e);
+        const json = await res.json();
+        const newRows: AuditRow[] = json.data ?? [];
+
+        if (newRows.length > 0) {
+          latestTsRef.current = newRows[0].ts;
+          setItems((prev) => [...newRows, ...prev].slice(0, 100));
         }
-      };
-    } catch (e: any) {
-      const errorMessage = String(e?.message ?? "createBrowserClient_failed");
-      const isWsUnavailable = errorMessage.toLowerCase().includes("websocket not available");
-      if (isWsUnavailable) {
-        const msg = "Realtime disabled: WebSocket is not available in this browser context.";
-        console.warn("[ActivityFeed]", msg);
-        setRtState({ status: "ws_unavailable", error: msg });
-        return;
+
+        setPollStatus("idle");
+      } catch (e) {
+        console.error("[ActivityFeed] poll error:", e);
+        setPollStatus("error");
       }
-
-      console.error("[ActivityFeed] createBrowserClient failed", e);
-      setRtState({ status: "client_create_failed", error: errorMessage });
     }
-  }, [hasSupabaseEnv, missingEnvMessage, supabaseAnonKey, supabaseUrl]);
+
+    const id = setInterval(() => {
+      if (!cancelled) poll();
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
       {debug && (
         <div className="border-b border-zinc-800 bg-zinc-950/40 p-3 text-[11px] text-zinc-300">
           <div>
-            <span className="text-zinc-500">Realtime status:</span>{" "}
-            <span className="font-mono">{rtState.status}</span>
+            <span className="text-zinc-500">Poll-Status:</span>{" "}
+            <span className="font-mono">{pollStatus}</span>
           </div>
-          {rtState.error && (
-            <div className="mt-1 whitespace-pre-wrap text-amber-300">
-              <span className="text-zinc-500">Realtime error:</span>{" "}
-              <span className="font-mono">{rtState.error}</span>
-            </div>
-          )}
+          <div className="mt-1">
+            <span className="text-zinc-500">Letzter ts:</span>{" "}
+            <span className="font-mono">{latestTsRef.current ?? "—"}</span>
+          </div>
         </div>
       )}
 
