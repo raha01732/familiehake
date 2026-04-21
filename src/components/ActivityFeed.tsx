@@ -22,6 +22,7 @@ export default function ActivityFeed({
 }) {
   const [items, setItems] = useState<AuditRow[]>(initial);
   const [pollStatus, setPollStatus] = useState<"idle" | "polling" | "error">("idle");
+  const [latestTs, setLatestTs] = useState<string | null>(initial[0]?.ts ?? null);
   const latestTsRef = useRef<string | null>(initial[0]?.ts ?? null);
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export default function ActivityFeed({
 
         if (newRows.length > 0) {
           latestTsRef.current = newRows[0].ts;
+          setLatestTs(newRows[0].ts);
           setItems((prev) => [...newRows, ...prev].slice(0, 100));
         }
 
@@ -76,7 +78,7 @@ export default function ActivityFeed({
           </div>
           <div className="mt-1">
             <span className="text-zinc-500">Letzter ts:</span>{" "}
-            <span className="font-mono">{latestTsRef.current ?? "—"}</span>
+            <span className="font-mono">{latestTs ?? "—"}</span>
           </div>
         </div>
       )}

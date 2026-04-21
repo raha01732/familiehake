@@ -15,7 +15,10 @@
       "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && head -2 \"$1\"' _ {})",
       "Bash(find /c/Users/ralfh/Desktop/Projekt/src -type d -name \"types\" -exec find {} -type f \\\\;)",
       "Bash(xargs grep:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "WebFetch(domain:clerk.com)",
+      "WebFetch(domain:reference.clerk.com)",
+      "WebSearch"
     ]
   }
 }

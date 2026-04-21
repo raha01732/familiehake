@@ -1,13 +1,10 @@
 // /workspace/familiehake/src/app/monitoring/page.tsx
 import RoleGate from "@/components/RoleGate";
 import { Activity } from "lucide-react";
-import { getPermissionOverview } from "@/lib/access-db";
-import { ACCESS_LABELS } from "@/lib/rbac";
 import { type ClerkStats } from "@/lib/clerk-metrics";
 import { fetchSentryStats } from "@/lib/sentry-metrics";
 import { type StorageUsageSummary } from "@/lib/stats";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
 import { headers } from "next/headers";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -120,14 +117,19 @@ async function getMonitoringSummary(): Promise<MonitoringSummary | null> {
 
 async function fetchAuditEvents(): Promise<AuditEvent[]> {
   try {
-    const sb = await createClient();
-    const { data } = await sb
+    const sb = createAdminClient();
+    const { data, error } = await sb
       .from("audit_events")
       .select("ts, action, actor_email, target, detail")
       .order("ts", { ascending: false })
       .limit(50);
+    if (error) {
+      console.error("[monitoring] audit_events select error:", error.message);
+      return [];
+    }
     return (data ?? []) as AuditEvent[];
-  } catch {
+  } catch (error) {
+    console.error("[monitoring] audit_events unexpected error:", error);
     return [];
   }
 }
@@ -422,25 +424,19 @@ export default async function MonitoringPage() {
 
                 <div className="mt-4 text-xs uppercase tracking-wide" style={{ color: "hsl(var(--muted-foreground))" }}>Clerk</div>
                 <div className="mt-1 grid gap-1 text-xs" style={{ color: "hsl(var(--foreground))" }}>
-                  <div>Aktive Sessions: {clerkStats?.activeSessions ?? "data unavailable"}</div>
-                  <div>Ausstehende Einladungen: {clerkStats?.pendingInvitations ?? "data unavailable"}</div>
-                  <div>Gesperrte Einladungen: {clerkStats?.revokedInvitations ?? "data unavailable"}</div>
+                  <div>Nutzer gesamt: {clerkStats?.totalUsers ?? "—"}</div>
+                  <div>Aktive Nutzer (24h): {clerkStats?.activeUsers24h ?? "—"}</div>
+                  <div>Ausstehende Einladungen: {clerkStats?.pendingInvitations ?? "—"}</div>
+                  <div>Gesperrte Einladungen: {clerkStats?.revokedInvitations ?? "—"}</div>
                   {!clerkStats?.available && (
-                    <div className="text-[11px] text-amber-300">Clerk-Daten aktuell nicht verfügbar.</div>
+                    <div className="text-[11px] text-amber-300">
+                      Clerk-Daten aktuell nicht verfügbar{clerkStats?.error ? ` (${clerkStats.error.split(":").slice(0, 3).join(":")})` : ""}.
+                    </div>
                   )}
                 </div>
               </CardContent>
             </Card>
           </div>
-        </div>
-
-        {/* Berechtigungen – lädt sich selbst */}
-        <div className="card p-6 flex flex-col gap-4">
-          <div>
-            <h2 className="text-xl font-semibold text-[hsl(var(--foreground))] tracking-tight">Module &amp; Rechte</h2>
-            <p className="text-sm leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>Wer darf was? (live aus DB)</p>
-          </div>
-          <Permissions />
         </div>
 
         {/* Cron Jobs */}
@@ -499,33 +495,6 @@ export default async function MonitoringPage() {
         <AuditTable events={auditEvents} />
       </section>
     </RoleGate>
-  );
-}
-
-async function Permissions() {
-  const { roles, matrix } = await getPermissionOverview();
-  return (
-    <div className="grid gap-3 text-sm">
-      {Object.entries(matrix).map(([route, roleLevels]) => (
-        <div
-          key={route}
-          className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between"
-        >
-          <div className="mb-2 sm:mb-0">
-            <div className="font-medium text-sm" style={{ color: "hsl(var(--foreground))" }}>/{route}</div>
-            <div className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-              {roles
-                .map((r) => {
-                  const allowed = roleLevels[r.name] ?? false;
-                  return `${r.label}: ${allowed ? ACCESS_LABELS.allowed : ACCESS_LABELS.denied}`;
-                })
-                .join(" • ")}
-            </div>
-          </div>
-          <span className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>Status: aktiv</span>
-        </div>
-      ))}
-    </div>
   );
 }
 
