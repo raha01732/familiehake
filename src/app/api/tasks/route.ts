@@ -9,6 +9,11 @@ import { formatUserDisplayName } from "@/lib/user-display";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+export type TaskAssignee = {
+  user_id: string;
+  display_name: string;
+};
+
 export type Task = {
   id: string;
   title: string;
@@ -16,8 +21,7 @@ export type Task = {
   status: "todo" | "in_progress" | "done";
   priority: "low" | "medium" | "high";
   assignee: string | null;
-  assignee_user_id: string | null;
-  assignee_name: string | null;
+  assignees: TaskAssignee[];
   due_date: string | null;
   category: string | null;
   position: number;
@@ -26,18 +30,20 @@ export type Task = {
   updated_at: string;
 };
 
-type DbTaskRow = Omit<Task, "assignee_name">;
+type DbTaskRow = Omit<Task, "assignees">;
+type DbAssigneeRow = { task_id: string; user_id: string };
 
-async function resolveAssigneeNames(userIds: string[]): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
+/** Resolve Clerk user_ids → display names. One batch call. */
+export async function resolveDisplayNames(userIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
   const unique = Array.from(new Set(userIds.filter(Boolean)));
-  if (unique.length === 0) return map;
+  if (unique.length === 0) return out;
 
   try {
     const client = await clerkClient();
     const res = await client.users.getUserList({ userId: unique, limit: Math.max(unique.length, 1) });
     for (const u of res.data) {
-      map.set(
+      out.set(
         u.id,
         formatUserDisplayName({
           id: u.id,
@@ -51,17 +57,33 @@ async function resolveAssigneeNames(userIds: string[]): Promise<Map<string, stri
   } catch (e) {
     console.error("tasks: clerk name resolution failed:", e);
   }
-  return map;
+  return out;
 }
 
-function withAssigneeName(row: DbTaskRow, names: Map<string, string>): Task {
-  return {
-    ...row,
-    assignee_name: row.assignee_user_id ? names.get(row.assignee_user_id) ?? null : null,
-  };
+function buildAssigneeList(
+  userIds: string[],
+  names: Map<string, string>
+): TaskAssignee[] {
+  return userIds.map((id) => ({
+    user_id: id,
+    display_name: names.get(id) ?? id,
+  }));
 }
 
-/** GET /api/tasks — returns all tasks (shared board) */
+/** Replace the entire assignee set for a task (delete-then-insert). */
+export async function replaceTaskAssignees(taskId: string, userIds: string[]): Promise<void> {
+  const sb = createAdminClient();
+  const clean = Array.from(new Set(userIds.map((s) => s.trim()).filter(Boolean)));
+
+  await sb.from("task_board_task_assignees").delete().eq("task_id", taskId);
+  if (clean.length === 0) return;
+
+  await sb
+    .from("task_board_task_assignees")
+    .insert(clean.map((user_id) => ({ task_id: taskId, user_id })));
+}
+
+/** GET /api/tasks — returns all tasks with their assignees. */
 export async function GET(req: NextRequest) {
   const rl = await applyRateLimit(req, "api:tasks:get");
   if (rl instanceof NextResponse) return rl;
@@ -70,20 +92,46 @@ export async function GET(req: NextRequest) {
   if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
   const sb = createAdminClient();
-  const { data, error } = await sb
+  const { data: taskRows, error: taskErr } = await sb
     .from("task_board_tasks")
     .select("*")
     .order("position", { ascending: true })
     .order("created_at", { ascending: true });
 
-  if (error) {
-    console.error("tasks GET error:", error.message);
+  if (taskErr) {
+    console.error("tasks GET error:", taskErr.message);
     return NextResponse.json({ ok: false, error: "db error" }, { status: 500 });
   }
 
-  const rows = (data ?? []) as DbTaskRow[];
-  const names = await resolveAssigneeNames(rows.map((r) => r.assignee_user_id ?? "").filter(Boolean));
-  const enriched = rows.map((r) => withAssigneeName(r, names));
+  const rows = (taskRows ?? []) as DbTaskRow[];
+  const taskIds = rows.map((r) => r.id);
+
+  let assigneeRows: DbAssigneeRow[] = [];
+  if (taskIds.length > 0) {
+    const { data: aRows, error: aErr } = await sb
+      .from("task_board_task_assignees")
+      .select("task_id, user_id")
+      .in("task_id", taskIds);
+    if (aErr) {
+      console.error("tasks GET assignee error:", aErr.message);
+    } else {
+      assigneeRows = aRows ?? [];
+    }
+  }
+
+  const byTask = new Map<string, string[]>();
+  for (const a of assigneeRows) {
+    const arr = byTask.get(a.task_id) ?? [];
+    arr.push(a.user_id);
+    byTask.set(a.task_id, arr);
+  }
+
+  const names = await resolveDisplayNames(assigneeRows.map((a) => a.user_id));
+
+  const enriched: Task[] = rows.map((r) => ({
+    ...r,
+    assignees: buildAssigneeList(byTask.get(r.id) ?? [], names),
+  }));
 
   return NextResponse.json({ ok: true, data: enriched });
 }
@@ -102,7 +150,7 @@ export async function POST(req: NextRequest) {
     status?: string;
     priority?: string;
     assignee?: string | null;
-    assignee_user_id?: string | null;
+    assignee_user_ids?: string[] | null;
     due_date?: string | null;
     category?: string | null;
   };
@@ -118,7 +166,7 @@ export async function POST(req: NextRequest) {
     status = "todo",
     priority = "medium",
     assignee,
-    assignee_user_id,
+    assignee_user_ids,
     due_date,
     category,
   } = body;
@@ -135,13 +183,17 @@ export async function POST(req: NextRequest) {
   if (due_date && !/^\d{4}-\d{2}-\d{2}$/.test(due_date)) {
     return NextResponse.json({ ok: false, error: "invalid due_date" }, { status: 400 });
   }
-  if (assignee_user_id && (typeof assignee_user_id !== "string" || assignee_user_id.length > 128)) {
-    return NextResponse.json({ ok: false, error: "invalid assignee_user_id" }, { status: 400 });
+  if (assignee_user_ids !== undefined && assignee_user_ids !== null) {
+    if (!Array.isArray(assignee_user_ids) || assignee_user_ids.some((s) => typeof s !== "string" || s.length > 128)) {
+      return NextResponse.json({ ok: false, error: "invalid assignee_user_ids" }, { status: 400 });
+    }
+    if (assignee_user_ids.length > 20) {
+      return NextResponse.json({ ok: false, error: "too many assignees" }, { status: 400 });
+    }
   }
 
   const sb = createAdminClient();
 
-  // Append at the end of the chosen column
   const { data: maxRow } = await sb
     .from("task_board_tasks")
     .select("position")
@@ -159,7 +211,6 @@ export async function POST(req: NextRequest) {
       status,
       priority,
       assignee: assignee?.trim() || null,
-      assignee_user_id: assignee_user_id?.trim() || null,
       due_date: due_date || null,
       category: category?.trim() || null,
       position,
@@ -173,15 +224,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "db error" }, { status: 500 });
   }
 
+  const row = data as DbTaskRow;
+  const ids = Array.isArray(assignee_user_ids) ? assignee_user_ids : [];
+  if (ids.length > 0) {
+    await replaceTaskAssignees(row.id, ids);
+  }
+
   await logAudit({
     action: "task_create",
     actorUserId: userId,
     actorEmail: null,
-    target: `task_board_tasks:${data.id}`,
-    detail: { title: data.title, status },
+    target: `task_board_tasks:${row.id}`,
+    detail: { title: row.title, status, assignees: ids },
   });
 
-  const row = data as DbTaskRow;
-  const names = await resolveAssigneeNames(row.assignee_user_id ? [row.assignee_user_id] : []);
-  return NextResponse.json({ ok: true, data: withAssigneeName(row, names) }, { status: 201 });
+  const names = await resolveDisplayNames(ids);
+  const enriched: Task = { ...row, assignees: buildAssigneeList(ids, names) };
+
+  return NextResponse.json({ ok: true, data: enriched }, { status: 201 });
 }

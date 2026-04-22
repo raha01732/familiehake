@@ -29,17 +29,32 @@ async function loadStats(userId: string): Promise<TaskStats | null> {
     const sb = createAdminClient();
     const today = berlinToday();
 
-    const { data, error } = await sb
-      .from("task_board_tasks")
-      .select("status, due_date")
-      .eq("assignee_user_id", userId);
+    const { data: junctionRows, error: jErr } = await sb
+      .from("task_board_task_assignees")
+      .select("task_id")
+      .eq("user_id", userId);
 
-    if (error) {
-      console.error("[TaskSummaryTile] db error:", error.message);
+    if (jErr) {
+      console.error("[TaskSummaryTile] junction error:", jErr.message);
       return null;
     }
 
-    const rows = data ?? [];
+    const taskIds = (junctionRows ?? []).map((r) => r.task_id);
+    if (taskIds.length === 0) {
+      return { dueToday: 0, overdue: 0, openTotal: 0, hasAssignedAny: false };
+    }
+
+    const { data: taskRows, error: tErr } = await sb
+      .from("task_board_tasks")
+      .select("status, due_date")
+      .in("id", taskIds);
+
+    if (tErr) {
+      console.error("[TaskSummaryTile] tasks error:", tErr.message);
+      return null;
+    }
+
+    const rows = taskRows ?? [];
     let dueToday = 0;
     let overdue = 0;
     let openTotal = 0;
@@ -52,7 +67,7 @@ async function loadStats(userId: string): Promise<TaskStats | null> {
       else if (row.due_date < today) overdue++;
     }
 
-    return { dueToday, overdue, openTotal, hasAssignedAny: rows.length > 0 };
+    return { dueToday, overdue, openTotal, hasAssignedAny: true };
   } catch (e) {
     console.error("[TaskSummaryTile] load failed:", e);
     return null;
