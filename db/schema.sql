@@ -735,6 +735,23 @@ create table if not exists task_board_tasks (
 create index if not exists task_board_status_idx on task_board_tasks(status, position);
 create index if not exists task_board_created_by_idx on task_board_tasks(created_by);
 
+-- Migration: Clerk-basierte Zuweisung (assignee_user_id) ergänzend zur Legacy-Freitextspalte (assignee)
+do $$
+begin
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'task_board_tasks'
+      and column_name = 'assignee_user_id'
+  ) then
+    alter table task_board_tasks add column assignee_user_id text;
+  end if;
+end $$;
+
+create index if not exists task_board_assignee_user_id_idx on task_board_tasks(assignee_user_id);
+create index if not exists task_board_due_date_idx on task_board_tasks(due_date) where status <> 'done';
+
 insert into tool_status (route_key, enabled, maintenance_message)
 values
   ('tools/vault', true, null),

@@ -1,9 +1,27 @@
 // src/app/api/tasks/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
 import { logAudit } from "@/lib/audit";
+import { formatUserDisplayName } from "@/lib/user-display";
+
+async function resolveAssigneeName(userId: string | null | undefined): Promise<string | null> {
+  if (!userId) return null;
+  try {
+    const client = await clerkClient();
+    const u = await client.users.getUser(userId);
+    return formatUserDisplayName({
+      id: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      username: u.username,
+      emailAddresses: u.emailAddresses?.map((e) => ({ emailAddress: e.emailAddress })) ?? null,
+    });
+  } catch {
+    return null;
+  }
+}
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,6 +44,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     status?: string;
     priority?: string;
     assignee?: string | null;
+    assignee_user_id?: string | null;
     due_date?: string | null;
     category?: string | null;
     position?: number;
@@ -76,6 +95,13 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     patch.priority = body.priority;
   }
   if ("assignee" in body) patch.assignee = body.assignee?.trim() || null;
+  if ("assignee_user_id" in body) {
+    const v = body.assignee_user_id;
+    if (v !== null && v !== undefined && (typeof v !== "string" || v.length > 128)) {
+      return NextResponse.json({ ok: false, error: "invalid assignee_user_id" }, { status: 400 });
+    }
+    patch.assignee_user_id = v?.trim() || null;
+  }
   if ("due_date" in body) {
     if (body.due_date && !/^\d{4}-\d{2}-\d{2}$/.test(body.due_date)) {
       return NextResponse.json({ ok: false, error: "invalid due_date" }, { status: 400 });
@@ -112,7 +138,8 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     target: `task_board_tasks:${id}`,
   });
 
-  return NextResponse.json({ ok: true, data });
+  const assignee_name = await resolveAssigneeName(data.assignee_user_id);
+  return NextResponse.json({ ok: true, data: { ...data, assignee_name } });
 }
 
 /** DELETE /api/tasks/[id] */

@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 import type { Task } from "@/app/api/tasks/route";
+import type { UserDirectoryEntry } from "@/app/api/users/list/route";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ function TaskCard({
   const prev = prevStatus(task.status);
   const next = nextStatus(task.status);
   const overdue = isOverdue(task.due_date);
+  const assigneeLabel = task.assignee_name ?? task.assignee ?? null;
 
   return (
     <div
@@ -147,7 +149,7 @@ function TaskCard({
       )}
 
       {/* Footer: assignee + category */}
-      {(task.assignee || task.category) && (
+      {(assigneeLabel || task.category) && (
         <div
           style={{
             display: "flex",
@@ -156,17 +158,19 @@ function TaskCard({
             marginTop: "0.1rem",
           }}
         >
-          {task.assignee && (
+          {assigneeLabel && (
             <span
               style={{
-                background: "hsl(var(--muted) / 0.5)",
+                background: "hsl(var(--primary) / 0.12)",
+                color: "hsl(var(--primary))",
                 borderRadius: 4,
                 padding: "1px 6px",
                 fontSize: "0.68rem",
-                color: "hsl(var(--foreground))",
+                fontWeight: 600,
               }}
+              title="Zugewiesen an"
             >
-              {task.assignee}
+              @ {assigneeLabel}
             </span>
           )}
           {task.category && (
@@ -269,7 +273,7 @@ type TaskForm = {
   description: string;
   status: Task["status"];
   priority: Task["priority"];
-  assignee: string;
+  assignee_user_id: string;
   due_date: string;
   category: string;
 };
@@ -277,11 +281,13 @@ type TaskForm = {
 function TaskModal({
   task,
   defaultStatus,
+  users,
   onClose,
   onSaved,
 }: {
   task: Task | null;
   defaultStatus: Task["status"];
+  users: UserDirectoryEntry[];
   onClose: () => void;
   onSaved: (t: Task) => void;
 }) {
@@ -293,7 +299,7 @@ function TaskModal({
           description: task.description ?? "",
           status: task.status,
           priority: task.priority,
-          assignee: task.assignee ?? "",
+          assignee_user_id: task.assignee_user_id ?? "",
           due_date: task.due_date ?? "",
           category: task.category ?? "",
         }
@@ -302,7 +308,7 @@ function TaskModal({
           description: "",
           status: defaultStatus,
           priority: "medium",
-          assignee: "",
+          assignee_user_id: "",
           due_date: "",
           category: "",
         }
@@ -326,7 +332,9 @@ function TaskModal({
         description: form.description || null,
         status: form.status,
         priority: form.priority,
-        assignee: form.assignee || null,
+        assignee_user_id: form.assignee_user_id || null,
+        // Clear legacy free-text assignee when a user is picked; otherwise leave untouched
+        ...(form.assignee_user_id ? { assignee: null } : {}),
         due_date: form.due_date || null,
         category: form.category || null,
       };
@@ -480,12 +488,25 @@ function TaskModal({
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
             <div>
               <label style={labelStyle}>Zugewiesen an</label>
-              <input
-                style={inputStyle}
-                value={form.assignee}
-                onChange={(e) => set("assignee", e.target.value)}
-                placeholder="Name…"
-              />
+              <select
+                style={{ ...inputStyle, cursor: "pointer" }}
+                value={form.assignee_user_id}
+                onChange={(e) => set("assignee_user_id", e.target.value)}
+              >
+                <option value="">— Niemand —</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.displayName}
+                  </option>
+                ))}
+                {/* Legacy-Wert, falls der aktuelle assignee_user_id nicht mehr in der Liste auftaucht */}
+                {form.assignee_user_id &&
+                  !users.some((u) => u.id === form.assignee_user_id) && (
+                    <option value={form.assignee_user_id}>
+                      {task?.assignee_name ?? "Unbekannter Nutzer"}
+                    </option>
+                  )}
+              </select>
             </div>
             <div>
               <label style={labelStyle}>Fällig am</label>
@@ -683,6 +704,7 @@ function KanbanColumn({
 
 export default function TaskBoardClientPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{
     open: boolean;
@@ -702,9 +724,20 @@ export default function TaskBoardClientPage() {
     }
   }, []);
 
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/users/list");
+      const json = await res.json();
+      if (json.ok) setUsers(json.data);
+    } catch {
+      /* silent — dropdown just stays empty */
+    }
+  }, []);
+
   useEffect(() => {
     fetchTasks();
-  }, [fetchTasks]);
+    fetchUsers();
+  }, [fetchTasks, fetchUsers]);
 
   const openAdd = (status: Task["status"]) =>
     setModal({ open: true, task: null, defaultStatus: status });
@@ -931,6 +964,7 @@ export default function TaskBoardClientPage() {
         <TaskModal
           task={modal.task}
           defaultStatus={modal.defaultStatus}
+          users={users}
           onClose={closeModal}
           onSaved={handleSaved}
         />
