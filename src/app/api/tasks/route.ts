@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
 import { logAudit } from "@/lib/audit";
 import { formatUserDisplayName } from "@/lib/user-display";
+import { notifyTaskAssigned } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -237,6 +238,15 @@ export async function POST(req: NextRequest) {
     target: `task_board_tasks:${row.id}`,
     detail: { title: row.title, status, assignees: ids },
   });
+
+  if (ids.length > 0) {
+    await notifyTaskAssigned({
+      taskId: row.id,
+      taskTitle: row.title,
+      actorUserId: userId,
+      newAssigneeIds: ids,
+    });
+  }
 
   const names = await resolveDisplayNames(ids);
   const enriched: Task = { ...row, assignees: buildAssigneeList(ids, names) };

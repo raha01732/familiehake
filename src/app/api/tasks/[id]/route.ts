@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
 import { logAudit } from "@/lib/audit";
+import { notifyTaskAssigned } from "@/lib/notify";
 import {
   replaceTaskAssignees,
   resolveDisplayNames,
@@ -138,8 +139,15 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     updated = data as Omit<Task, "assignees">;
   }
 
+  let newlyAssigned: string[] = [];
   if (touchedAssignees) {
     const ids = Array.isArray(body.assignee_user_ids) ? body.assignee_user_ids : [];
+    const { data: priorRows } = await sb
+      .from("task_board_task_assignees")
+      .select("user_id")
+      .eq("task_id", id);
+    const prior = new Set((priorRows ?? []).map((r) => r.user_id));
+    newlyAssigned = ids.filter((uid) => !prior.has(uid));
     await replaceTaskAssignees(id, ids);
   }
 
@@ -160,6 +168,15 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     actorEmail: null,
     target: `task_board_tasks:${id}`,
   });
+
+  if (newlyAssigned.length > 0) {
+    await notifyTaskAssigned({
+      taskId: id,
+      taskTitle: enriched.title,
+      actorUserId: userId,
+      newAssigneeIds: newlyAssigned,
+    });
+  }
 
   return NextResponse.json({ ok: true, data: enriched });
 }
