@@ -14,6 +14,7 @@ import {
 } from "@clerk/nextjs";
 import { useEffect, useRef, useState } from "react";
 import { LogOut, Settings, ChevronDown } from "lucide-react";
+import NotificationBell from "@/components/NotificationBell";
 
 type HeaderProps = {
   clerkEnabled?: boolean;
@@ -90,6 +91,9 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
                 )}
               </SignedOut>
               <SignedIn>
+                <div className="relative z-[560]">
+                  <NotificationBell />
+                </div>
                 <div className="relative z-[560]">
                   <UserMenu />
                 </div>

@@ -25,6 +25,9 @@ const baseSchema = z.object({
   NEXT_PUBLIC_POSTHOG_KEY: z.string().optional(),
   NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
   FINANCE_ENCRYPTION_KEY: z.string().min(16).optional(),
+  RESEND_API_KEY: z.string().min(1).optional(),
+  NOTIFICATION_EMAIL_FROM: z.string().email().optional(),
+  CRON_SECRET: z.string().min(1).optional(),
 });
 
 const requiredInProduction = [

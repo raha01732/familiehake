@@ -804,3 +804,30 @@ join roles r on r.name = np.role_name
 on conflict (role_id, route) do update
   set level = excluded.level,
       updated_at = now();
+
+-- ─────────────────────────────────────────────
+-- Notifications (in-app bell + optional E-Mail)
+-- ─────────────────────────────────────────────
+
+create table if not exists notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  kind text not null,
+  title text not null,
+  body text,
+  link text,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists notifications_user_created_idx
+  on notifications(user_id, created_at desc);
+create index if not exists notifications_user_unread_idx
+  on notifications(user_id)
+  where read_at is null;
+
+create table if not exists notification_preferences (
+  user_id text primary key,
+  email_enabled boolean not null default true,
+  updated_at timestamptz not null default now()
+);
