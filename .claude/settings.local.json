@@ -18,7 +18,10 @@
       "Bash(npx tsc:*)",
       "WebFetch(domain:clerk.com)",
       "WebFetch(domain:reference.clerk.com)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }

@@ -756,3 +756,49 @@ join roles r on r.name = np.role_name
 on conflict (role_id, route) do update
   set level = excluded.level,
       updated_at = now();
+
+-- ─────────────────────────────────────────────
+-- Nutrition / Rezepte & Ernährungstipps
+-- ─────────────────────────────────────────────
+
+create table if not exists nutrition_favorites (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  source text not null check (source in ('spoonacular', 'ai')),
+  external_id text,
+  title text not null,
+  image_url text,
+  summary text,
+  ingredients jsonb not null default '[]'::jsonb,
+  instructions text,
+  ready_in_minutes integer,
+  servings integer,
+  diet text,
+  source_url text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists nutrition_favorites_user_id_idx
+  on nutrition_favorites(user_id);
+
+create unique index if not exists nutrition_favorites_user_ext_idx
+  on nutrition_favorites(user_id, source, external_id)
+  where external_id is not null;
+
+insert into tool_status (route_key, enabled, maintenance_message)
+values
+  ('tools/nutrition', true, null)
+on conflict (route_key) do nothing;
+
+with nutrition_perms(role_name, route, level) as (
+  values
+    ('user',  'tools/nutrition', 2),
+    ('admin', 'tools/nutrition', 3)
+)
+insert into role_permissions (role_id, route, level)
+select r.id, np.route, np.level
+from nutrition_perms np
+join roles r on r.name = np.role_name
+on conflict (role_id, route) do update
+  set level = excluded.level,
+      updated_at = now();

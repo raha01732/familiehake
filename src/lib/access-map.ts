@@ -99,6 +99,12 @@ export const ROUTE_DESCRIPTORS: RouteDescriptor[] = [
     description: "Server- und Runtime-Details.",
     defaults: { admin: true },
   },
+  {
+    route: "tools/nutrition",
+    label: "Ernährung",
+    description: "Rezepte, Zutaten-Suche und Ernährungstipps.",
+    defaults: { user: true, admin: true },
+  },
 ];
 
 export function getRouteDescriptor(route: string): RouteDescriptor | undefined {

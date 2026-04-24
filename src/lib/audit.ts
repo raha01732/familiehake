@@ -63,6 +63,10 @@ export const AUDIT_ACTIONS = [
   "task_update",
   "task_delete",
 
+  // Nutrition
+  "nutrition_favorite_create",
+  "nutrition_favorite_delete",
+
   // Errors
   "critical_error",
 ] as const;

@@ -9,7 +9,7 @@ import { getToolStatusMap } from "@/lib/tool-status";
 import {
   FolderOpen, BookOpen, Film, CalendarClock, Calendar,
   MessageSquare, HardDrive, Monitor, type LucideIcon,
-  Wrench,
+  Wrench, Wallet, Lock, ListChecks, Salad,
 } from "lucide-react";
 
 export const metadata = { title: "Werkzeuge" };
@@ -23,6 +23,10 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "tools/messages":     MessageSquare,
   "tools/storage":      HardDrive,
   "tools/system":       Monitor,
+  "tools/finance":      Wallet,
+  "tools/vault":        Lock,
+  "tools/tasks":        ListChecks,
+  "tools/nutrition":    Salad,
 };
 
 export default async function ToolsPage() {
