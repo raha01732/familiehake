@@ -25,6 +25,11 @@ const baseSchema = z.object({
   NEXT_PUBLIC_POSTHOG_KEY: z.string().optional(),
   NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
   FINANCE_ENCRYPTION_KEY: z.string().min(16).optional(),
+  // Nutrition tool
+  SPOONACULAR_API_KEY: z.string().min(1).optional(),
+  AI_GATEWAY_API_KEY: z.string().min(1).optional(),
+  AI_GATEWAY_MODEL: z.string().min(1).optional(),
+  TAVILY_API_KEY: z.string().min(1).optional(),
   RESEND_API_KEY: z.string().min(1).optional(),
   NOTIFICATION_EMAIL_FROM: z.string().email().optional(),
   CRON_SECRET: z.string().min(1).optional(),

@@ -73,6 +73,12 @@ export const TOOL_LINKS: NavLink[] = [
     label: "Aufgaben",
     description: "Gemeinsames Kanban-Board für alle",
   },
+  {
+    routeKey: "tools/nutrition",
+    href: "/tools/nutrition",
+    label: "Ernährung",
+    description: "Rezepte, Zutaten-Suche & Ernährungstipps",
+  },
 ];
 
 export const ADMIN_LINKS: NavLink[] = [
