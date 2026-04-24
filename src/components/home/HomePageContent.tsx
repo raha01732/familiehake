@@ -1,4 +1,5 @@
 import RoleGate from "@/components/RoleGate";
+import TaskSummaryTile from "@/components/home/TaskSummaryTile";
 import WelcomeTileCard, { WelcomeTile } from "@/components/dashboard/WelcomeTileCard";
 import { logAudit } from "@/lib/audit";
 import { getSessionInfo } from "@/lib/auth";
@@ -259,6 +260,9 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
     });
   }
 
+  const canSeeTasks =
+    session.signedIn && !!session.userId && (session.isSuperAdmin || session.permissions["tools/tasks"]);
+
   return (
     <RoleGate routeKey="dashboard">
       <section className="grid items-start gap-6 lg:grid-cols-[272px_minmax(0,1fr)]">
@@ -391,6 +395,7 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
         </aside>
 
         {/* ── Haupt-Inhalt ────────────────────────── */}
+        <div className="flex flex-col gap-5">
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_240px]">
           <WelcomeTileCard tile={welcomeTile} isAdmin={isAdmin} onSave={updateWelcomeTile} />
 
@@ -462,6 +467,9 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
               Alle Tools →
             </Link>
           </div>
+        </div>
+
+          {canSeeTasks && session.userId && <TaskSummaryTile userId={session.userId} />}
         </div>
       </section>
     </RoleGate>

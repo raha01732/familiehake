@@ -735,6 +735,54 @@ create table if not exists task_board_tasks (
 create index if not exists task_board_status_idx on task_board_tasks(status, position);
 create index if not exists task_board_created_by_idx on task_board_tasks(created_by);
 
+-- Migration: Clerk-basierte Zuweisung (assignee_user_id) ergänzend zur Legacy-Freitextspalte (assignee)
+do $$
+begin
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'task_board_tasks'
+      and column_name = 'assignee_user_id'
+  ) then
+    alter table task_board_tasks add column assignee_user_id text;
+  end if;
+end $$;
+
+create index if not exists task_board_due_date_idx on task_board_tasks(due_date) where status <> 'done';
+
+-- Junction-Table für Multi-Assignee pro Aufgabe
+create table if not exists task_board_task_assignees (
+  task_id uuid not null references task_board_tasks(id) on delete cascade,
+  user_id text not null,
+  assigned_at timestamptz not null default now(),
+  primary key (task_id, user_id)
+);
+
+create index if not exists task_board_task_assignees_user_idx
+  on task_board_task_assignees(user_id);
+
+-- Datenmigration: Bestehende 1:1-Zuweisungen aus assignee_user_id in die Junction übernehmen,
+-- danach die nun redundante Spalte entfernen.
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'task_board_tasks'
+      and column_name = 'assignee_user_id'
+  ) then
+    insert into task_board_task_assignees (task_id, user_id)
+    select id, assignee_user_id
+    from task_board_tasks
+    where assignee_user_id is not null
+    on conflict (task_id, user_id) do nothing;
+
+    alter table task_board_tasks drop column assignee_user_id;
+  end if;
+end $$;
+
 insert into tool_status (route_key, enabled, maintenance_message)
 values
   ('tools/vault', true, null),
@@ -802,3 +850,28 @@ join roles r on r.name = np.role_name
 on conflict (role_id, route) do update
   set level = excluded.level,
       updated_at = now();
+-- Notifications (in-app bell + optional E-Mail)
+-- ─────────────────────────────────────────────
+
+create table if not exists notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  kind text not null,
+  title text not null,
+  body text,
+  link text,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists notifications_user_created_idx
+  on notifications(user_id, created_at desc);
+create index if not exists notifications_user_unread_idx
+  on notifications(user_id)
+  where read_at is null;
+
+create table if not exists notification_preferences (
+  user_id text primary key,
+  email_enabled boolean not null default true,
+  updated_at timestamptz not null default now()
+);

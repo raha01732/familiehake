@@ -4,6 +4,12 @@ import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
 import { logAudit } from "@/lib/audit";
+import { notifyTaskAssigned } from "@/lib/notify";
+import {
+  replaceTaskAssignees,
+  resolveDisplayNames,
+  type Task,
+} from "@/app/api/tasks/route";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,6 +32,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     status?: string;
     priority?: string;
     assignee?: string | null;
+    assignee_user_ids?: string[] | null;
     due_date?: string | null;
     category?: string | null;
     position?: number;
@@ -57,7 +64,6 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       return NextResponse.json({ ok: false, error: "invalid status" }, { status: 400 });
     }
     patch.status = body.status;
-    // When moving to a different column, place task at the end of the target column
     if (body.status !== existing.status) {
       const { data: maxRow } = await sb
         .from("task_board_tasks")
@@ -83,27 +89,78 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     patch.due_date = body.due_date || null;
   }
   if ("category" in body) patch.category = body.category?.trim() || null;
-  // Only apply explicit position if no status change triggered auto-positioning
   if (typeof body.position === "number" && !(body.status !== undefined && body.status !== existing.status)) {
     patch.position = body.position;
   }
 
-  // Guard: if only updated_at was set, there is nothing to update
-  if (Object.keys(patch).length === 1) {
+  let touchedAssignees = false;
+  if ("assignee_user_ids" in body) {
+    const v = body.assignee_user_ids;
+    if (v !== null && v !== undefined) {
+      if (!Array.isArray(v) || v.some((s) => typeof s !== "string" || s.length > 128)) {
+        return NextResponse.json({ ok: false, error: "invalid assignee_user_ids" }, { status: 400 });
+      }
+      if (v.length > 20) {
+        return NextResponse.json({ ok: false, error: "too many assignees" }, { status: 400 });
+      }
+    }
+    touchedAssignees = true;
+  }
+
+  const onlyUpdatedAt = Object.keys(patch).length === 1;
+  if (onlyUpdatedAt && !touchedAssignees) {
     return NextResponse.json({ ok: false, error: "no fields to update" }, { status: 400 });
   }
 
-  const { data, error } = await sb
-    .from("task_board_tasks")
-    .update(patch)
-    .eq("id", id)
-    .select("*")
-    .single();
+  let updated: Omit<Task, "assignees">;
+  if (onlyUpdatedAt) {
+    const { data: current, error: curErr } = await sb
+      .from("task_board_tasks")
+      .select("*")
+      .eq("id", id)
+      .single();
+    if (curErr || !current) {
+      console.error("tasks PATCH reload error:", curErr?.message);
+      return NextResponse.json({ ok: false, error: "db error" }, { status: 500 });
+    }
+    updated = current as Omit<Task, "assignees">;
+  } else {
+    const { data, error } = await sb
+      .from("task_board_tasks")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
 
-  if (error) {
-    console.error("tasks PATCH error:", error.message);
-    return NextResponse.json({ ok: false, error: "db error" }, { status: 500 });
+    if (error || !data) {
+      console.error("tasks PATCH error:", error?.message);
+      return NextResponse.json({ ok: false, error: "db error" }, { status: 500 });
+    }
+    updated = data as Omit<Task, "assignees">;
   }
+
+  let newlyAssigned: string[] = [];
+  if (touchedAssignees) {
+    const ids = Array.isArray(body.assignee_user_ids) ? body.assignee_user_ids : [];
+    const { data: priorRows } = await sb
+      .from("task_board_task_assignees")
+      .select("user_id")
+      .eq("task_id", id);
+    const prior = new Set((priorRows ?? []).map((r) => r.user_id));
+    newlyAssigned = ids.filter((uid) => !prior.has(uid));
+    await replaceTaskAssignees(id, ids);
+  }
+
+  const { data: assigneeRows } = await sb
+    .from("task_board_task_assignees")
+    .select("user_id")
+    .eq("task_id", id);
+  const userIds = (assigneeRows ?? []).map((r) => r.user_id);
+  const names = await resolveDisplayNames(userIds);
+  const enriched: Task = {
+    ...updated,
+    assignees: userIds.map((uid) => ({ user_id: uid, display_name: names.get(uid) ?? uid })),
+  };
 
   await logAudit({
     action: "task_update",
@@ -112,7 +169,16 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     target: `task_board_tasks:${id}`,
   });
 
-  return NextResponse.json({ ok: true, data });
+  if (newlyAssigned.length > 0) {
+    await notifyTaskAssigned({
+      taskId: id,
+      taskTitle: enriched.title,
+      actorUserId: userId,
+      newAssigneeIds: newlyAssigned,
+    });
+  }
+
+  return NextResponse.json({ ok: true, data: enriched });
 }
 
 /** DELETE /api/tasks/[id] */
@@ -136,6 +202,7 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
     return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
   }
 
+  // Junction rows cascade via FK on delete
   const { error } = await sb.from("task_board_tasks").delete().eq("id", id);
 
   if (error) {
