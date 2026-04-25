@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 import type { Task } from "@/app/api/tasks/route";
+import type { UserDirectoryEntry } from "@/app/api/users/list/route";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,8 @@ function TaskCard({
   const prev = prevStatus(task.status);
   const next = nextStatus(task.status);
   const overdue = isOverdue(task.due_date);
+  const hasAssignees = task.assignees.length > 0;
+  const legacyLabel = !hasAssignees ? task.assignee : null;
 
   return (
     <div
@@ -146,17 +149,34 @@ function TaskCard({
         </div>
       )}
 
-      {/* Footer: assignee + category */}
-      {(task.assignee || task.category) && (
+      {/* Footer: assignees + category */}
+      {(hasAssignees || legacyLabel || task.category) && (
         <div
           style={{
             display: "flex",
-            gap: "0.4rem",
+            gap: "0.35rem",
             flexWrap: "wrap",
+            alignItems: "center",
             marginTop: "0.1rem",
           }}
         >
-          {task.assignee && (
+          {task.assignees.map((a) => (
+            <span
+              key={a.user_id}
+              style={{
+                background: "hsl(var(--primary) / 0.12)",
+                color: "hsl(var(--primary))",
+                borderRadius: 4,
+                padding: "1px 6px",
+                fontSize: "0.68rem",
+                fontWeight: 600,
+              }}
+              title="Zugewiesen an"
+            >
+              @ {a.display_name}
+            </span>
+          ))}
+          {legacyLabel && (
             <span
               style={{
                 background: "hsl(var(--muted) / 0.5)",
@@ -165,8 +185,9 @@ function TaskCard({
                 fontSize: "0.68rem",
                 color: "hsl(var(--foreground))",
               }}
+              title="Freitext-Zuweisung"
             >
-              {task.assignee}
+              {legacyLabel}
             </span>
           )}
           {task.category && (
@@ -269,7 +290,7 @@ type TaskForm = {
   description: string;
   status: Task["status"];
   priority: Task["priority"];
-  assignee: string;
+  assignee_user_ids: string[];
   due_date: string;
   category: string;
 };
@@ -277,11 +298,13 @@ type TaskForm = {
 function TaskModal({
   task,
   defaultStatus,
+  users,
   onClose,
   onSaved,
 }: {
   task: Task | null;
   defaultStatus: Task["status"];
+  users: UserDirectoryEntry[];
   onClose: () => void;
   onSaved: (t: Task) => void;
 }) {
@@ -293,7 +316,7 @@ function TaskModal({
           description: task.description ?? "",
           status: task.status,
           priority: task.priority,
-          assignee: task.assignee ?? "",
+          assignee_user_ids: task.assignees.map((a) => a.user_id),
           due_date: task.due_date ?? "",
           category: task.category ?? "",
         }
@@ -302,13 +325,21 @@ function TaskModal({
           description: "",
           status: defaultStatus,
           priority: "medium",
-          assignee: "",
+          assignee_user_ids: [],
           due_date: "",
           category: "",
         }
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const toggleAssignee = (userId: string) =>
+    setForm((f) => ({
+      ...f,
+      assignee_user_ids: f.assignee_user_ids.includes(userId)
+        ? f.assignee_user_ids.filter((id) => id !== userId)
+        : [...f.assignee_user_ids, userId],
+    }));
 
   const set = <K extends keyof TaskForm>(k: K, v: TaskForm[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -326,7 +357,9 @@ function TaskModal({
         description: form.description || null,
         status: form.status,
         priority: form.priority,
-        assignee: form.assignee || null,
+        assignee_user_ids: form.assignee_user_ids,
+        // Clear legacy free-text assignee when structured assignees are set
+        ...(form.assignee_user_ids.length > 0 ? { assignee: null } : {}),
         due_date: form.due_date || null,
         category: form.category || null,
       };
@@ -477,25 +510,130 @@ function TaskModal({
               </select>
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-            <div>
-              <label style={labelStyle}>Zugewiesen an</label>
-              <input
-                style={inputStyle}
-                value={form.assignee}
-                onChange={(e) => set("assignee", e.target.value)}
-                placeholder="Name…"
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Fällig am</label>
-              <input
-                style={inputStyle}
-                type="date"
-                value={form.due_date}
-                onChange={(e) => set("due_date", e.target.value)}
-              />
-            </div>
+          <div>
+            <label style={labelStyle}>
+              Zugewiesen an{" "}
+              <span style={{ fontWeight: 400, color: "hsl(var(--muted-foreground))" }}>
+                (mehrfach wählbar)
+              </span>
+            </label>
+            {users.length === 0 ? (
+              <div
+                style={{
+                  ...inputStyle,
+                  color: "hsl(var(--muted-foreground))",
+                  fontSize: "0.78rem",
+                }}
+              >
+                Keine Nutzer verfügbar.
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+                  gap: "0.4rem",
+                  maxHeight: 180,
+                  overflowY: "auto",
+                  padding: "0.55rem",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: 8,
+                  background: "hsl(var(--card) / 0.6)",
+                }}
+              >
+                {users.map((u) => {
+                  const checked = form.assignee_user_ids.includes(u.id);
+                  return (
+                    <label
+                      key={u.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.45rem",
+                        padding: "0.3rem 0.45rem",
+                        borderRadius: 6,
+                        background: checked
+                          ? "hsl(var(--primary) / 0.1)"
+                          : "transparent",
+                        border: checked
+                          ? "1px solid hsl(var(--primary) / 0.3)"
+                          : "1px solid transparent",
+                        cursor: "pointer",
+                        fontSize: "0.8rem",
+                        color: "hsl(var(--foreground))",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleAssignee(u.id)}
+                        style={{ accentColor: "hsl(var(--primary))" }}
+                      />
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {u.displayName}
+                      </span>
+                    </label>
+                  );
+                })}
+                {/* Stale-Assignees: bereits zugewiesene User, die nicht mehr in der Liste stehen */}
+                {task?.assignees
+                  .filter((a) => !users.some((u) => u.id === a.user_id))
+                  .map((a) => {
+                    const checked = form.assignee_user_ids.includes(a.user_id);
+                    return (
+                      <label
+                        key={a.user_id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.45rem",
+                          padding: "0.3rem 0.45rem",
+                          borderRadius: 6,
+                          background: checked
+                            ? "hsl(var(--primary) / 0.1)"
+                            : "transparent",
+                          border: "1px dashed hsl(var(--border))",
+                          cursor: "pointer",
+                          fontSize: "0.8rem",
+                          color: "hsl(var(--muted-foreground))",
+                        }}
+                        title="Nutzer ist nicht mehr im Verzeichnis"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleAssignee(a.user_id)}
+                          style={{ accentColor: "hsl(var(--primary))" }}
+                        />
+                        <span
+                          style={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {a.display_name}
+                        </span>
+                      </label>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+          <div>
+            <label style={labelStyle}>Fällig am</label>
+            <input
+              style={inputStyle}
+              type="date"
+              value={form.due_date}
+              onChange={(e) => set("due_date", e.target.value)}
+            />
           </div>
           <div>
             <label style={labelStyle}>Kategorie</label>
@@ -683,6 +821,7 @@ function KanbanColumn({
 
 export default function TaskBoardClientPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{
     open: boolean;
@@ -702,9 +841,20 @@ export default function TaskBoardClientPage() {
     }
   }, []);
 
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/users/list");
+      const json = await res.json();
+      if (json.ok) setUsers(json.data);
+    } catch {
+      /* silent — dropdown just stays empty */
+    }
+  }, []);
+
   useEffect(() => {
     fetchTasks();
-  }, [fetchTasks]);
+    fetchUsers();
+  }, [fetchTasks, fetchUsers]);
 
   const openAdd = (status: Task["status"]) =>
     setModal({ open: true, task: null, defaultStatus: status });
@@ -931,6 +1081,7 @@ export default function TaskBoardClientPage() {
         <TaskModal
           task={modal.task}
           defaultStatus={modal.defaultStatus}
+          users={users}
           onClose={closeModal}
           onSaved={handleSaved}
         />

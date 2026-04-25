@@ -13,7 +13,10 @@ import {
   useUser,
 } from "@clerk/nextjs";
 import { useEffect, useRef, useState } from "react";
-import { LogOut, Settings, ChevronDown } from "lucide-react";
+import { LogOut, Settings, ChevronDown, Bell } from "lucide-react";
+import { createRoot, type Root } from "react-dom/client";
+import NotificationBell from "@/components/NotificationBell";
+import NotificationSettings from "@/components/NotificationSettings";
 
 type HeaderProps = {
   clerkEnabled?: boolean;
@@ -90,6 +93,9 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
                 )}
               </SignedOut>
               <SignedIn>
+                <div className="relative z-[560]">
+                  <NotificationBell />
+                </div>
                 <div className="relative z-[560]">
                   <UserMenu />
                 </div>
@@ -230,6 +236,38 @@ function NoAuthBadge() {
   );
 }
 
+function buildCustomPages() {
+  const roots = new WeakMap<Element, Root>();
+
+  function mountReact(el: HTMLDivElement, node: React.ReactNode) {
+    const existing = roots.get(el);
+    if (existing) existing.unmount();
+    const root = createRoot(el);
+    roots.set(el, root);
+    root.render(node);
+  }
+
+  function unmountReact(el?: HTMLDivElement) {
+    if (!el) return;
+    const root = roots.get(el);
+    if (root) {
+      root.unmount();
+      roots.delete(el);
+    }
+  }
+
+  return [
+    {
+      label: "Benachrichtigungen",
+      url: "benachrichtigungen",
+      mountIcon: (el: HTMLDivElement) => mountReact(el, <Bell size={15} aria-hidden />),
+      unmountIcon: unmountReact,
+      mount: (el: HTMLDivElement) => mountReact(el, <NotificationSettings />),
+      unmount: unmountReact,
+    },
+  ];
+}
+
 function UserMenu() {
   const { user } = useUser();
   const { openUserProfile, signOut } = useClerk();
@@ -338,7 +376,7 @@ function UserMenu() {
               icon={<Settings size={14} aria-hidden />}
               onClick={async () => {
                 setIsOpen(false);
-                await openUserProfile();
+                await openUserProfile({ customPages: buildCustomPages() });
               }}
             >
               Profil & Einstellungen
