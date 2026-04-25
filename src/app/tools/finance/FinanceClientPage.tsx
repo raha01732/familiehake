@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FinanceTransaction } from "@/app/api/finance/transactions/route";
 import ThemeToggleButton from "@/components/ThemeToggleButton";
+import { idempotencyHeaders } from "@/lib/idempotency-client";
 
 // ─── Category definitions ────────────────────────────────────────────────────
 
@@ -216,7 +217,7 @@ export default function FinanceClientPage() {
       } else {
         const res = await fetch("/api/finance/transactions", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...idempotencyHeaders() },
           body: JSON.stringify(body),
         });
         const json = await res.json();

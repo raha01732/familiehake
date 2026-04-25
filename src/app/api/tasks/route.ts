@@ -4,6 +4,7 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
 import { logAudit } from "@/lib/audit";
+import { withIdempotency } from "@/lib/idempotency";
 import { formatUserDisplayName } from "@/lib/user-display";
 import { notifyTaskAssigned } from "@/lib/notify";
 
@@ -161,6 +162,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
 
+  return withIdempotency(req, userId, () => insertTask(userId, body));
+}
+
+async function insertTask(
+  userId: string,
+  body: {
+    title: string;
+    description?: string | null;
+    status?: string;
+    priority?: string;
+    assignee?: string | null;
+    assignee_user_ids?: string[] | null;
+    due_date?: string | null;
+    category?: string | null;
+  },
+): Promise<NextResponse> {
   const {
     title,
     description,

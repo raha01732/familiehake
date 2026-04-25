@@ -1,6 +1,10 @@
 // src/lib/nutrition/tavily.ts
 // Tavily Web Search — freier Tier: 1.000 Requests / Monat.
 import { env } from "@/lib/env";
+import { getCachedJson, setCachedJson } from "@/lib/redis";
+import { cacheKey } from "@/lib/cache-key";
+
+const TAVILY_TTL = 60 * 60 * 6; // 6 h — Ernährungsrecherchen altern langsam
 
 export type TavilyResult = {
   title: string;
@@ -27,6 +31,14 @@ export async function search(args: SearchArgs): Promise<TavilySearchResponse> {
   const key = env().TAVILY_API_KEY;
   if (!key) return { answer: null, results: [] };
 
+  const ck = cacheKey("tavily:search", {
+    q: args.query.toLowerCase().trim(),
+    max: args.maxResults ?? 5,
+    inc: args.includeAnswer ?? true,
+  });
+  const cached = await getCachedJson<TavilySearchResponse>(ck);
+  if (cached) return cached;
+
   const res = await fetch("https://api.tavily.com/search", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -52,8 +64,13 @@ export async function search(args: SearchArgs): Promise<TavilySearchResponse> {
         content: String(r?.content ?? ""),
       }))
     : [];
-  return {
+  const response: TavilySearchResponse = {
     answer: typeof json?.answer === "string" ? json.answer : null,
     results,
   };
+
+  if (results.length > 0) {
+    await setCachedJson(ck, response, TAVILY_TTL);
+  }
+  return response;
 }

@@ -17,6 +17,10 @@ import {
   dietLabel,
   allergyLabels,
 } from "@/lib/nutrition/constants";
+import { getCachedJson, setCachedJson } from "@/lib/redis";
+import { cacheKey } from "@/lib/cache-key";
+
+const AI_RECIPE_TTL = 60 * 60; // 1 h — KI-Ergebnisse sind nicht deterministisch, aber Kosten sparen
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -103,8 +107,26 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const aiCacheKey = cacheKey("nutrition:ai-recipes", {
+    ingredients: [...ingredients].map((s) => s.toLowerCase().trim()).sort(),
+    diet: diet ?? null,
+    allergies: [...allergies].sort(),
+  });
+  const cachedAi = await getCachedJson<AiRecipeResponse>(aiCacheKey);
+  if (cachedAi) {
+    return NextResponse.json({
+      ok: true,
+      source: "ai",
+      cached: true,
+      data: cachedAi.recipes.map(toDtoFromAi),
+    });
+  }
+
   try {
     const aiData = await generateAiRecipes({ ingredients, diet, allergies });
+    if (aiData.recipes.length > 0) {
+      await setCachedJson(aiCacheKey, aiData, AI_RECIPE_TTL);
+    }
     return NextResponse.json({
       ok: true,
       source: "ai",

@@ -10,6 +10,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { DbRole } from "@/lib/access-db";
 import { env } from "@/lib/env";
 import { Users } from "lucide-react";
+import {
+  getClerkUserCached,
+  getPrimaryEmail,
+  invalidateClerkUser,
+} from "@/lib/clerk-cache";
 
 export const metadata = { title: "Admin | Benutzer & Rollen" };
 
@@ -150,41 +155,37 @@ async function getUsers(rolesCatalog: DbRole[], limit = 100): Promise<UserSummar
 }
 
 async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserDetail | null> {
-  const client = await clerkClient();
-  try {
-    const u = await client.users.getUser(userId);
-    const assignments = await fetchAssignments([userId], rolesCatalog);
-    const primaryId = u.primaryEmailAddressId ?? undefined;
-    const sb = createAdminClient();
-    const { data: assignmentRows, error: assignmentError } = await sb
-      .from("user_roles")
-      .select("role_id")
-      .eq("user_id", userId)
-      .limit(1);
-    const roleMappingAvailable = assignmentError?.code !== "42P01";
-    const hasDatabaseRole = roleMappingAvailable && (assignmentRows ?? []).length > 0;
+  const u = await getClerkUserCached(userId);
+  if (!u) return null;
+  const assignments = await fetchAssignments([userId], rolesCatalog);
+  const primaryId = u.primaryEmailAddressId ?? undefined;
+  const sb = createAdminClient();
+  const { data: assignmentRows, error: assignmentError } = await sb
+    .from("user_roles")
+    .select("role_id")
+    .eq("user_id", userId)
+    .limit(1);
+  const roleMappingAvailable = assignmentError?.code !== "42P01";
+  const hasDatabaseRole = roleMappingAvailable && (assignmentRows ?? []).length > 0;
 
-    const emails: EmailInfo[] = (u.emailAddresses ?? []).map((e) => ({
-      id: e.id,
-      email: e.emailAddress,
-      isPrimary: e.id === primaryId,
-      verification: e.verification ?? null,
-    }));
+  const emails: EmailInfo[] = u.emailAddresses.map((e) => ({
+    id: e.id,
+    email: e.emailAddress,
+    isPrimary: e.id === primaryId,
+    verification: (e.verification as { status?: string } | null) ?? null,
+  }));
 
-    return {
-      id: u.id,
-      emails,
-      username: u.username ?? "",
-      firstName: u.firstName ?? "",
-      lastName: u.lastName ?? "",
-      roles: assignments[u.id] ?? ensureDefaultRoles(rolesCatalog, undefined),
-      allowAdminManagement: Boolean((u.publicMetadata as any)?.allowAdminManagement),
-      hasDatabaseRole,
-      roleMappingAvailable,
-    };
-  } catch {
-    return null;
-  }
+  return {
+    id: u.id,
+    emails,
+    username: u.username ?? "",
+    firstName: u.firstName ?? "",
+    lastName: u.lastName ?? "",
+    roles: assignments[u.id] ?? ensureDefaultRoles(rolesCatalog, undefined),
+    allowAdminManagement: Boolean((u.publicMetadata as any)?.allowAdminManagement),
+    hasDatabaseRole,
+    roleMappingAvailable,
+  };
 }
 
 async function assertRoleAssignmentAllowed(
@@ -195,11 +196,13 @@ async function assertRoleAssignmentAllowed(
   const { userId: actorId } = await auth();
   if (!actorId) throw new Error("Forbidden: not authenticated");
 
-  const client = await clerkClient();
   const [actorClerk, targetClerk] = await Promise.all([
-    client.users.getUser(actorId),
-    client.users.getUser(targetUserId),
+    getClerkUserCached(actorId),
+    getClerkUserCached(targetUserId),
   ]);
+  if (!actorClerk || !targetClerk) {
+    throw new Error("Forbidden: user lookup failed");
+  }
 
   const primarySuperAdminId = env().PRIMARY_SUPERADMIN_ID;
   const assignments = await fetchAssignments([actorId, targetUserId], rolesCatalog);
@@ -219,7 +222,7 @@ async function assertRoleAssignmentAllowed(
     await logAudit({
       action: "access_denied",
       actorUserId: actorClerk.id,
-      actorEmail: actorClerk.primaryEmailAddress?.emailAddress ?? null,
+      actorEmail: getPrimaryEmail(actorClerk),
       target: targetUserId,
       detail: { reason: "role_change_requires_admin" },
     });
@@ -230,7 +233,7 @@ async function assertRoleAssignmentAllowed(
     await logAudit({
       action: "access_denied",
       actorUserId: actorClerk.id,
-      actorEmail: actorClerk.primaryEmailAddress?.emailAddress ?? null,
+      actorEmail: getPrimaryEmail(actorClerk),
       target: targetUserId,
       detail: {
         reason: "protected_admin",
@@ -246,7 +249,7 @@ async function assertRoleAssignmentAllowed(
       await logAudit({
         action: "access_denied",
         actorUserId: actorClerk.id,
-        actorEmail: actorClerk.primaryEmailAddress?.emailAddress ?? null,
+        actorEmail: getPrimaryEmail(actorClerk),
         target: targetUserId,
         detail: {
           reason: "admin_management_not_delegated",
@@ -341,12 +344,13 @@ async function saveUserAction(formData: FormData): Promise<void> {
         : (targetClerk.publicMetadata as any)?.allowAdminManagement,
     },
   });
+  await invalidateClerkUser(userId);
 
   if (added.length > 0 || removed.length > 0) {
     await logAudit({
       action: "role_change",
       actorUserId: actorClerk.id,
-      actorEmail: actorClerk.primaryEmailAddress?.emailAddress ?? null,
+      actorEmail: getPrimaryEmail(actorClerk),
       target: userId,
       detail: { added, removed },
     });

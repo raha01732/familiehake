@@ -20,6 +20,7 @@ import type { NutritionRecipe } from "@/app/api/nutrition/recipes/route";
 import type { NutritionTipResponse } from "@/app/api/nutrition/tips/route";
 import type { NutritionFavorite } from "@/app/api/nutrition/favorites/route";
 import { DIETS, ALLERGIES } from "@/lib/nutrition/constants";
+import { idempotencyHeaders } from "@/lib/idempotency-client";
 
 type TabKey = "search" | "tips" | "favorites";
 
@@ -246,7 +247,7 @@ function SearchTab({ diet, allergies }: { diet: string; allergies: string[] }) {
     try {
       const res = await fetch("/api/nutrition/favorites", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...idempotencyHeaders() },
         body: JSON.stringify({
           source: r.source,
           external_id: r.externalId,
