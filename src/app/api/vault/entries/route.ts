@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
 import { encryptValue, decryptValue } from "@/lib/finance-crypto";
 import { logAudit } from "@/lib/audit";
+import { withIdempotency } from "@/lib/idempotency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -92,6 +93,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
 
+  return withIdempotency(req, userId, () => insertVaultEntry(userId, body));
+}
+
+async function insertVaultEntry(
+  userId: string,
+  body: {
+    label: string;
+    username?: string | null;
+    password: string;
+    url?: string | null;
+    notes?: string | null;
+    category?: string;
+  },
+): Promise<NextResponse> {
   const { label, username, password, url, notes, category = "sonstiges" } = body;
 
   if (!label || typeof label !== "string" || label.trim().length === 0 || label.length > 200) {

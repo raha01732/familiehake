@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyPasswordScrypt, isShareActive } from "@/lib/share";
 import { logAudit } from "@/lib/audit";
+import {
+  cacheShareByToken,
+  getCachedShareByToken,
+  invalidateShareByToken,
+  type CachedShareRow,
+} from "@/lib/shares/cache";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,23 +26,34 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
   }
 
   const sb = createAdminClient();
-  const { data: share, error } = await sb
-    .from("file_shares")
-    .select(
-      `
-      id, token, file_id, owner_user_id, expires_at, max_downloads, downloads_count, revoked_at,
-      password_algo, password_salt, password_hash,
-      files_meta: file_id ( storage_path, file_name )
-    `
-    )
-    .eq("token", token)
-    .single();
 
-  if (error || !share) {
-    return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
+  let share: CachedShareRow | null = await getCachedShareByToken(token);
+  if (!share) {
+    const { data, error } = await sb
+      .from("file_shares")
+      .select(
+        `
+        id, token, file_id, owner_user_id, expires_at, max_downloads, downloads_count, revoked_at,
+        password_algo, password_salt, password_hash,
+        files_meta: file_id ( storage_path, file_name )
+      `
+      )
+      .eq("token", token)
+      .single();
+
+    if (error || !data) {
+      return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
+    }
+    share = data as CachedShareRow;
+
+    if (!share.revoked_at) {
+      await cacheShareByToken(share);
+    }
   }
 
   if (!isShareActive(share)) {
+    // Falls der Zustand inzwischen geändert wurde, Cache löschen
+    await invalidateShareByToken(token);
     await logAudit({
       action: "file_share_access_denied",
       actorUserId: null,
@@ -87,6 +104,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
     }
   } catch {
     // Zähler-Fehler sind nicht fatal
+  }
+
+  // Cache invalidieren, damit max_downloads-Limit korrekt zählt
+  if (share.max_downloads != null) {
+    await invalidateShareByToken(token);
   }
 
   await logAudit({

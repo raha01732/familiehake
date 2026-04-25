@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
 import { logAudit } from "@/lib/audit";
+import { withIdempotency } from "@/lib/idempotency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -66,6 +67,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
 
+  return withIdempotency(req, userId, () => insertFavorite(userId, body));
+}
+
+async function insertFavorite(
+  userId: string,
+  body: Partial<NutritionFavorite>,
+): Promise<NextResponse> {
   const source = body.source;
   if (source !== "spoonacular" && source !== "ai") {
     return NextResponse.json({ ok: false, error: "invalid source" }, { status: 400 });

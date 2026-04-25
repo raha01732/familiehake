@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
 import { logAudit } from "@/lib/audit";
+import { withIdempotency } from "@/lib/idempotency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -69,6 +70,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
 
+  return withIdempotency(req, userId, () => insertTask(userId, body));
+}
+
+async function insertTask(
+  userId: string,
+  body: {
+    title: string;
+    description?: string | null;
+    status?: string;
+    priority?: string;
+    assignee?: string | null;
+    due_date?: string | null;
+    category?: string | null;
+  },
+): Promise<NextResponse> {
   const { title, description, status = "todo", priority = "medium", assignee, due_date, category } = body;
 
   if (!title || typeof title !== "string" || title.trim().length === 0 || title.length > 300) {

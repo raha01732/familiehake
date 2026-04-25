@@ -1,5 +1,10 @@
 // src/lib/nutrition/spoonacular.ts
 import { env } from "@/lib/env";
+import { getCachedJson, setCachedJson } from "@/lib/redis";
+import { cacheKey } from "@/lib/cache-key";
+
+const SEARCH_TTL = 60 * 60 * 6; // 6 h
+const DETAIL_TTL = 60 * 60 * 24; // 24 h
 
 export type SpoonacularRecipe = {
   id: number;
@@ -37,18 +42,31 @@ export async function searchRecipes(args: SearchArgs): Promise<SpoonacularRecipe
   const key = env().SPOONACULAR_API_KEY;
   if (!key) return [];
 
+  // Sortiere Zutaten für stabilen Cache-Key — "tomato,pasta" == "pasta,tomato"
+  const normalized = {
+    ingredients: [...args.ingredients].map((s) => s.toLowerCase().trim()).sort(),
+    diet: args.diet ?? null,
+    intolerances: args.intolerances
+      ? args.intolerances.split(",").map((s) => s.trim()).sort().join(",")
+      : "",
+    number: args.number ?? 12,
+  };
+  const ck = cacheKey("spoon:search", normalized);
+  const cached = await getCachedJson<SpoonacularRecipe[]>(ck);
+  if (cached) return cached;
+
   const params = new URLSearchParams({
     apiKey: key,
     addRecipeInformation: "true",
     fillIngredients: "true",
-    number: String(args.number ?? 12),
+    number: String(normalized.number),
     sort: "max-used-ingredients",
   });
-  if (args.ingredients.length > 0) {
-    params.set("includeIngredients", args.ingredients.join(","));
+  if (normalized.ingredients.length > 0) {
+    params.set("includeIngredients", normalized.ingredients.join(","));
   }
-  if (args.diet) params.set("diet", args.diet);
-  if (args.intolerances) params.set("intolerances", args.intolerances);
+  if (normalized.diet) params.set("diet", normalized.diet);
+  if (normalized.intolerances) params.set("intolerances", normalized.intolerances);
 
   const res = await fetch(`${BASE}/recipes/complexSearch?${params}`, {
     headers: { accept: "application/json" },
@@ -60,12 +78,21 @@ export async function searchRecipes(args: SearchArgs): Promise<SpoonacularRecipe
   }
   const json = await res.json().catch(() => ({}));
   const results: any[] = Array.isArray(json?.results) ? json.results : [];
-  return results.map(mapRecipe);
+  const mapped = results.map(mapRecipe);
+
+  if (mapped.length > 0) {
+    await setCachedJson(ck, mapped, SEARCH_TTL);
+  }
+  return mapped;
 }
 
 export async function getRecipeById(id: number | string): Promise<SpoonacularRecipe | null> {
   const key = env().SPOONACULAR_API_KEY;
   if (!key) return null;
+
+  const ck = `spoon:recipe:${String(id)}`;
+  const cached = await getCachedJson<SpoonacularRecipe>(ck);
+  if (cached) return cached;
 
   const res = await fetch(
     `${BASE}/recipes/${encodeURIComponent(String(id))}/information?apiKey=${encodeURIComponent(key)}&includeNutrition=false`,
@@ -74,7 +101,9 @@ export async function getRecipeById(id: number | string): Promise<SpoonacularRec
   if (!res.ok) return null;
   const json = await res.json().catch(() => null);
   if (!json) return null;
-  return mapRecipe(json);
+  const mapped = mapRecipe(json);
+  await setCachedJson(ck, mapped, DETAIL_TTL);
+  return mapped;
 }
 
 function mapRecipe(r: any): SpoonacularRecipe {

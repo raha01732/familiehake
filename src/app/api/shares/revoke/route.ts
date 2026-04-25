@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
 import { getSessionInfo } from "@/lib/auth";
 import { applyRateLimit } from "@/lib/ratelimit";
+import { invalidateShareById } from "@/lib/shares/cache";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -37,6 +38,8 @@ export async function POST(req: Request) {
 
   const { error } = await sb.from("file_shares").update({ revoked_at: new Date().toISOString() }).eq("id", shareId);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  await invalidateShareById(shareId);
 
   await logAudit({
     action: "file_share_revoke",

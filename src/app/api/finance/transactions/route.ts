@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
 import { encryptValue, decryptValue } from "@/lib/finance-crypto";
 import { logAudit } from "@/lib/audit";
+import { withIdempotency } from "@/lib/idempotency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -106,6 +107,20 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
+
+  return withIdempotency(req, userId, () => insertTransaction(userId, body));
+}
+
+async function insertTransaction(
+  userId: string,
+  body: {
+    type: string;
+    amount: number;
+    description?: string | null;
+    category: string;
+    transaction_date: string;
+  },
+): Promise<NextResponse> {
 
   const { type, amount, description, category, transaction_date } = body;
 
