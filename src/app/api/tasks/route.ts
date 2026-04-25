@@ -173,11 +173,11 @@ async function insertTask(
     status?: string;
     priority?: string;
     assignee?: string | null;
+    assignee_user_ids?: string[] | null;
     due_date?: string | null;
     category?: string | null;
   },
 ): Promise<NextResponse> {
-  const { title, description, status = "todo", priority = "medium", assignee, due_date, category } = body;
   const {
     title,
     description,
