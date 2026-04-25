@@ -746,16 +746,79 @@ export async function saveWeekdayRequirementAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
+function slugifyTrackKey(value: string) {
+  const base = value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 30);
+  return base || "schiene";
+}
+
 export async function saveShiftTrackAction(formData: FormData) {
   await assertAuthenticatedForDienstplanWrite();
 
   const trackKey = String(formData.get("track_key") || "").trim();
-  const startTime = String(formData.get("start_time") || "").trim();
-  const endTime = String(formData.get("end_time") || "").trim();
+  const label = String(formData.get("label") || "").trim();
+  const startTime = normalizeTimeInput(String(formData.get("start_time") || ""));
+  const endTime = normalizeTimeInput(String(formData.get("end_time") || ""));
   if (!trackKey || !startTime || !endTime) return;
 
+  const updates: Record<string, unknown> = { start_time: startTime, end_time: endTime };
+  if (label) updates.label = label;
+
   const sb = createAdminClient();
-  await sb.from("dienstplan_shift_tracks").update({ start_time: startTime, end_time: endTime }).eq("track_key", trackKey);
+  await sb.from("dienstplan_shift_tracks").update(updates).eq("track_key", trackKey);
+
+  revalidatePath(PLAN_PATH);
+  revalidatePath(SETTINGS_PATH);
+}
+
+export async function createShiftTrackAction(formData: FormData) {
+  await assertAdminForDienstplanAutomation();
+
+  const label = String(formData.get("label") || "").trim();
+  const startTime = normalizeTimeInput(String(formData.get("start_time") || ""));
+  const endTime = normalizeTimeInput(String(formData.get("end_time") || ""));
+  if (!label || !startTime || !endTime) return;
+
+  const sb = createAdminClient();
+  const baseSlug = slugifyTrackKey(label);
+  let candidateKey = baseSlug;
+  let suffix = 1;
+  while (true) {
+    const { data: existing } = await sb
+      .from("dienstplan_shift_tracks")
+      .select("track_key")
+      .eq("track_key", candidateKey)
+      .maybeSingle();
+    if (!existing) break;
+    suffix += 1;
+    candidateKey = `${baseSlug}-${suffix}`;
+    if (suffix > 50) return;
+  }
+
+  await sb.from("dienstplan_shift_tracks").insert({
+    track_key: candidateKey,
+    label,
+    start_time: startTime,
+    end_time: endTime,
+  });
+
+  revalidatePath(PLAN_PATH);
+  revalidatePath(SETTINGS_PATH);
+}
+
+export async function deleteShiftTrackAction(formData: FormData) {
+  await assertAdminForDienstplanAutomation();
+
+  const trackKey = String(formData.get("track_key") || "").trim();
+  if (!trackKey) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_shift_tracks").delete().eq("track_key", trackKey);
 
   revalidatePath(PLAN_PATH);
   revalidatePath(SETTINGS_PATH);
@@ -812,6 +875,71 @@ export async function deleteWeekdayPositionRequirementAction(formData: FormData)
 
   const sb = createAdminClient();
   await sb.from("dienstplan_weekday_position_requirements").delete().eq("id", id);
+
+  revalidatePath(PLAN_PATH);
+  revalidatePath(SETTINGS_PATH);
+}
+
+export async function savePositionMatrixRowAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const trackKey = String(formData.get("track_key") || "").trim();
+  const position = String(formData.get("position") || "").trim();
+  const originalPositionRaw = formData.get("original_position");
+  const originalPosition =
+    typeof originalPositionRaw === "string" && originalPositionRaw.trim() ? originalPositionRaw.trim() : position;
+  const note = String(formData.get("note") || "").trim();
+  if (!trackKey || !position) return;
+
+  const counts: Record<number, number> = {};
+  for (let weekday = 0; weekday <= 6; weekday += 1) {
+    const raw = formData.get(`count_${weekday}`);
+    const value = raw === null ? 0 : Number(raw);
+    counts[weekday] = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+  }
+
+  const sb = createAdminClient();
+  await sb
+    .from("dienstplan_weekday_position_requirements")
+    .delete()
+    .eq("track_key", trackKey)
+    .eq("position", originalPosition);
+  if (originalPosition !== position) {
+    await sb
+      .from("dienstplan_weekday_position_requirements")
+      .delete()
+      .eq("track_key", trackKey)
+      .eq("position", position);
+  }
+
+  const inserts: { weekday: number; track_key: string; position: string; note: string | null }[] = [];
+  for (let weekday = 0; weekday <= 6; weekday += 1) {
+    const count = counts[weekday] ?? 0;
+    for (let index = 0; index < count; index += 1) {
+      inserts.push({ weekday, track_key: trackKey, position, note: note || null });
+    }
+  }
+  if (inserts.length > 0) {
+    await sb.from("dienstplan_weekday_position_requirements").insert(inserts);
+  }
+
+  revalidatePath(PLAN_PATH);
+  revalidatePath(SETTINGS_PATH);
+}
+
+export async function deletePositionMatrixRowAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const trackKey = String(formData.get("track_key") || "").trim();
+  const position = String(formData.get("position") || "").trim();
+  if (!trackKey || !position) return;
+
+  const sb = createAdminClient();
+  await sb
+    .from("dienstplan_weekday_position_requirements")
+    .delete()
+    .eq("track_key", trackKey)
+    .eq("position", position);
 
   revalidatePath(PLAN_PATH);
   revalidatePath(SETTINGS_PATH);

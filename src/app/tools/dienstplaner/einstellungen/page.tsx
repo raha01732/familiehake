@@ -14,18 +14,7 @@ export default async function EinstellungenPage() {
   const isAdmin = role === "admin" || user?.id === env().PRIMARY_SUPERADMIN_ID;
 
   const sb = createAdminClient();
-  const [
-    empResult,
-    pauseResult,
-    weekdayResult,
-    trackResult,
-    weekdayPosResult,
-  ] = await Promise.all([
-    sb
-      .from("dienstplan_employees")
-      .select("id, name, position, monthly_hours, weekly_hours, user_id")
-      .order("sort_order")
-      .order("id"),
+  const [pauseResult, weekdayResult, trackResult, weekdayPosResult] = await Promise.all([
     sb.from("dienstplan_pause_rules").select("id, min_minutes, pause_minutes").order("min_minutes"),
     sb.from("dienstplan_weekday_requirements").select("weekday, required_shifts").order("weekday"),
     sb.from("dienstplan_shift_tracks").select("track_key, label, start_time, end_time").order("start_time"),
@@ -61,7 +50,6 @@ export default async function EinstellungenPage() {
         </div>
       </div>
       <SettingsPanel
-        employees={empResult.data ?? []}
         pauseRules={pauseResult.data ?? []}
         weekdayRequirements={weekdayResult.data ?? []}
         shiftTracks={trackResult.data ?? []}

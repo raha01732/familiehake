@@ -1,26 +1,15 @@
 // /workspace/familiehake/src/app/tools/dienstplaner/SettingsPanel.tsx
 import {
-  createEmployeeAction,
   createPauseRuleAction,
-  createWeekdayPositionRequirementAction,
-  deleteEmployeeAction,
+  createShiftTrackAction,
   deletePauseRuleAction,
-  deleteWeekdayPositionRequirementAction,
+  deletePositionMatrixRowAction,
+  deleteShiftTrackAction,
+  savePositionMatrixRowAction,
   saveShiftTrackAction,
   saveWeekdayRequirementAction,
-  updateEmployeeAction,
   updatePauseRuleAction,
-  updateWeekdayPositionRequirementAction,
 } from "./actions";
-
-type DienstplanEmployee = {
-  id: number;
-  name: string;
-  position: string | null;
-  monthly_hours: number;
-  weekly_hours: number;
-  user_id: string | null;
-};
 
 type PauseRule = {
   id: number;
@@ -48,18 +37,17 @@ type WeekdayPositionRequirement = {
   note: string | null;
 };
 
-const WEEKDAYS = [
-  { id: 1, label: "Montag" },
-  { id: 2, label: "Dienstag" },
-  { id: 3, label: "Mittwoch" },
-  { id: 4, label: "Donnerstag" },
-  { id: 5, label: "Freitag" },
-  { id: 6, label: "Samstag" },
-  { id: 0, label: "Sonntag" },
+const WEEKDAYS_MON_FIRST = [
+  { id: 1, label: "Montag", short: "Mo" },
+  { id: 2, label: "Dienstag", short: "Di" },
+  { id: 3, label: "Mittwoch", short: "Mi" },
+  { id: 4, label: "Donnerstag", short: "Do" },
+  { id: 5, label: "Freitag", short: "Fr" },
+  { id: 6, label: "Samstag", short: "Sa" },
+  { id: 0, label: "Sonntag", short: "So" },
 ];
 
 type SettingsPanelProps = {
-  employees: DienstplanEmployee[];
   pauseRules: PauseRule[];
   weekdayRequirements: WeekdayRequirement[];
   shiftTracks: ShiftTrack[];
@@ -67,8 +55,45 @@ type SettingsPanelProps = {
   isAdmin: boolean;
 };
 
+type MatrixRow = {
+  trackKey: string;
+  position: string;
+  note: string | null;
+  counts: number[]; // 7 entries, indexed by weekday id (0=Sun, 1=Mon, ...)
+};
+
+function buildPositionMatrix(
+  shiftTracks: ShiftTrack[],
+  requirements: WeekdayPositionRequirement[]
+): Map<string, MatrixRow[]> {
+  const grouped = new Map<string, Map<string, MatrixRow>>();
+  for (const track of shiftTracks) {
+    grouped.set(track.track_key, new Map());
+  }
+  for (const requirement of requirements) {
+    const trackBucket = grouped.get(requirement.track_key);
+    if (!trackBucket) continue;
+    const existing = trackBucket.get(requirement.position) ?? {
+      trackKey: requirement.track_key,
+      position: requirement.position,
+      note: null,
+      counts: [0, 0, 0, 0, 0, 0, 0],
+    };
+    existing.counts[requirement.weekday] = (existing.counts[requirement.weekday] ?? 0) + 1;
+    if (!existing.note && requirement.note) existing.note = requirement.note;
+    trackBucket.set(requirement.position, existing);
+  }
+  const result = new Map<string, MatrixRow[]>();
+  for (const [trackKey, bucket] of grouped) {
+    result.set(
+      trackKey,
+      Array.from(bucket.values()).sort((a, b) => a.position.localeCompare(b.position, "de"))
+    );
+  }
+  return result;
+}
+
 export default function SettingsPanel({
-  employees,
   pauseRules,
   weekdayRequirements,
   shiftTracks,
@@ -80,9 +105,12 @@ export default function SettingsPanel({
     weekdayMap.set(rule.weekday, rule.required_shifts);
   }
 
+  const positionMatrix = buildPositionMatrix(shiftTracks, weekdayPositionRequirements);
+
   const isReadOnly = !isAdmin;
-  const fieldClassName =
-    "w-full rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-3 py-2 text-sm text-zinc-100 shadow-inner shadow-black/20 focus:border-cyan-500/70 focus:outline-none";
+  const inputBase =
+    "rounded-lg border border-zinc-700/80 bg-zinc-900/80 text-sm text-zinc-100 shadow-inner shadow-black/20 focus:border-cyan-500/70 focus:outline-none disabled:opacity-60";
+  const numberInputCls = `${inputBase} w-12 text-center px-1 py-1`;
 
   return (
     <div className="relative">
@@ -90,186 +118,283 @@ export default function SettingsPanel({
         <header className="flex flex-col gap-2">
           <h2 className="text-xl font-semibold text-zinc-100">Einstellungen</h2>
           <p className="text-xs text-zinc-500">
-            Regeln und Stammdaten werden direkt hier gepflegt.
+            Schienen, Wochentag-Bedarf und Pausenregeln werden direkt hier gepflegt.
             {isReadOnly ? " (Nur Admins können speichern.)" : ""}
           </p>
         </header>
 
         <div className="card p-5 flex flex-col gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-zinc-100">Mitarbeitende</h3>
+            <h3 className="text-lg font-semibold text-zinc-100">Schienen</h3>
             <p className="text-xs text-zinc-500">
-              Benutzerverknüpfungen sind vorbereitet, aber noch deaktiviert. In späteren Versionen kannst du hier Tool-Nutzer auswählen.
+              Lege feste Schichtzeiten an (z.&nbsp;B. „Frühdienst 08:00–16:00“). Schienen bilden die Grundlage für den
+              Positionsbedarf und die automatische Planung.
             </p>
           </div>
-          <table className="w-full text-sm text-zinc-300">
-            <thead className="text-xs uppercase text-zinc-500">
-              <tr>
-                <th className="text-left py-2">Name</th>
-                <th className="text-left py-2">Position</th>
-                <th className="text-right py-2">Soll Std./Monat</th>
-                <th className="text-right py-2">Soll Std./Woche (Do-Mi)</th>
-                <th className="text-left py-2">Tool-Benutzer</th>
-                <th className="py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {employees.map((employee) => (
-                <tr key={employee.id} className="border-t border-zinc-800">
-                  <td className="py-2 pr-2">
-                    <form action={updateEmployeeAction} className="flex items-center gap-2">
-                      <input type="hidden" name="id" value={employee.id} />
-                      <input
-                        name="name"
-                        defaultValue={employee.name}
-                        className={fieldClassName}
-                        required
-                        disabled={isReadOnly}
-                      />
-                      <button
-                        type="submit"
-                        className="text-xs text-emerald-500 hover:text-emerald-400"
-                        disabled={isReadOnly}
-                      >
-                        Speichern
-                      </button>
-                    </form>
-                  </td>
-                  <td className="py-2 pr-2">
-                    <form action={updateEmployeeAction} className="flex items-center gap-2">
-                      <input type="hidden" name="id" value={employee.id} />
-                      <input
-                        name="position"
-                        defaultValue={employee.position ?? ""}
-                        className={fieldClassName}
-                        disabled={isReadOnly}
-                      />
-                      <button
-                        type="submit"
-                        className="text-xs text-emerald-500 hover:text-emerald-400"
-                        disabled={isReadOnly}
-                      >
-                        Speichern
-                      </button>
-                    </form>
-                  </td>
-                  <td className="py-2 pr-2 text-right">
-                    <form action={updateEmployeeAction} className="flex items-center justify-end gap-2">
-                      <input type="hidden" name="id" value={employee.id} />
-                      <input
-                        name="monthly_hours"
-                        type="number"
-                        step="0.1"
-                        defaultValue={employee.monthly_hours}
-                        className="w-24 rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-3 py-2 text-right text-sm text-zinc-100"
-                        required
-                        disabled={isReadOnly}
-                      />
-                      <button
-                        type="submit"
-                        className="text-xs text-emerald-500 hover:text-emerald-400"
-                        disabled={isReadOnly}
-                      >
-                        Speichern
-                      </button>
-                    </form>
-                  </td>
-                  <td className="py-2 pr-2 text-right">
-                    <form action={updateEmployeeAction} className="flex items-center justify-end gap-2">
-                      <input type="hidden" name="id" value={employee.id} />
-                      <input
-                        name="weekly_hours"
-                        type="number"
-                        step="0.1"
-                        defaultValue={employee.weekly_hours ?? 0}
-                        className="w-24 rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-3 py-2 text-right text-sm text-zinc-100"
-                        required
-                        disabled={isReadOnly}
-                      />
-                      <button
-                        type="submit"
-                        className="text-xs text-emerald-500 hover:text-emerald-400"
-                        disabled={isReadOnly}
-                      >
-                        Speichern
-                      </button>
-                    </form>
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      disabled
-                      value={employee.user_id ?? "(noch nicht verknüpft)"}
-                      className="w-full rounded-xl border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-xs text-zinc-500"
-                    />
-                  </td>
-                  <td className="py-2 text-right">
-                    <form action={deleteEmployeeAction}>
-                      <input type="hidden" name="id" value={employee.id} />
-                      <button
-                        type="submit"
-                        className="text-xs text-amber-500 hover:text-amber-400"
-                        disabled={isReadOnly}
-                      >
-                        Löschen
-                      </button>
-                    </form>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
 
-          <form action={createEmployeeAction} className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col gap-2">
+            {shiftTracks.length === 0 && (
+              <div className="text-xs text-amber-500">
+                Noch keine Schienen angelegt. Lege unten deine erste Schicht an.
+              </div>
+            )}
+            {shiftTracks.map((track) => (
+              <form
+                key={track.track_key}
+                action={saveShiftTrackAction}
+                className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2"
+              >
+                <input type="hidden" name="track_key" value={track.track_key} />
+                <input
+                  name="label"
+                  defaultValue={track.label}
+                  className={`${inputBase} px-3 py-1.5`}
+                  placeholder="Bezeichnung"
+                  required
+                  disabled={isReadOnly}
+                />
+                <input
+                  name="start_time"
+                  type="time"
+                  defaultValue={track.start_time.slice(0, 5)}
+                  className={`${inputBase} px-2 py-1.5 w-28`}
+                  required
+                  disabled={isReadOnly}
+                />
+                <input
+                  name="end_time"
+                  type="time"
+                  defaultValue={track.end_time.slice(0, 5)}
+                  className={`${inputBase} px-2 py-1.5 w-28`}
+                  required
+                  disabled={isReadOnly}
+                />
+                <button
+                  type="submit"
+                  className="text-xs text-emerald-500 hover:text-emerald-400 px-2"
+                  disabled={isReadOnly}
+                >
+                  Speichern
+                </button>
+                <button
+                  type="submit"
+                  formAction={deleteShiftTrackAction}
+                  className="text-xs text-amber-500 hover:text-amber-400 px-2"
+                  disabled={isReadOnly}
+                  title="Schiene löschen (entfernt auch zugehörigen Positionsbedarf)"
+                >
+                  Löschen
+                </button>
+              </form>
+            ))}
+          </div>
+
+          <form
+            action={createShiftTrackAction}
+            className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3"
+          >
             <input
-              name="name"
-              placeholder="Name"
-              className={fieldClassName}
+              name="label"
+              placeholder="Neue Schiene (z.B. Frühdienst)"
+              className={`${inputBase} px-3 py-1.5 flex-1 min-w-[180px]`}
               required
               disabled={isReadOnly}
             />
             <input
-              name="position"
-              placeholder="Position"
-              className={fieldClassName}
-              disabled={isReadOnly}
-            />
-            <input
-              name="monthly_hours"
-              type="number"
-              step="0.1"
-              placeholder="Std/Monat"
-              className="w-36 rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-3 py-2 text-sm text-zinc-100"
+              name="start_time"
+              type="time"
+              className={`${inputBase} px-2 py-1.5 w-28`}
               required
               disabled={isReadOnly}
             />
             <input
-              name="weekly_hours"
-              type="number"
-              step="0.1"
-              placeholder="Std/Woche Do-Mi"
-              className="w-44 rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-3 py-2 text-sm text-zinc-100"
+              name="end_time"
+              type="time"
+              className={`${inputBase} px-2 py-1.5 w-28`}
               required
               disabled={isReadOnly}
             />
             <button
               type="submit"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-1 px-3 rounded"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-1.5 px-3 rounded-lg disabled:opacity-50"
               disabled={isReadOnly}
             >
-              + Mitarbeiter
+              + Schiene
             </button>
           </form>
         </div>
 
         <div className="card p-5 flex flex-col gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-zinc-100">Schichtbedarf pro Wochentag</h3>
+            <h3 className="text-lg font-semibold text-zinc-100">Positionsbedarf pro Schiene</h3>
             <p className="text-xs text-zinc-500">
-              Lege fest, wie viele Schichten standardmäßig pro Wochentag benötigt werden.
+              Trage pro Position direkt die benötigte Anzahl je Wochentag ein. Eine Zeile = eine Position auf einer
+              Schiene.
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-zinc-300">
-            {WEEKDAYS.map((weekday) => (
+
+          {shiftTracks.length === 0 ? (
+            <div className="text-xs text-amber-500">
+              Lege zuerst Schienen an, bevor du den Positionsbedarf pflegst.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-6">
+              {shiftTracks.map((track) => {
+                const rows = positionMatrix.get(track.track_key) ?? [];
+                return (
+                  <div
+                    key={track.track_key}
+                    className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-3 flex flex-col gap-3"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <div>
+                        <span className="text-sm font-semibold text-zinc-100">{track.label}</span>
+                        <span className="ml-2 text-[11px] text-zinc-500">
+                          {track.start_time.slice(0, 5)}–{track.end_time.slice(0, 5)}
+                        </span>
+                      </div>
+                      <span className="text-[10px] uppercase tracking-wide text-zinc-600">
+                        {rows.length} Position{rows.length === 1 ? "" : "en"}
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-zinc-300">
+                        <thead className="text-[10px] uppercase tracking-wide text-zinc-500">
+                          <tr>
+                            <th className="text-left py-1 pr-2 w-44">Position</th>
+                            {WEEKDAYS_MON_FIRST.map((weekday) => (
+                              <th key={weekday.id} className="text-center py-1 px-1 w-12">
+                                {weekday.short}
+                              </th>
+                            ))}
+                            <th className="text-left py-1 px-2 w-48">Bemerkung</th>
+                            <th className="py-1 w-28" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((row) => (
+                            <tr key={row.position} className="border-t border-zinc-800/60">
+                              <td className="py-1 pr-2" colSpan={10}>
+                                <form
+                                  action={savePositionMatrixRowAction}
+                                  className="grid grid-cols-[11rem_repeat(7,minmax(2.5rem,1fr))_12rem_auto_auto] items-center gap-2"
+                                >
+                                  <input type="hidden" name="track_key" value={track.track_key} />
+                                  <input type="hidden" name="original_position" value={row.position} />
+                                  <input
+                                    name="position"
+                                    defaultValue={row.position}
+                                    className={`${inputBase} px-2 py-1`}
+                                    required
+                                    disabled={isReadOnly}
+                                  />
+                                  {WEEKDAYS_MON_FIRST.map((weekday) => (
+                                    <input
+                                      key={weekday.id}
+                                      type="number"
+                                      min={0}
+                                      step={1}
+                                      name={`count_${weekday.id}`}
+                                      defaultValue={row.counts[weekday.id] ?? 0}
+                                      className={numberInputCls}
+                                      disabled={isReadOnly}
+                                      aria-label={`${row.position} ${weekday.label}`}
+                                    />
+                                  ))}
+                                  <input
+                                    name="note"
+                                    defaultValue={row.note ?? ""}
+                                    placeholder="Bemerkung"
+                                    className={`${inputBase} px-2 py-1`}
+                                    disabled={isReadOnly}
+                                  />
+                                  <button
+                                    type="submit"
+                                    className="text-xs text-emerald-500 hover:text-emerald-400 px-2"
+                                    disabled={isReadOnly}
+                                  >
+                                    Speichern
+                                  </button>
+                                  <button
+                                    type="submit"
+                                    formAction={deletePositionMatrixRowAction}
+                                    className="text-xs text-amber-500 hover:text-amber-400 px-2"
+                                    disabled={isReadOnly}
+                                    title="Diese Position-Zeile löschen"
+                                  >
+                                    Löschen
+                                  </button>
+                                </form>
+                              </td>
+                            </tr>
+                          ))}
+                          {rows.length === 0 && (
+                            <tr className="border-t border-zinc-800/60">
+                              <td colSpan={10} className="py-2 text-[11px] text-zinc-500">
+                                Noch keine Position für diese Schiene.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <form
+                      action={savePositionMatrixRowAction}
+                      className="grid grid-cols-[11rem_repeat(7,minmax(2.5rem,1fr))_12rem_auto] items-center gap-2 border-t border-zinc-800/60 pt-2"
+                    >
+                      <input type="hidden" name="track_key" value={track.track_key} />
+                      <input
+                        name="position"
+                        placeholder="Neue Position"
+                        className={`${inputBase} px-2 py-1`}
+                        required
+                        disabled={isReadOnly}
+                      />
+                      {WEEKDAYS_MON_FIRST.map((weekday) => (
+                        <input
+                          key={weekday.id}
+                          type="number"
+                          min={0}
+                          step={1}
+                          name={`count_${weekday.id}`}
+                          defaultValue={0}
+                          className={numberInputCls}
+                          disabled={isReadOnly}
+                          aria-label={`Neue Position ${weekday.label}`}
+                        />
+                      ))}
+                      <input
+                        name="note"
+                        placeholder="Bemerkung (optional)"
+                        className={`${inputBase} px-2 py-1`}
+                        disabled={isReadOnly}
+                      />
+                      <button
+                        type="submit"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium py-1 px-3 rounded-lg disabled:opacity-50"
+                        disabled={isReadOnly}
+                      >
+                        + Position
+                      </button>
+                    </form>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="card p-5 flex flex-col gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-zinc-100">Schichtbedarf pro Wochentag</h3>
+            <p className="text-xs text-zinc-500">
+              Optionaler Fallback: Anzahl der Schichten pro Wochentag, wenn kein Positionsbedarf hinterlegt ist.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-zinc-300">
+            {WEEKDAYS_MON_FIRST.map((weekday) => (
               <form key={weekday.id} action={saveWeekdayRequirementAction} className="flex items-center gap-3">
                 <input type="hidden" name="weekday" value={weekday.id} />
                 <span className="w-28 text-zinc-200">{weekday.label}</span>
@@ -278,7 +403,7 @@ export default function SettingsPanel({
                   type="number"
                   min="0"
                   defaultValue={weekdayMap.get(weekday.id) ?? 0}
-                  className="w-20 bg-zinc-900 border border-zinc-700 text-sm text-zinc-100 px-2 py-1"
+                  className={`${inputBase} w-20 px-2 py-1`}
                   disabled={isReadOnly}
                 />
                 <button
@@ -291,206 +416,6 @@ export default function SettingsPanel({
               </form>
             ))}
           </div>
-        </div>
-
-        <div className="card p-5 flex flex-col gap-4">
-          <div>
-            <h3 className="text-lg font-semibold text-zinc-100">Schienenzeiten</h3>
-            <p className="text-xs text-zinc-500">
-              Passe die Standardzeiten der Schienen an. Diese Zeiten werden für den Grundbedarf verwendet.
-            </p>
-          </div>
-          <table className="w-full text-sm text-zinc-300">
-            <thead className="text-xs uppercase text-zinc-500">
-              <tr>
-                <th className="text-left py-2">Schiene</th>
-                <th className="text-left py-2">Start</th>
-                <th className="text-left py-2">Ende</th>
-                <th className="py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {shiftTracks.map((track) => (
-                <tr key={track.track_key} className="border-t border-zinc-800">
-                  <td className="py-2 pr-2 text-zinc-200">{track.label}</td>
-                  <td className="py-2 pr-2" colSpan={2}>
-                    <form action={saveShiftTrackAction} className="flex flex-wrap items-center gap-2">
-                      <input type="hidden" name="track_key" value={track.track_key} />
-                      <input
-                        name="start_time"
-                        type="time"
-                        defaultValue={track.start_time.slice(0, 5)}
-                        className="bg-transparent text-zinc-100 w-28"
-                        required
-                        disabled={isReadOnly}
-                      />
-                      <input
-                        name="end_time"
-                        type="time"
-                        defaultValue={track.end_time.slice(0, 5)}
-                        className="bg-transparent text-zinc-100 w-28"
-                        required
-                        disabled={isReadOnly}
-                      />
-                      <button
-                        type="submit"
-                        className="text-xs text-emerald-500 hover:text-emerald-400"
-                        disabled={isReadOnly}
-                      >
-                        Speichern
-                      </button>
-                    </form>
-                  </td>
-                  <td className="py-2" />
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="card p-5 flex flex-col gap-4">
-          <div>
-            <h3 className="text-lg font-semibold text-zinc-100">Positionsbedarf pro Wochentag</h3>
-            <p className="text-xs text-zinc-500">
-              Hinterlege Grundregeln, welche Positionen pro Wochentag auf den Schienen benötigt werden.
-            </p>
-          </div>
-          <table className="w-full text-sm text-zinc-300">
-            <thead className="text-xs uppercase text-zinc-500">
-              <tr>
-                <th className="text-left py-2">Wochentag</th>
-                <th className="text-left py-2">Schiene</th>
-                <th className="text-left py-2">Position</th>
-                <th className="text-left py-2">Bemerkung</th>
-                <th className="py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {weekdayPositionRequirements.map((requirement) => (
-                <tr key={requirement.id} className="border-t border-zinc-800">
-                  <td className="py-2 pr-2" colSpan={4}>
-                    <form action={updateWeekdayPositionRequirementAction} className="flex flex-wrap items-center gap-2">
-                      <input type="hidden" name="id" value={requirement.id} />
-                      <select
-                        name="weekday"
-                        defaultValue={requirement.weekday}
-                        className="bg-transparent text-zinc-100"
-                        disabled={isReadOnly}
-                      >
-                        {WEEKDAYS.map((weekday) => (
-                          <option key={weekday.id} value={weekday.id}>
-                            {weekday.label}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        name="track_key"
-                        defaultValue={requirement.track_key}
-                        className="bg-transparent text-zinc-100"
-                        disabled={isReadOnly}
-                      >
-                        {shiftTracks.map((track) => (
-                          <option key={track.track_key} value={track.track_key}>
-                            {track.label}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        name="position"
-                        defaultValue={requirement.position}
-                        className="bg-transparent text-zinc-100 w-40"
-                        required
-                        disabled={isReadOnly}
-                      />
-                      <input
-                        name="note"
-                        defaultValue={requirement.note ?? ""}
-                        placeholder="Bemerkung"
-                        className="bg-transparent text-zinc-100 w-48"
-                        disabled={isReadOnly}
-                      />
-                      <button
-                        type="submit"
-                        className="text-xs text-emerald-500 hover:text-emerald-400"
-                        disabled={isReadOnly}
-                      >
-                        Speichern
-                      </button>
-                    </form>
-                  </td>
-                  <td className="py-2 text-right">
-                    <form action={deleteWeekdayPositionRequirementAction}>
-                      <input type="hidden" name="id" value={requirement.id} />
-                      <button
-                        type="submit"
-                        className="text-xs text-amber-500 hover:text-amber-400"
-                        disabled={isReadOnly}
-                      >
-                        Löschen
-                      </button>
-                    </form>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <form action={createWeekdayPositionRequirementAction} className="flex flex-wrap items-center gap-3">
-            <select
-              name="weekday"
-              className="bg-zinc-900 border border-zinc-700 text-sm text-zinc-100 px-2 py-1"
-              defaultValue={WEEKDAYS[0]?.id}
-              disabled={isReadOnly}
-            >
-              {WEEKDAYS.map((weekday) => (
-                <option key={weekday.id} value={weekday.id}>
-                  {weekday.label}
-                </option>
-              ))}
-            </select>
-            <select
-              name="track_key"
-              className="bg-zinc-900 border border-zinc-700 text-sm text-zinc-100 px-2 py-1"
-              defaultValue={shiftTracks[0]?.track_key}
-              disabled={isReadOnly}
-            >
-              {shiftTracks.map((track) => (
-                <option key={track.track_key} value={track.track_key}>
-                  {track.label}
-                </option>
-              ))}
-            </select>
-            <input
-              name="position"
-              placeholder="Position"
-              className="flex-1 bg-zinc-900 border border-zinc-700 text-sm text-zinc-100 px-2 py-1"
-              required
-              disabled={isReadOnly}
-            />
-            <input
-              name="note"
-              placeholder="Bemerkung"
-              className="flex-1 bg-zinc-900 border border-zinc-700 text-sm text-zinc-100 px-2 py-1"
-              disabled={isReadOnly}
-            />
-            <button
-              type="submit"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-1 px-3 rounded"
-              disabled={isReadOnly}
-            >
-              + Grundbedarf
-            </button>
-          </form>
-          {weekdayPositionRequirements.length === 0 && (
-            <div className="text-xs text-zinc-500">
-              Noch keine Grundregeln hinterlegt. Lege hier die Standard-Positionen pro Wochentag an.
-            </div>
-          )}
-          {shiftTracks.length === 0 && (
-            <div className="text-xs text-amber-500">
-              Keine Schienen gefunden. Bitte lege zuerst Schienenzeiten an.
-            </div>
-          )}
         </div>
 
         <div className="card p-5 flex flex-col gap-4">
@@ -518,7 +443,7 @@ export default function SettingsPanel({
                         name="min_minutes"
                         type="number"
                         defaultValue={rule.min_minutes}
-                        className="bg-transparent text-zinc-100 w-24"
+                        className={`${inputBase} w-24 px-2 py-1`}
                         required
                         disabled={isReadOnly}
                       />
@@ -538,7 +463,7 @@ export default function SettingsPanel({
                         name="pause_minutes"
                         type="number"
                         defaultValue={rule.pause_minutes}
-                        className="bg-transparent text-zinc-100 w-24"
+                        className={`${inputBase} w-24 px-2 py-1`}
                         required
                         disabled={isReadOnly}
                       />
@@ -573,7 +498,7 @@ export default function SettingsPanel({
               name="min_minutes"
               type="number"
               placeholder="Ab Minuten"
-              className="w-32 bg-zinc-900 border border-zinc-700 text-sm text-zinc-100 px-2 py-1"
+              className={`${inputBase} w-32 px-2 py-1`}
               required
               disabled={isReadOnly}
             />
@@ -581,13 +506,13 @@ export default function SettingsPanel({
               name="pause_minutes"
               type="number"
               placeholder="Pause (Min)"
-              className="w-32 bg-zinc-900 border border-zinc-700 text-sm text-zinc-100 px-2 py-1"
+              className={`${inputBase} w-32 px-2 py-1`}
               required
               disabled={isReadOnly}
             />
             <button
               type="submit"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-1 px-3 rounded"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-1.5 px-3 rounded-lg disabled:opacity-50"
               disabled={isReadOnly}
             >
               + Regel
