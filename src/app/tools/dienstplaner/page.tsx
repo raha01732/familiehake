@@ -52,23 +52,51 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
   const isAdmin = role === "admin" || user?.id === env().PRIMARY_SUPERADMIN_ID;
 
   const sb = createAdminClient();
-  const [
-    empResult,
-    shiftResult,
-    availResult,
-    pauseResult,
-    trackResult,
-    eventsResult,
-    plannedResult,
-  ] = await Promise.all([
-    sb
+
+  const employeesBaseColumns =
+    "id, name, position, department, monthly_hours, weekly_hours, color, is_active, employment_type, sort_order";
+
+  type EmployeeRow = {
+    id: number;
+    name: string;
+    position: string | null;
+    department: string | null;
+    monthly_hours: number;
+    weekly_hours: number;
+    color: string;
+    is_active: boolean;
+    employment_type: string;
+    sort_order: number;
+    position_category?: string | null;
+  };
+
+  const empWithCategory = await sb
+    .from("dienstplan_employees")
+    .select(`${employeesBaseColumns}, position_category`)
+    .eq("is_active", true)
+    .order("sort_order")
+    .order("id");
+
+  let employeeRows: EmployeeRow[] = (empWithCategory.data ?? []) as EmployeeRow[];
+
+  // Fallback wenn die neue Spalte position_category in der DB noch nicht angelegt ist
+  if (empWithCategory.error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        "[dienstplaner] employees with position_category failed, fallback:",
+        empWithCategory.error.message
+      );
+    }
+    const fallback = await sb
       .from("dienstplan_employees")
-      .select(
-        "id, name, position, department, monthly_hours, weekly_hours, color, is_active, employment_type, sort_order, position_category"
-      )
+      .select(employeesBaseColumns)
       .eq("is_active", true)
       .order("sort_order")
-      .order("id"),
+      .order("id");
+    employeeRows = (fallback.data ?? []) as EmployeeRow[];
+  }
+
+  const [shiftResult, availResult, pauseResult, trackResult, eventsResult, plannedResult] = await Promise.all([
     sb
       .from("dienstplan_shifts")
       .select("employee_id, shift_date, start_time, end_time, break_minutes, comment")
@@ -97,7 +125,10 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       .order("start_time"),
   ]);
 
-  const employees = (empResult.data ?? []) as Employee[];
+  const employees: Employee[] = employeeRows.map((row) => ({
+    ...row,
+    position_category: (row.position_category ?? null) as Employee["position_category"],
+  }));
   const shifts = (shiftResult.data ?? []) as Shift[];
   const availability = (availResult.data ?? []) as Availability[];
   const pauseRules = (pauseResult.data ?? []) as PauseRule[];
