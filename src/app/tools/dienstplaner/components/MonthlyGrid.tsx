@@ -57,7 +57,7 @@ type Props = {
 const WEEKDAY_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 
 const AVAIL_BADGE: Record<string, { label: string; cls: string }> = {
-  f: { label: "F", cls: "bg-zinc-700 text-zinc-300" },
+  f: { label: "F", cls: "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]" },
   k: { label: "K", cls: "bg-amber-900 text-amber-300" },
   u: { label: "U", cls: "bg-purple-900 text-purple-300" },
   sp: { label: "sp", cls: "bg-blue-900 text-blue-300" },
@@ -321,16 +321,16 @@ export default function MonthlyGrid({
           className="w-full h-full text-left cursor-grab active:cursor-grabbing rounded-sm hover:ring-1 hover:ring-cyan-500/40 focus:outline-none focus:ring-1 focus:ring-cyan-400"
         >
           <div
-            className="px-1 py-0.5 text-[11px] leading-tight text-zinc-100 rounded-sm"
+            className="px-1 py-0.5 text-[11px] leading-tight text-[hsl(var(--foreground))] rounded-sm"
             style={{ borderLeft: `3px solid ${emp.color}` }}
           >
             <div className="font-medium tabular-nums">{shift.start_time.slice(0, 5)}</div>
             <div className="font-medium tabular-nums">{shift.end_time.slice(0, 5)}</div>
-            <div className="text-[10px] text-zinc-400 tabular-nums">
+            <div className="text-[10px] text-[hsl(var(--muted-foreground))] tabular-nums">
               {summary ? formatMinutesAsHours(summary.workMinutes) : ""}
             </div>
             {shift.comment && (
-              <div className="text-[9px] text-zinc-500 truncate" title={shift.comment}>
+              <div className="text-[9px] text-[hsl(var(--muted-foreground))] truncate" title={shift.comment}>
                 {shift.comment}
               </div>
             )}
@@ -360,7 +360,7 @@ export default function MonthlyGrid({
       <button
         type="button"
         onClick={() => setModalState({ employee: emp, date, shift: null })}
-        className="w-full h-full opacity-0 hover:opacity-100 focus:opacity-100 flex items-center justify-center text-zinc-600 transition-opacity"
+        className="w-full h-full opacity-0 hover:opacity-100 focus:opacity-100 flex items-center justify-center text-[hsl(var(--muted-foreground)/0.6)] transition-opacity"
         aria-label="Schicht eintragen"
       >
         +
@@ -377,16 +377,16 @@ export default function MonthlyGrid({
       <button
         type="button"
         onClick={() => setDayDetails({ date })}
-        className="w-full h-full text-left px-2 py-1 text-[10px] leading-tight text-zinc-300 hover:bg-zinc-800/40 transition-colors"
+        className="w-full h-full text-left px-2 py-1 text-[10px] leading-tight text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary)/0.5)] transition-colors"
       >
         {empty ? (
-          <span className="text-zinc-600">…</span>
+          <span className="text-[hsl(var(--muted-foreground)/0.6)]">…</span>
         ) : (
           <div className="flex flex-col gap-0.5">
             {events.map((event) => (
-              <div key={event.id} className="text-zinc-200 truncate" title={event.title + (event.note ? ` — ${event.note}` : "")}>
+              <div key={event.id} className="text-[hsl(var(--foreground))] truncate" title={event.title + (event.note ? ` — ${event.note}` : "")}>
                 {event.start_time && (
-                  <span className="text-zinc-400 mr-1 tabular-nums">{event.start_time.slice(0, 5)}</span>
+                  <span className="text-[hsl(var(--muted-foreground))] mr-1 tabular-nums">{event.start_time.slice(0, 5)}</span>
                 )}
                 {event.title}
               </div>
@@ -422,21 +422,21 @@ export default function MonthlyGrid({
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar ────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800 bg-zinc-900/50 flex-wrap">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-[hsl(var(--border))] bg-[hsl(var(--card)/0.95)] flex-wrap">
         <div className="flex items-center gap-1">
           <button
             onClick={() => navigateToMonth(getPrevMonth(month))}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+            className="p-1.5 rounded-lg text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary))] transition-colors"
             aria-label="Vorheriger Monat"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <h2 className="text-base font-semibold text-zinc-100 w-44 text-center capitalize">{monthLabel}</h2>
+          <h2 className="text-base font-semibold text-[hsl(var(--foreground))] w-44 text-center capitalize">{monthLabel}</h2>
           <button
             onClick={() => navigateToMonth(getNextMonth(month))}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+            className="p-1.5 rounded-lg text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary))] transition-colors"
             aria-label="Nächster Monat"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -447,14 +447,14 @@ export default function MonthlyGrid({
             onClick={() =>
               navigateToMonth(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`)
             }
-            className="ml-1 px-2.5 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 rounded-md transition-colors"
+            className="ml-1 px-2.5 py-1 text-xs bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] rounded-md transition-colors"
           >
             Heute
           </button>
         </div>
 
-        <div className="text-xs text-zinc-500 ml-2 hidden sm:block">
-          <span className="text-zinc-300">{employees.length}</span> Mitarbeiter
+        <div className="text-xs text-[hsl(var(--muted-foreground))] ml-2 hidden sm:block">
+          <span className="text-[hsl(var(--foreground))]">{employees.length}</span> Mitarbeiter
           {totalOpenSlots > 0 && (
             <>
               {" · "}
@@ -468,7 +468,7 @@ export default function MonthlyGrid({
             <button
               onClick={() => handleBuildPreplan(false)}
               disabled={isBuildingPreplan}
-              className="px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 text-xs bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg transition-colors disabled:opacity-50"
               title="Erstellt aus Wochentag-Bedarf + Sonderveranstaltungen die offenen (roten) Slots"
             >
               {isBuildingPreplan ? "Erstelle…" : "Vorplanung"}
@@ -515,7 +515,7 @@ export default function MonthlyGrid({
                 </button>
                 <button
                   onClick={() => setShowClearConfirm(false)}
-                  className="px-3 py-1.5 bg-zinc-800 text-zinc-400 text-xs rounded-lg hover:bg-zinc-700 transition-colors"
+                  className="px-3 py-1.5 bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] text-xs rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
                 >
                   Abbrechen
                 </button>
@@ -524,7 +524,7 @@ export default function MonthlyGrid({
               <>
                 <button
                   onClick={() => setShowClearConfirm(true)}
-                  className="px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border border-zinc-700 rounded-lg transition-colors"
+                  className="px-3 py-1.5 text-xs bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg transition-colors"
                 >
                   Monat leeren
                 </button>
@@ -571,15 +571,15 @@ export default function MonthlyGrid({
           style={{ minWidth: `${480 + sortedEmployees.length * 90}px` }}
         >
           {/* Mitarbeiter-Header */}
-          <thead className="sticky top-0 z-20 bg-zinc-900">
-            <tr className="border-b border-zinc-800">
-              <th className="sticky left-0 z-30 bg-zinc-900 w-20 min-w-[80px] px-2 py-2 text-left text-[10px] uppercase tracking-wide text-zinc-500">
+          <thead className="sticky top-0 z-20 bg-[hsl(var(--card))]">
+            <tr className="border-b border-[hsl(var(--border))]">
+              <th className="sticky left-0 z-30 bg-[hsl(var(--card))] w-20 min-w-[80px] px-2 py-2 text-left text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
                 Datum
               </th>
-              <th className="sticky left-[80px] z-30 bg-zinc-900 w-12 min-w-[48px] px-1 py-2 text-center text-[10px] uppercase tracking-wide text-zinc-500">
+              <th className="sticky left-[80px] z-30 bg-[hsl(var(--card))] w-12 min-w-[48px] px-1 py-2 text-center text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
                 Tag
               </th>
-              <th className="sticky left-[128px] z-30 bg-zinc-900 w-72 min-w-[280px] px-2 py-2 text-left text-[10px] uppercase tracking-wide text-zinc-500">
+              <th className="sticky left-[128px] z-30 bg-[hsl(var(--card))] w-72 min-w-[280px] px-2 py-2 text-left text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
                 Bemerkung / Slots
               </th>
               {sortedEmployees.map((emp) => (
@@ -591,7 +591,7 @@ export default function MonthlyGrid({
                   <button
                     type="button"
                     onClick={() => setEmployeeSummary({ employee: emp })}
-                    className="group flex flex-col items-center gap-1 w-full hover:bg-zinc-800/40 rounded-md py-1 transition-colors"
+                    className="group flex flex-col items-center gap-1 w-full hover:bg-[hsl(var(--secondary)/0.5)] rounded-md py-1 transition-colors"
                   >
                     <div
                       className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold"
@@ -599,10 +599,10 @@ export default function MonthlyGrid({
                     >
                       {getInitials(emp.name)}
                     </div>
-                    <div className="text-[11px] font-medium text-zinc-100 truncate w-full px-1" title={emp.name}>
+                    <div className="text-[11px] font-medium text-[hsl(var(--foreground))] truncate w-full px-1" title={emp.name}>
                       {emp.name.split(" ")[0]}
                     </div>
-                    <div className="text-[9px] text-zinc-500 truncate w-full px-1">
+                    <div className="text-[9px] text-[hsl(var(--muted-foreground))] truncate w-full px-1">
                       {emp.position ?? (emp.position_category ? emp.position_category.charAt(0).toUpperCase() + emp.position_category.slice(1) : "")}
                     </div>
                   </button>
@@ -621,23 +621,23 @@ export default function MonthlyGrid({
               const rowBg = isToday
                 ? "bg-indigo-950/30"
                 : isWeekend
-                ? "bg-zinc-900/40"
-                : "bg-zinc-950";
+                ? "bg-[hsl(var(--secondary)/0.4)]"
+                : "bg-[hsl(var(--card))]";
               return (
-                <tr key={day} className={`border-b border-zinc-800/60 ${rowBg}`}>
-                  <td className={`sticky left-0 z-10 px-2 py-1 align-top ${rowBg} border-r border-zinc-800/40`}>
-                    <div className="text-[11px] font-medium text-zinc-200 tabular-nums">
+                <tr key={day} className={`border-b border-[hsl(var(--border))]/60 ${rowBg}`}>
+                  <td className={`sticky left-0 z-10 px-2 py-1 align-top ${rowBg} border-r border-[hsl(var(--border))]/40`}>
+                    <div className="text-[11px] font-medium text-[hsl(var(--foreground))] tabular-nums">
                       {String(d.getUTCDate()).padStart(2, "0")}.
                       {String(d.getUTCMonth() + 1).padStart(2, "0")}.
                     </div>
-                    <div className="text-[9px] text-zinc-500 tabular-nums">{d.getUTCFullYear()}</div>
+                    <div className="text-[9px] text-[hsl(var(--muted-foreground))] tabular-nums">{d.getUTCFullYear()}</div>
                   </td>
-                  <td className={`sticky left-[80px] z-10 px-1 py-1 text-center align-top ${rowBg} border-r border-zinc-800/40`}>
-                    <span className={`text-[11px] ${isWeekend ? "text-zinc-500" : "text-zinc-300"}`}>
+                  <td className={`sticky left-[80px] z-10 px-1 py-1 text-center align-top ${rowBg} border-r border-[hsl(var(--border))]/40`}>
+                    <span className={`text-[11px] ${isWeekend ? "text-[hsl(var(--muted-foreground))]" : "text-[hsl(var(--foreground))]"}`}>
                       {WEEKDAY_SHORT[wd]}
                     </span>
                   </td>
-                  <td className={`sticky left-[128px] z-10 align-top ${rowBg} border-r border-zinc-800/40`}>
+                  <td className={`sticky left-[128px] z-10 align-top ${rowBg} border-r border-[hsl(var(--border))]/40`}>
                     {renderRemarksCell(day)}
                   </td>
                   {sortedEmployees.map((emp) => (
@@ -666,7 +666,7 @@ export default function MonthlyGrid({
           </tbody>
 
           {/* Footer: Soll/Ist/Diff/Urlaub/Krank pro Mitarbeiter */}
-          <tfoot className="sticky bottom-0 z-20 bg-zinc-900 border-t-2 border-zinc-700">
+          <tfoot className="sticky bottom-0 z-20 bg-[hsl(var(--card))] border-t-2 border-[hsl(var(--border))]">
             {[
               { key: "soll", label: "Soll" },
               { key: "ist", label: "Ist" },
@@ -674,8 +674,8 @@ export default function MonthlyGrid({
               { key: "urlaub", label: "Urlaub" },
               { key: "krank", label: "Krank" },
             ].map((row) => (
-              <tr key={row.key} className="border-t border-zinc-800/60">
-                <td className="sticky left-0 z-10 bg-zinc-900 px-2 py-1 text-[10px] uppercase tracking-wide text-zinc-500" colSpan={3}>
+              <tr key={row.key} className="border-t border-[hsl(var(--border))]/60">
+                <td className="sticky left-0 z-10 bg-[hsl(var(--card))] px-2 py-1 text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]" colSpan={3}>
                   {row.label}
                 </td>
                 {sortedEmployees.map((emp) => {
@@ -684,7 +684,7 @@ export default function MonthlyGrid({
                   const diffMin = istMin - sollMin;
                   const counts = empAvailCounts.get(emp.id) ?? { f: 0, u: 0, k: 0 };
                   let value = "";
-                  let cls = "text-zinc-300";
+                  let cls = "text-[hsl(var(--foreground))]";
                   if (row.key === "soll") {
                     value = `${(emp.monthly_hours ?? 0).toFixed(0)}h`;
                   } else if (row.key === "ist") {
@@ -692,13 +692,13 @@ export default function MonthlyGrid({
                     if (sollMin > 0 && istMin > sollMin) cls = "text-amber-400";
                   } else if (row.key === "diff") {
                     value = `${diffMin >= 0 ? "+" : "-"}${formatMinutesAsHours(Math.abs(diffMin))}h`;
-                    cls = diffMin < 0 ? "text-amber-400" : diffMin > 0 ? "text-emerald-400" : "text-zinc-300";
+                    cls = diffMin < 0 ? "text-amber-400" : diffMin > 0 ? "text-emerald-400" : "text-[hsl(var(--foreground))]";
                   } else if (row.key === "urlaub") {
                     value = String(counts.u);
-                    cls = counts.u > 0 ? "text-purple-300" : "text-zinc-600";
+                    cls = counts.u > 0 ? "text-purple-300" : "text-[hsl(var(--muted-foreground)/0.6)]";
                   } else if (row.key === "krank") {
                     value = String(counts.k);
-                    cls = counts.k > 0 ? "text-amber-400" : "text-zinc-600";
+                    cls = counts.k > 0 ? "text-amber-400" : "text-[hsl(var(--muted-foreground)/0.6)]";
                   }
                   return (
                     <td key={emp.id} className={`px-1 py-1 text-center text-[11px] tabular-nums ${cls}`}>
@@ -717,13 +717,13 @@ export default function MonthlyGrid({
         <>
           <div className="fixed inset-0 z-40" onClick={() => setAvailMenu(null)} />
           <div
-            className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl py-1 min-w-[220px]"
+            className="fixed z-50 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl shadow-2xl py-1 min-w-[220px]"
             style={{
               top: Math.min(availMenu.anchorRect.bottom + 4, window.innerHeight - 260),
               left: Math.min(availMenu.anchorRect.left, window.innerWidth - 240),
             }}
           >
-            <div className="px-3 py-2 border-b border-zinc-800 text-xs text-zinc-400">
+            <div className="px-3 py-2 border-b border-[hsl(var(--border))] text-xs text-[hsl(var(--muted-foreground))]">
               {availMenu.employee.name} · {availMenu.date.slice(8)}.{availMenu.date.slice(5, 7)}.
             </div>
             {AVAIL_OPTIONS.map((opt) => (
@@ -731,10 +731,10 @@ export default function MonthlyGrid({
                 key={opt.value}
                 type="button"
                 onClick={() => handleAvailSelect(availMenu.employee, availMenu.date, opt.value)}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-zinc-800 transition-colors ${
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-[hsl(var(--secondary))] transition-colors ${
                   (availMenu.current?.status ?? "").toUpperCase() === opt.value.toUpperCase()
                     ? "text-indigo-400 font-medium"
-                    : "text-zinc-300"
+                    : "text-[hsl(var(--foreground))]"
                 }`}
               >
                 {opt.label}
@@ -795,7 +795,7 @@ export default function MonthlyGrid({
       )}
 
       {isMoving && (
-        <div className="fixed bottom-4 right-4 z-40 px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-zinc-300">
+        <div className="fixed bottom-4 right-4 z-40 px-3 py-2 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg text-xs text-[hsl(var(--foreground))]">
           Verschiebe…
         </div>
       )}

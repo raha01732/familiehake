@@ -109,15 +109,15 @@ export default function SettingsPanel({
 
   const isReadOnly = !isAdmin;
   const inputBase =
-    "rounded-lg border border-zinc-700/80 bg-zinc-900/80 text-sm text-zinc-100 shadow-inner shadow-black/20 focus:border-cyan-500/70 focus:outline-none disabled:opacity-60";
+    "rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground)/0.7)] focus:border-[hsl(var(--ring))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring)/0.2)] disabled:opacity-60";
   const numberInputCls = `${inputBase} w-12 text-center px-1 py-1`;
 
   return (
     <div className="relative">
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 backdrop-blur p-6 flex flex-col gap-8 shadow-xl">
+      <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] backdrop-blur p-6 flex flex-col gap-8 shadow-xl">
         <header className="flex flex-col gap-2">
-          <h2 className="text-xl font-semibold text-zinc-100">Einstellungen</h2>
-          <p className="text-xs text-zinc-500">
+          <h2 className="text-xl font-semibold text-[hsl(var(--foreground))]">Einstellungen</h2>
+          <p className="text-xs text-[hsl(var(--muted-foreground))]">
             Schienen, Wochentag-Bedarf und Pausenregeln werden direkt hier gepflegt.
             {isReadOnly ? " (Nur Admins können speichern.)" : ""}
           </p>
@@ -125,8 +125,8 @@ export default function SettingsPanel({
 
         <div className="card p-5 flex flex-col gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-zinc-100">Schienen</h3>
-            <p className="text-xs text-zinc-500">
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Schienen</h3>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
               Lege feste Schichtzeiten an (z.&nbsp;B. „Frühdienst 08:00–16:00“). Schienen bilden die Grundlage für den
               Positionsbedarf und die automatische Planung.
             </p>
@@ -142,7 +142,7 @@ export default function SettingsPanel({
               <form
                 key={track.track_key}
                 action={saveShiftTrackAction}
-                className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2"
+                className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.4)] px-3 py-2"
               >
                 <input type="hidden" name="track_key" value={track.track_key} />
                 <input
@@ -191,7 +191,7 @@ export default function SettingsPanel({
 
           <form
             action={createShiftTrackAction}
-            className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3"
+            className="flex flex-wrap items-center gap-2 border-t border-[hsl(var(--border))] pt-3"
           >
             <input
               name="label"
@@ -226,8 +226,8 @@ export default function SettingsPanel({
 
         <div className="card p-5 flex flex-col gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-zinc-100">Positionsbedarf pro Schiene</h3>
-            <p className="text-xs text-zinc-500">
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Positionsbedarf pro Schiene</h3>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
               Trage pro Position direkt die benötigte Anzahl je Wochentag ein. Eine Zeile = eine Position auf einer
               Schiene.
             </p>
@@ -244,23 +244,23 @@ export default function SettingsPanel({
                 return (
                   <div
                     key={track.track_key}
-                    className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-3 flex flex-col gap-3"
+                    className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.4)] px-3 py-3 flex flex-col gap-3"
                   >
                     <div className="flex items-baseline justify-between gap-3">
                       <div>
-                        <span className="text-sm font-semibold text-zinc-100">{track.label}</span>
-                        <span className="ml-2 text-[11px] text-zinc-500">
+                        <span className="text-sm font-semibold text-[hsl(var(--foreground))]">{track.label}</span>
+                        <span className="ml-2 text-[11px] text-[hsl(var(--muted-foreground))]">
                           {track.start_time.slice(0, 5)}–{track.end_time.slice(0, 5)}
                         </span>
                       </div>
-                      <span className="text-[10px] uppercase tracking-wide text-zinc-600">
+                      <span className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground)/0.7)]">
                         {rows.length} Position{rows.length === 1 ? "" : "en"}
                       </span>
                     </div>
 
                     <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-zinc-300">
-                        <thead className="text-[10px] uppercase tracking-wide text-zinc-500">
+                      <table className="w-full text-sm text-[hsl(var(--foreground))]">
+                        <thead className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
                           <tr>
                             <th className="text-left py-1 pr-2 w-44">Position</th>
                             {WEEKDAYS_MON_FIRST.map((weekday) => (
@@ -274,7 +274,7 @@ export default function SettingsPanel({
                         </thead>
                         <tbody>
                           {rows.map((row) => (
-                            <tr key={row.position} className="border-t border-zinc-800/60">
+                            <tr key={row.position} className="border-t border-[hsl(var(--border))]/60">
                               <td className="py-1 pr-2" colSpan={10}>
                                 <form
                                   action={savePositionMatrixRowAction}
@@ -330,8 +330,8 @@ export default function SettingsPanel({
                             </tr>
                           ))}
                           {rows.length === 0 && (
-                            <tr className="border-t border-zinc-800/60">
-                              <td colSpan={10} className="py-2 text-[11px] text-zinc-500">
+                            <tr className="border-t border-[hsl(var(--border))]/60">
+                              <td colSpan={10} className="py-2 text-[11px] text-[hsl(var(--muted-foreground))]">
                                 Noch keine Position für diese Schiene.
                               </td>
                             </tr>
@@ -342,7 +342,7 @@ export default function SettingsPanel({
 
                     <form
                       action={savePositionMatrixRowAction}
-                      className="grid grid-cols-[11rem_repeat(7,minmax(2.5rem,1fr))_12rem_auto] items-center gap-2 border-t border-zinc-800/60 pt-2"
+                      className="grid grid-cols-[11rem_repeat(7,minmax(2.5rem,1fr))_12rem_auto] items-center gap-2 border-t border-[hsl(var(--border))]/60 pt-2"
                     >
                       <input type="hidden" name="track_key" value={track.track_key} />
                       <input
@@ -388,16 +388,16 @@ export default function SettingsPanel({
 
         <div className="card p-5 flex flex-col gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-zinc-100">Schichtbedarf pro Wochentag</h3>
-            <p className="text-xs text-zinc-500">
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Schichtbedarf pro Wochentag</h3>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
               Optionaler Fallback: Anzahl der Schichten pro Wochentag, wenn kein Positionsbedarf hinterlegt ist.
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-zinc-300">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-[hsl(var(--foreground))]">
             {WEEKDAYS_MON_FIRST.map((weekday) => (
               <form key={weekday.id} action={saveWeekdayRequirementAction} className="flex items-center gap-3">
                 <input type="hidden" name="weekday" value={weekday.id} />
-                <span className="w-28 text-zinc-200">{weekday.label}</span>
+                <span className="w-28 text-[hsl(var(--foreground))]">{weekday.label}</span>
                 <input
                   name="required_shifts"
                   type="number"
@@ -420,13 +420,13 @@ export default function SettingsPanel({
 
         <div className="card p-5 flex flex-col gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-zinc-100">Pausenregeln</h3>
-            <p className="text-xs text-zinc-500">
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Pausenregeln</h3>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
               Hinterlege, ab welcher Schichtdauer wie viele Minuten Pause automatisch abgezogen werden.
             </p>
           </div>
-          <table className="w-full text-sm text-zinc-300">
-            <thead className="text-xs uppercase text-zinc-500">
+          <table className="w-full text-sm text-[hsl(var(--foreground))]">
+            <thead className="text-xs uppercase text-[hsl(var(--muted-foreground))]">
               <tr>
                 <th className="text-left py-2">Ab Minuten</th>
                 <th className="text-left py-2">Pausenminuten</th>
@@ -435,7 +435,7 @@ export default function SettingsPanel({
             </thead>
             <tbody>
               {pauseRules.map((rule) => (
-                <tr key={rule.id} className="border-t border-zinc-800">
+                <tr key={rule.id} className="border-t border-[hsl(var(--border))]">
                   <td className="py-2 pr-2">
                     <form action={updatePauseRuleAction} className="flex items-center gap-2">
                       <input type="hidden" name="id" value={rule.id} />

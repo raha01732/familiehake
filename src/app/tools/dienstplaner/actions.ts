@@ -68,6 +68,27 @@ async function assertAdminForDienstplanAutomation() {
   }
 }
 
+async function consumeMatchingPlannedSlot(
+  sb: ReturnType<typeof createAdminClient>,
+  shiftDate: string,
+  startTime: string,
+  endTime: string
+) {
+  const { data: candidate } = await sb
+    .from("dienstplan_planned_slots")
+    .select("id")
+    .eq("slot_date", shiftDate)
+    .eq("start_time", startTime)
+    .eq("end_time", endTime)
+    .is("assigned_employee_id", null)
+    .order("id")
+    .limit(1)
+    .maybeSingle();
+  if (candidate?.id) {
+    await sb.from("dienstplan_planned_slots").delete().eq("id", candidate.id);
+  }
+}
+
 async function assertAuthenticatedForDienstplanWrite() {
   const user = await currentUser();
   if (!user) {
@@ -126,6 +147,8 @@ export async function saveShiftAction(formData: FormData) {
     { onConflict: "employee_id,shift_date" }
   );
 
+  await consumeMatchingPlannedSlot(sb, shiftDate, startTime, endTime);
+
   revalidatePath(PLAN_PATH);
 }
 
@@ -183,6 +206,8 @@ export async function bulkSaveShiftsAction(formData: FormData) {
       },
       { onConflict: "employee_id,shift_date" }
     );
+
+    await consumeMatchingPlannedSlot(sb, entry.date, startTime, endTime);
   }
 
   revalidatePath(PLAN_PATH);
@@ -533,6 +558,8 @@ export async function updateShiftDetailsAction(formData: FormData) {
     },
     { onConflict: "employee_id,shift_date" }
   );
+
+  await consumeMatchingPlannedSlot(sb, shiftDate, startTime, endTime);
 
   revalidatePath(PLAN_PATH);
 }
