@@ -3,15 +3,27 @@
 import { useState, useTransition, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type {
-  Employee, Shift, Availability, DateRequirement, ShiftTrack,
+  Employee,
+  Shift,
+  Availability,
+  ShiftTrack,
+  SpecialEvent,
+  PlannedSlot,
 } from "../utils";
 import {
-  calculateShiftMinutes, formatMinutesAsHours, getInitials,
-  getPrevMonth, getNextMonth, getTodayString,
+  calculateShiftMinutes,
+  formatMinutesAsHours,
+  getInitials,
+  getPrevMonth,
+  getNextMonth,
+  getTodayString,
+  sortEmployeesForGrid,
   type PauseRule,
 } from "../utils";
 import ShiftModal from "./ShiftModal";
 import AutoPlanConfigModal, { type AutoPlanConfig } from "./AutoPlanConfigModal";
+import EmployeeShiftSummaryModal from "./EmployeeShiftSummaryModal";
+import DayDetailsModal from "./DayDetailsModal";
 
 type Props = {
   month: string;
@@ -19,26 +31,47 @@ type Props = {
   employees: Employee[];
   shifts: Shift[];
   availability: Availability[];
-  requirements: DateRequirement[];
   pauseRules: PauseRule[];
   shiftTracks: ShiftTrack[];
+  specialEvents: SpecialEvent[];
+  plannedSlots: PlannedSlot[];
   isAdmin: boolean;
+  aiEnabled: boolean;
   saveShiftAction: (_fd: FormData) => Promise<void>;
   deleteShiftAction: (_fd: FormData) => Promise<void>;
   moveShiftAction: (_fd: FormData) => Promise<void>;
   saveAvailabilityAction: (_fd: FormData) => Promise<void>;
   autoGenerateAction: (_fd: FormData) => Promise<void>;
   clearMonthAction: (_fd: FormData) => Promise<void>;
+  buildPreplanAction: (_fd: FormData) => Promise<void>;
+  autoFillSlotsAction: (_fd: FormData) => Promise<void>;
+  aiFillSlotsAction: (_fd: FormData) => Promise<void>;
+  createSpecialEventAction: (_fd: FormData) => Promise<void>;
+  updateSpecialEventAction: (_fd: FormData) => Promise<void>;
+  deleteSpecialEventAction: (_fd: FormData) => Promise<void>;
+  createPlannedSlotAction: (_fd: FormData) => Promise<void>;
+  deletePlannedSlotAction: (_fd: FormData) => Promise<void>;
+  assignPlannedSlotAction: (_fd: FormData) => Promise<void>;
 };
 
 const WEEKDAY_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
-const AVAIL_LABELS: Record<string, { label: string; bg: string; text: string }> = {
-  F:   { label: "F",   bg: "bg-zinc-700",   text: "text-zinc-400" },
-  K:   { label: "K",   bg: "bg-amber-950",  text: "text-amber-400" },
-  sp:  { label: "sp",  bg: "bg-blue-950",   text: "text-blue-400" },
-  fr:  { label: "fr",  bg: "bg-sky-950",    text: "text-sky-400" },
-  fix: { label: "fix", bg: "bg-violet-950", text: "text-violet-400" },
+
+const AVAIL_BADGE: Record<string, { label: string; cls: string }> = {
+  f: { label: "F", cls: "bg-zinc-700 text-zinc-300" },
+  k: { label: "K", cls: "bg-amber-900 text-amber-300" },
+  u: { label: "U", cls: "bg-purple-900 text-purple-300" },
+  sp: { label: "sp", cls: "bg-blue-900 text-blue-300" },
+  fr: { label: "fr", cls: "bg-sky-900 text-sky-300" },
 };
+
+const AVAIL_OPTIONS = [
+  { value: "", label: "Verfügbar" },
+  { value: "F", label: "F – Frei" },
+  { value: "U", label: "U – Urlaub" },
+  { value: "K", label: "K – Krank" },
+  { value: "sp", label: "sp – Spät bevorzugt" },
+  { value: "fr", label: "fr – Früh bevorzugt" },
+];
 
 type ModalState = {
   employee: Employee;
@@ -53,33 +86,64 @@ type AvailMenuState = {
   anchorRect: DOMRect;
 };
 
-const AVAIL_OPTIONS = [
-  { value: "", label: "Verfügbar" },
-  { value: "F",  label: "F – Nicht verfügbar" },
-  { value: "K",  label: "K – Krank" },
-  { value: "sp", label: "sp – Spätdienst bevorzugt" },
-  { value: "fr", label: "fr – Frühdienst bevorzugt" },
-];
+type EmployeeSummaryState = {
+  employee: Employee;
+};
+
+type DayDetailsState = {
+  date: string;
+};
 
 export default function MonthlyGrid({
-  month, days, employees, shifts, availability, requirements,
-  pauseRules, shiftTracks, isAdmin,
-  saveShiftAction, deleteShiftAction, moveShiftAction, saveAvailabilityAction,
-  autoGenerateAction, clearMonthAction,
+  month,
+  days,
+  employees,
+  shifts,
+  availability,
+  pauseRules,
+  shiftTracks,
+  specialEvents,
+  plannedSlots,
+  isAdmin,
+  aiEnabled,
+  saveShiftAction,
+  deleteShiftAction,
+  moveShiftAction,
+  saveAvailabilityAction,
+  autoGenerateAction,
+  clearMonthAction,
+  buildPreplanAction,
+  autoFillSlotsAction,
+  aiFillSlotsAction,
+  createSpecialEventAction,
+  updateSpecialEventAction,
+  deleteSpecialEventAction,
+  createPlannedSlotAction,
+  deletePlannedSlotAction,
+  assignPlannedSlotAction,
 }: Props) {
   const router = useRouter();
   const today = getTodayString();
   const [modalState, setModalState] = useState<ModalState | null>(null);
   const [availMenu, setAvailMenu] = useState<AvailMenuState | null>(null);
+  const [employeeSummary, setEmployeeSummary] = useState<EmployeeSummaryState | null>(null);
+  const [dayDetails, setDayDetails] = useState<DayDetailsState | null>(null);
   const [showAutoPlanConfig, setShowAutoPlanConfig] = useState(false);
   const [isAutoPlanning, startAutoPlanning] = useTransition();
+  const [isAutoFilling, startAutoFilling] = useTransition();
+  const [isAiFilling, startAiFilling] = useTransition();
+  const [isBuildingPreplan, startBuildingPreplan] = useTransition();
   const [isClearing, startClearing] = useTransition();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [_isMoving, startMoving] = useTransition();
+  const [isMoving, startMoving] = useTransition();
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [aiNotice, setAiNotice] = useState<string | null>(null);
   const dragSource = useRef<{ employeeId: number; date: string } | null>(null);
 
-  // ── Build lookup maps ──────────────────────────────────────────────────────
+  const sortedEmployees = useMemo(() => sortEmployeesForGrid(employees), [employees]);
+
+  // ── Lookup-Maps ────────────────────────────────────────────────────────
   const shiftMap = useMemo(() => {
     const map = new Map<string, Shift>();
     for (const s of shifts) map.set(`${s.employee_id}-${s.shift_date}`, s);
@@ -92,40 +156,55 @@ export default function MonthlyGrid({
     return map;
   }, [availability]);
 
-  const reqMap = useMemo(() => {
-    const map = new Map<string, DateRequirement>();
-    for (const r of requirements) map.set(r.requirement_date, r);
+  const eventsByDate = useMemo(() => {
+    const map = new Map<string, SpecialEvent[]>();
+    for (const event of specialEvents) {
+      const list = map.get(event.event_date) ?? [];
+      list.push(event);
+      map.set(event.event_date, list);
+    }
     return map;
-  }, [requirements]);
+  }, [specialEvents]);
 
-  // ── Per-employee monthly minutes ───────────────────────────────────────────
+  const slotsByDate = useMemo(() => {
+    const map = new Map<string, PlannedSlot[]>();
+    for (const slot of plannedSlots) {
+      if (slot.assigned_employee_id !== null) continue;
+      const list = map.get(slot.slot_date) ?? [];
+      list.push(slot);
+      map.set(slot.slot_date, list);
+    }
+    return map;
+  }, [plannedSlots]);
+
   const empMonthlyMinutes = useMemo(() => {
     const map = new Map<number, number>();
     for (const s of shifts) {
-      const mins = calculateShiftMinutes(s.start_time, s.end_time, pauseRules, s.break_minutes);
-      if (!mins) continue;
-      map.set(s.employee_id, (map.get(s.employee_id) ?? 0) + mins.workMinutes);
+      const summary = calculateShiftMinutes(s.start_time, s.end_time, pauseRules, s.break_minutes);
+      if (!summary) continue;
+      map.set(s.employee_id, (map.get(s.employee_id) ?? 0) + summary.workMinutes);
     }
     return map;
   }, [shifts, pauseRules]);
 
-  // ── Monthly staffing count per day ─────────────────────────────────────────
-  const staffingPerDay = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of shifts) {
-      if (s.start_time && s.end_time) {
-        map.set(s.shift_date, (map.get(s.shift_date) ?? 0) + 1);
-      }
+  const empAvailCounts = useMemo(() => {
+    const map = new Map<number, { f: number; u: number; k: number }>();
+    for (const a of availability) {
+      const status = (a.status ?? "").toLowerCase();
+      const counts = map.get(a.employee_id) ?? { f: 0, u: 0, k: 0 };
+      if (status === "f") counts.f += 1;
+      else if (status === "u") counts.u += 1;
+      else if (status === "k") counts.k += 1;
+      map.set(a.employee_id, counts);
     }
     return map;
-  }, [shifts]);
+  }, [availability]);
 
-  // ── Month navigation ───────────────────────────────────────────────────────
+  // ── Aktionen ───────────────────────────────────────────────────────────
   function navigateToMonth(m: string) {
     router.push(`/tools/dienstplaner?month=${m}`);
   }
 
-  // ── Auto plan ─────────────────────────────────────────────────────────────
   function handleAutoGenerate(config: AutoPlanConfig) {
     const fd = new FormData();
     fd.set("month", config.month);
@@ -134,13 +213,59 @@ export default function MonthlyGrid({
     fd.set("skip_weekends", config.skip_weekends ? "true" : "false");
     fd.set("respect_availability", config.respect_availability ? "true" : "false");
     fd.set("overwrite_existing", config.overwrite_existing ? "true" : "false");
+    setActionError(null);
     startAutoPlanning(async () => {
-      await autoGenerateAction(fd);
-      setShowAutoPlanConfig(false);
+      try {
+        await autoGenerateAction(fd);
+        setShowAutoPlanConfig(false);
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : "Auto-Plan fehlgeschlagen");
+      }
     });
   }
 
-  // ── Drag and drop ──────────────────────────────────────────────────────────
+  function handleBuildPreplan(overwrite: boolean) {
+    const fd = new FormData();
+    fd.set("month", month);
+    fd.set("overwrite_existing", overwrite ? "true" : "false");
+    setActionError(null);
+    startBuildingPreplan(async () => {
+      try {
+        await buildPreplanAction(fd);
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : "Vorplanung fehlgeschlagen");
+      }
+    });
+  }
+
+  function handleAutoFillSlots() {
+    const fd = new FormData();
+    fd.set("month", month);
+    setActionError(null);
+    startAutoFilling(async () => {
+      try {
+        await autoFillSlotsAction(fd);
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : "Auto-Befüllung fehlgeschlagen");
+      }
+    });
+  }
+
+  function handleAiFillSlots() {
+    const fd = new FormData();
+    fd.set("month", month);
+    setActionError(null);
+    setAiNotice(null);
+    startAiFilling(async () => {
+      try {
+        await aiFillSlotsAction(fd);
+        setAiNotice("KI hat die unbesetzten Slots verarbeitet.");
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : "KI-Befüllung fehlgeschlagen");
+      }
+    });
+  }
+
   function handleDragStart(employeeId: number, date: string) {
     dragSource.current = { employeeId, date };
   }
@@ -163,7 +288,6 @@ export default function MonthlyGrid({
     });
   }
 
-  // ── Clear month ────────────────────────────────────────────────────────────
   function handleClearMonth() {
     const fd = new FormData();
     fd.set("month", month);
@@ -173,7 +297,6 @@ export default function MonthlyGrid({
     });
   }
 
-  // ── Availability quick set ─────────────────────────────────────────────────
   function handleAvailSelect(emp: Employee, date: string, value: string) {
     const fd = new FormData();
     fd.set("employee_id", String(emp.id));
@@ -182,47 +305,54 @@ export default function MonthlyGrid({
     saveAvailabilityAction(fd).then(() => setAvailMenu(null));
   }
 
-  // ── Render helpers ─────────────────────────────────────────────────────────
-  function renderShiftBlock(emp: Employee, date: string) {
+  // ── Render: Schicht-Zelle ──────────────────────────────────────────────
+  function renderShiftCell(emp: Employee, date: string) {
     const shift = shiftMap.get(`${emp.id}-${date}`);
     const avail = availMap.get(`${emp.id}-${date}`);
 
     if (shift?.start_time && shift?.end_time) {
-      const mins = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules, shift.break_minutes);
-      const hours = mins ? formatMinutesAsHours(mins.workMinutes) : null;
+      const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules, shift.break_minutes);
       return (
-        <div
+        <button
+          type="button"
           draggable
           onDragStart={() => handleDragStart(emp.id, date)}
           onClick={() => setModalState({ employee: emp, date, shift })}
-          className="w-full text-left group cursor-grab active:cursor-grabbing"
+          className="w-full h-full text-left cursor-grab active:cursor-grabbing rounded-sm hover:ring-1 hover:ring-cyan-500/40 focus:outline-none focus:ring-1 focus:ring-cyan-400"
         >
           <div
-            className="rounded-md px-1.5 py-1 text-white text-xs leading-tight group-hover:brightness-110 transition-all select-none"
-            style={{ backgroundColor: emp.color }}
+            className="px-1 py-0.5 text-[11px] leading-tight text-zinc-100 rounded-sm"
+            style={{ borderLeft: `3px solid ${emp.color}` }}
           >
-            <div className="font-semibold truncate">
-              {shift.start_time.slice(0, 5)}–{shift.end_time.slice(0, 5)}
+            <div className="font-medium tabular-nums">{shift.start_time.slice(0, 5)}</div>
+            <div className="font-medium tabular-nums">{shift.end_time.slice(0, 5)}</div>
+            <div className="text-[10px] text-zinc-400 tabular-nums">
+              {summary ? formatMinutesAsHours(summary.workMinutes) : ""}
             </div>
-            {hours && <div className="opacity-80 text-[10px]">{hours}h</div>}
-            {shift.break_minutes != null && (
-              <div className="opacity-60 text-[10px]">⏸ {shift.break_minutes}min</div>
+            {shift.comment && (
+              <div className="text-[9px] text-zinc-500 truncate" title={shift.comment}>
+                {shift.comment}
+              </div>
             )}
           </div>
-        </div>
+        </button>
       );
     }
 
     if (avail?.status) {
-      const cfg = AVAIL_LABELS[avail.status.toLowerCase()] ?? AVAIL_LABELS["F"];
+      const cfg = AVAIL_BADGE[avail.status.toLowerCase()] ?? AVAIL_BADGE.f;
+      const label =
+        avail.status === "fix" && avail.fixed_start && avail.fixed_end
+          ? `${avail.fixed_start.slice(0, 5)}–${avail.fixed_end.slice(0, 5)}`
+          : cfg.label;
       return (
-        <div className="flex items-center justify-center h-full min-h-[36px]">
-          <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.text}`}>
-            {avail.status === "fix"
-              ? `${avail.fixed_start?.slice(0, 5) ?? ""}–${avail.fixed_end?.slice(0, 5) ?? ""}`
-              : cfg.label}
-          </span>
-        </div>
+        <button
+          type="button"
+          onClick={() => setModalState({ employee: emp, date, shift: null })}
+          className="w-full h-full flex items-center justify-center"
+        >
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cfg.cls}`}>{label}</span>
+        </button>
       );
     }
 
@@ -230,60 +360,149 @@ export default function MonthlyGrid({
       <button
         type="button"
         onClick={() => setModalState({ employee: emp, date, shift: null })}
-        className="w-full h-full min-h-[36px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+        className="w-full h-full opacity-0 hover:opacity-100 focus:opacity-100 flex items-center justify-center text-zinc-600 transition-opacity"
+        aria-label="Schicht eintragen"
       >
-        <span className="text-zinc-500 text-lg leading-none">+</span>
+        +
+      </button>
+    );
+  }
+
+  // ── Render: Bemerkungs-Zelle (Sonderveranstaltungen + offene Slots) ───
+  function renderRemarksCell(date: string) {
+    const events = eventsByDate.get(date) ?? [];
+    const slots = slotsByDate.get(date) ?? [];
+    const empty = events.length === 0 && slots.length === 0;
+    return (
+      <button
+        type="button"
+        onClick={() => setDayDetails({ date })}
+        className="w-full h-full text-left px-2 py-1 text-[10px] leading-tight text-zinc-300 hover:bg-zinc-800/40 transition-colors"
+      >
+        {empty ? (
+          <span className="text-zinc-600">…</span>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {events.map((event) => (
+              <div key={event.id} className="text-zinc-200 truncate" title={event.title + (event.note ? ` — ${event.note}` : "")}>
+                {event.start_time && (
+                  <span className="text-zinc-400 mr-1 tabular-nums">{event.start_time.slice(0, 5)}</span>
+                )}
+                {event.title}
+              </div>
+            ))}
+            {slots.map((slot) => (
+              <div
+                key={slot.id}
+                className="flex items-center gap-1 text-red-300 truncate"
+                title={`Unbesetzt: ${slot.position ?? "?"} ${slot.start_time.slice(0, 5)}–${slot.end_time.slice(0, 5)}${
+                  slot.note ? ` (${slot.note})` : ""
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block flex-shrink-0" />
+                <span className="tabular-nums">
+                  {slot.start_time.slice(0, 5)}–{slot.end_time.slice(0, 5)}
+                </span>
+                <span className="truncate">{slot.position ?? "offen"}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </button>
     );
   }
 
   const monthDate = new Date(`${month}-01T00:00:00Z`);
   const monthLabel = monthDate.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
-  const totalMonthHours = Array.from(empMonthlyMinutes.values()).reduce((s, m) => s + m, 0);
+  const totalOpenSlots = useMemo(
+    () => plannedSlots.filter((s) => s.assigned_employee_id === null).length,
+    [plannedSlots]
+  );
 
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar ────────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800 bg-zinc-900/50 flex-wrap">
-        {/* Month navigation */}
         <div className="flex items-center gap-1">
           <button
             onClick={() => navigateToMonth(getPrevMonth(month))}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+            aria-label="Vorheriger Monat"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <h2 className="text-base font-semibold text-zinc-100 w-44 text-center capitalize">
-            {monthLabel}
-          </h2>
+          <h2 className="text-base font-semibold text-zinc-100 w-44 text-center capitalize">{monthLabel}</h2>
           <button
             onClick={() => navigateToMonth(getNextMonth(month))}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+            aria-label="Nächster Monat"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
           <button
-            onClick={() => navigateToMonth(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`)}
+            onClick={() =>
+              navigateToMonth(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`)
+            }
             className="ml-1 px-2.5 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 rounded-md transition-colors"
           >
             Heute
           </button>
         </div>
 
-        {/* Summary */}
         <div className="text-xs text-zinc-500 ml-2 hidden sm:block">
           <span className="text-zinc-300">{employees.length}</span> Mitarbeiter
-          {" · "}
-          <span className="text-zinc-300">{formatMinutesAsHours(totalMonthHours)}h</span> geplant
+          {totalOpenSlots > 0 && (
+            <>
+              {" · "}
+              <span className="text-red-400">{totalOpenSlots}</span> offene Slots
+            </>
+          )}
         </div>
 
-        {/* Admin actions */}
         {isAdmin && (
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => handleBuildPreplan(false)}
+              disabled={isBuildingPreplan}
+              className="px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg transition-colors disabled:opacity-50"
+              title="Erstellt aus Wochentag-Bedarf + Sonderveranstaltungen die offenen (roten) Slots"
+            >
+              {isBuildingPreplan ? "Erstelle…" : "Vorplanung"}
+            </button>
+            {totalOpenSlots > 0 && (
+              <>
+                <button
+                  onClick={handleAutoFillSlots}
+                  disabled={isAutoFilling}
+                  className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors disabled:opacity-60"
+                  title="Versucht offene Slots fair zu besetzen"
+                >
+                  {isAutoFilling ? "Fülle…" : "Auto füllen"}
+                </button>
+                {aiEnabled && (
+                  <button
+                    onClick={handleAiFillSlots}
+                    disabled={isAiFilling}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-medium rounded-lg transition-colors disabled:opacity-60"
+                    title="Lässt die KI offene Slots fair zuweisen"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                      />
+                    </svg>
+                    {isAiFilling ? "KI plant…" : "KI füllen"}
+                  </button>
+                )}
+              </>
+            )}
             {showClearConfirm ? (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-red-400">Alle Schichten löschen?</span>
@@ -312,24 +531,9 @@ export default function MonthlyGrid({
                 <button
                   onClick={() => setShowAutoPlanConfig(true)}
                   disabled={isAutoPlanning}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors disabled:opacity-60"
+                  className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors disabled:opacity-60"
                 >
-                  {isAutoPlanning ? (
-                    <>
-                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      Plane …
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      Auto-Plan
-                    </>
-                  )}
+                  {isAutoPlanning ? "Plane…" : "Auto-Plan (Bedarf)"}
                 </button>
               </>
             )}
@@ -337,189 +541,186 @@ export default function MonthlyGrid({
         )}
       </div>
 
-      {/* ── Move error banner ─────────────────────────────────────────────── */}
-      {moveError && (
-        <div className="flex items-center justify-between px-4 py-2 bg-red-950 border-b border-red-800 text-red-300 text-sm">
-          <span>{moveError}</span>
-          <button type="button" onClick={() => setMoveError(null)} className="ml-4 text-red-400 hover:text-red-200">✕</button>
+      {(moveError || actionError || aiNotice) && (
+        <div
+          className={`flex items-center justify-between px-4 py-2 border-b text-sm ${
+            moveError || actionError
+              ? "bg-red-950 border-red-800 text-red-300"
+              : "bg-emerald-950/40 border-emerald-900/40 text-emerald-300"
+          }`}
+        >
+          <span>{moveError ?? actionError ?? aiNotice}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setMoveError(null);
+              setActionError(null);
+              setAiNotice(null);
+            }}
+            className="ml-4 hover:opacity-80"
+          >
+            ✕
+          </button>
         </div>
       )}
 
       {/* ── Grid ───────────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full border-collapse" style={{ minWidth: `${200 + days.length * 72}px` }}>
-          {/* Day header */}
-          <thead>
+        <table
+          className="w-full border-collapse text-sm"
+          style={{ minWidth: `${480 + sortedEmployees.length * 90}px` }}
+        >
+          {/* Mitarbeiter-Header */}
+          <thead className="sticky top-0 z-20 bg-zinc-900">
             <tr className="border-b border-zinc-800">
-              <th className="sticky left-0 z-10 bg-zinc-900 w-48 min-w-[192px] px-3 py-2 text-left">
-                <span className="text-xs text-zinc-500 uppercase tracking-wide">Mitarbeiter</span>
+              <th className="sticky left-0 z-30 bg-zinc-900 w-20 min-w-[80px] px-2 py-2 text-left text-[10px] uppercase tracking-wide text-zinc-500">
+                Datum
               </th>
-              {days.map((day) => {
-                const d = new Date(`${day}T00:00:00Z`);
-                const wd = d.getUTCDay();
-                const isToday = day === today;
-                const isWeekend = wd === 0 || wd === 6;
-                return (
-                  <th
-                    key={day}
-                    className={`w-[72px] min-w-[72px] px-1 py-2 text-center ${
-                      isToday
-                        ? "bg-indigo-950/60"
-                        : isWeekend
-                        ? "bg-zinc-900/40"
-                        : ""
-                    }`}
+              <th className="sticky left-[80px] z-30 bg-zinc-900 w-12 min-w-[48px] px-1 py-2 text-center text-[10px] uppercase tracking-wide text-zinc-500">
+                Tag
+              </th>
+              <th className="sticky left-[128px] z-30 bg-zinc-900 w-72 min-w-[280px] px-2 py-2 text-left text-[10px] uppercase tracking-wide text-zinc-500">
+                Bemerkung / Slots
+              </th>
+              {sortedEmployees.map((emp) => (
+                <th
+                  key={emp.id}
+                  className="w-[90px] min-w-[90px] px-1 py-2 text-center align-bottom"
+                  style={{ borderTop: `3px solid ${emp.color}` }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEmployeeSummary({ employee: emp })}
+                    className="group flex flex-col items-center gap-1 w-full hover:bg-zinc-800/40 rounded-md py-1 transition-colors"
                   >
-                    <div className={`text-[10px] uppercase tracking-wide ${isWeekend ? "text-zinc-500" : "text-zinc-500"}`}>
-                      {WEEKDAY_SHORT[wd]}
-                    </div>
                     <div
-                      className={`text-sm font-semibold mt-0.5 w-7 h-7 mx-auto flex items-center justify-center rounded-full ${
-                        isToday
-                          ? "bg-indigo-500 text-white"
-                          : isWeekend
-                          ? "text-zinc-400"
-                          : "text-zinc-200"
-                      }`}
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold"
+                      style={{ backgroundColor: emp.color }}
                     >
-                      {d.getUTCDate()}
+                      {getInitials(emp.name)}
                     </div>
-                  </th>
-                );
-              })}
-              <th className="sticky right-0 z-10 bg-zinc-900 w-24 min-w-[96px] px-3 py-2 text-right">
-                <span className="text-xs text-zinc-500 uppercase tracking-wide">Σ Std</span>
-              </th>
+                    <div className="text-[11px] font-medium text-zinc-100 truncate w-full px-1" title={emp.name}>
+                      {emp.name.split(" ")[0]}
+                    </div>
+                    <div className="text-[9px] text-zinc-500 truncate w-full px-1">
+                      {emp.position ?? (emp.position_category ? emp.position_category.charAt(0).toUpperCase() + emp.position_category.slice(1) : "")}
+                    </div>
+                  </button>
+                </th>
+              ))}
             </tr>
           </thead>
 
-          {/* Employee rows */}
+          {/* Tag-Zeilen */}
           <tbody>
-            {employees.map((emp, empIdx) => {
-              const monthMins = empMonthlyMinutes.get(emp.id) ?? 0;
-              const targetMins = emp.monthly_hours * 60;
-              const pct = targetMins > 0 ? Math.min(100, Math.round((monthMins / targetMins) * 100)) : 0;
-              const over = targetMins > 0 && monthMins > targetMins;
-
+            {days.map((day) => {
+              const d = new Date(`${day}T00:00:00Z`);
+              const wd = d.getUTCDay();
+              const isToday = day === today;
+              const isWeekend = wd === 0 || wd === 6;
+              const rowBg = isToday
+                ? "bg-indigo-950/30"
+                : isWeekend
+                ? "bg-zinc-900/40"
+                : "bg-zinc-950";
               return (
-                <tr
-                  key={emp.id}
-                  className={`border-b border-zinc-800/60 ${empIdx % 2 === 0 ? "bg-zinc-950" : "bg-zinc-900/20"}`}
-                >
-                  {/* Employee info cell */}
-                  <td className="sticky left-0 z-10 px-3 py-2 bg-inherit border-r border-zinc-800">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                        style={{ backgroundColor: emp.color }}
-                      >
-                        {getInitials(emp.name)}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-zinc-100 truncate">{emp.name}</div>
-                        {emp.position && (
-                          <div className="text-xs text-zinc-500 truncate">{emp.position}</div>
-                        )}
-                      </div>
+                <tr key={day} className={`border-b border-zinc-800/60 ${rowBg}`}>
+                  <td className={`sticky left-0 z-10 px-2 py-1 align-top ${rowBg} border-r border-zinc-800/40`}>
+                    <div className="text-[11px] font-medium text-zinc-200 tabular-nums">
+                      {String(d.getUTCDate()).padStart(2, "0")}.
+                      {String(d.getUTCMonth() + 1).padStart(2, "0")}.
                     </div>
+                    <div className="text-[9px] text-zinc-500 tabular-nums">{d.getUTCFullYear()}</div>
                   </td>
-
-                  {/* Day cells */}
-                  {days.map((day) => {
-                    const isToday = day === today;
-                    const d = new Date(`${day}T00:00:00Z`);
-                    const wd = d.getUTCDay();
-                    const isWeekend = wd === 0 || wd === 6;
-                    return (
-                      <td
-                        key={day}
-                        className={`px-1 py-1 align-top group relative ${
-                          isToday
-                            ? "bg-indigo-950/20"
-                            : isWeekend
-                            ? "bg-zinc-900/20"
-                            : ""
-                        }`}
-                        style={{ height: 52 }}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={() => handleDrop(emp.id, day)}
-                      >
-                        {renderShiftBlock(emp, day)}
-                        {/* Right-click for availability */}
-                        <div
-                          className="absolute inset-0 pointer-events-none"
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            setAvailMenu({
-                              employee: emp,
-                              date: day,
-                              current: availMap.get(`${emp.id}-${day}`) ?? null,
-                              anchorRect: e.currentTarget.getBoundingClientRect(),
-                            });
-                          }}
-                        />
-                      </td>
-                    );
-                  })}
-
-                  {/* Monthly summary cell */}
-                  <td className="sticky right-0 z-10 px-2 py-2 text-right bg-inherit border-l border-zinc-800">
-                    <div className={`text-xs font-semibold ${over ? "text-amber-400" : "text-zinc-200"}`}>
-                      {formatMinutesAsHours(monthMins)}h
-                    </div>
-                    {emp.monthly_hours > 0 && (
-                      <>
-                        <div className="text-[10px] text-zinc-600">/ {emp.monthly_hours}h</div>
-                        <div className="mt-1 h-1 bg-zinc-800 rounded-full overflow-hidden w-14 ml-auto">
-                          <div
-                            className={`h-full rounded-full transition-all ${over ? "bg-amber-500" : "bg-indigo-500"}`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                      </>
-                    )}
+                  <td className={`sticky left-[80px] z-10 px-1 py-1 text-center align-top ${rowBg} border-r border-zinc-800/40`}>
+                    <span className={`text-[11px] ${isWeekend ? "text-zinc-500" : "text-zinc-300"}`}>
+                      {WEEKDAY_SHORT[wd]}
+                    </span>
                   </td>
+                  <td className={`sticky left-[128px] z-10 align-top ${rowBg} border-r border-zinc-800/40`}>
+                    {renderRemarksCell(day)}
+                  </td>
+                  {sortedEmployees.map((emp) => (
+                    <td
+                      key={emp.id}
+                      className="px-0.5 py-0.5 align-top relative"
+                      style={{ height: 56 }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleDrop(emp.id, day)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setAvailMenu({
+                          employee: emp,
+                          date: day,
+                          current: availMap.get(`${emp.id}-${day}`) ?? null,
+                          anchorRect: e.currentTarget.getBoundingClientRect(),
+                        });
+                      }}
+                    >
+                      {renderShiftCell(emp, day)}
+                    </td>
+                  ))}
                 </tr>
               );
             })}
           </tbody>
 
-          {/* Requirements footer */}
-          <tfoot>
-            <tr className="border-t-2 border-zinc-700 bg-zinc-900">
-              <td className="sticky left-0 z-10 bg-zinc-900 px-3 py-2 border-r border-zinc-800">
-                <span className="text-xs text-zinc-500 uppercase tracking-wide">Bedarf</span>
-              </td>
-              {days.map((day) => {
-                const req = reqMap.get(day);
-                const target = req?.required_shifts ?? 0;
-                const actual = staffingPerDay.get(day) ?? 0;
-                const ok = target === 0 || actual >= target;
-                return (
-                  <td key={day} className="px-1 py-2 text-center">
-                    <div className={`text-xs font-semibold ${ok ? "text-zinc-400" : "text-red-400"}`}>
-                      {target > 0 ? `${actual}/${target}` : <span className="text-zinc-700">—</span>}
-                    </div>
-                  </td>
-                );
-              })}
-              <td className="sticky right-0 z-10 bg-zinc-900 border-l border-zinc-800 px-2 py-2 text-right">
-                <div className="text-xs text-zinc-500">{employees.length} MA</div>
-              </td>
-            </tr>
+          {/* Footer: Soll/Ist/Diff/Urlaub/Krank pro Mitarbeiter */}
+          <tfoot className="sticky bottom-0 z-20 bg-zinc-900 border-t-2 border-zinc-700">
+            {[
+              { key: "soll", label: "Soll" },
+              { key: "ist", label: "Ist" },
+              { key: "diff", label: "Differenz" },
+              { key: "urlaub", label: "Urlaub" },
+              { key: "krank", label: "Krank" },
+            ].map((row) => (
+              <tr key={row.key} className="border-t border-zinc-800/60">
+                <td className="sticky left-0 z-10 bg-zinc-900 px-2 py-1 text-[10px] uppercase tracking-wide text-zinc-500" colSpan={3}>
+                  {row.label}
+                </td>
+                {sortedEmployees.map((emp) => {
+                  const sollMin = (emp.monthly_hours ?? 0) * 60;
+                  const istMin = empMonthlyMinutes.get(emp.id) ?? 0;
+                  const diffMin = istMin - sollMin;
+                  const counts = empAvailCounts.get(emp.id) ?? { f: 0, u: 0, k: 0 };
+                  let value = "";
+                  let cls = "text-zinc-300";
+                  if (row.key === "soll") {
+                    value = `${(emp.monthly_hours ?? 0).toFixed(0)}h`;
+                  } else if (row.key === "ist") {
+                    value = `${formatMinutesAsHours(istMin)}h`;
+                    if (sollMin > 0 && istMin > sollMin) cls = "text-amber-400";
+                  } else if (row.key === "diff") {
+                    value = `${diffMin >= 0 ? "+" : "-"}${formatMinutesAsHours(Math.abs(diffMin))}h`;
+                    cls = diffMin < 0 ? "text-amber-400" : diffMin > 0 ? "text-emerald-400" : "text-zinc-300";
+                  } else if (row.key === "urlaub") {
+                    value = String(counts.u);
+                    cls = counts.u > 0 ? "text-purple-300" : "text-zinc-600";
+                  } else if (row.key === "krank") {
+                    value = String(counts.k);
+                    cls = counts.k > 0 ? "text-amber-400" : "text-zinc-600";
+                  }
+                  return (
+                    <td key={emp.id} className={`px-1 py-1 text-center text-[11px] tabular-nums ${cls}`}>
+                      {value}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
           </tfoot>
         </table>
       </div>
 
-      {/* ── Availability context menu ──────────────────────────────────────── */}
+      {/* ── Verfügbarkeits-Kontextmenü ─────────────────────────────────── */}
       {availMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setAvailMenu(null)} />
           <div
-            className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl py-1 min-w-[200px]"
+            className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl py-1 min-w-[220px]"
             style={{
-              top: Math.min(availMenu.anchorRect.bottom + 4, window.innerHeight - 220),
-              left: Math.min(availMenu.anchorRect.left, window.innerWidth - 220),
+              top: Math.min(availMenu.anchorRect.bottom + 4, window.innerHeight - 260),
+              left: Math.min(availMenu.anchorRect.left, window.innerWidth - 240),
             }}
           >
             <div className="px-3 py-2 border-b border-zinc-800 text-xs text-zinc-400">
@@ -531,7 +732,9 @@ export default function MonthlyGrid({
                 type="button"
                 onClick={() => handleAvailSelect(availMenu.employee, availMenu.date, opt.value)}
                 className={`w-full text-left px-3 py-2 text-sm hover:bg-zinc-800 transition-colors ${
-                  (availMenu.current?.status ?? "") === opt.value ? "text-indigo-400 font-medium" : "text-zinc-300"
+                  (availMenu.current?.status ?? "").toUpperCase() === opt.value.toUpperCase()
+                    ? "text-indigo-400 font-medium"
+                    : "text-zinc-300"
                 }`}
               >
                 {opt.label}
@@ -541,7 +744,6 @@ export default function MonthlyGrid({
         </>
       )}
 
-      {/* ── Auto-plan config modal ────────────────────────────────────────── */}
       {showAutoPlanConfig && (
         <AutoPlanConfigModal
           month={month}
@@ -551,11 +753,10 @@ export default function MonthlyGrid({
         />
       )}
 
-      {/* ── Shift modal ────────────────────────────────────────────────────── */}
       {modalState && (
         <ShiftModal
           employee={modalState.employee}
-          allEmployees={employees}
+          allEmployees={sortedEmployees}
           date={modalState.date}
           shift={modalState.shift}
           shiftTracks={shiftTracks}
@@ -564,6 +765,39 @@ export default function MonthlyGrid({
           deleteAction={deleteShiftAction}
           moveAction={moveShiftAction}
         />
+      )}
+
+      {employeeSummary && (
+        <EmployeeShiftSummaryModal
+          employee={employeeSummary.employee}
+          month={month}
+          shifts={shifts}
+          availability={availability}
+          pauseRules={pauseRules}
+          onClose={() => setEmployeeSummary(null)}
+        />
+      )}
+
+      {dayDetails && (
+        <DayDetailsModal
+          date={dayDetails.date}
+          employees={sortedEmployees}
+          specialEvents={eventsByDate.get(dayDetails.date) ?? []}
+          plannedSlots={(slotsByDate.get(dayDetails.date) ?? []) as PlannedSlot[]}
+          onClose={() => setDayDetails(null)}
+          createEventAction={createSpecialEventAction}
+          updateEventAction={updateSpecialEventAction}
+          deleteEventAction={deleteSpecialEventAction}
+          createPlannedSlotAction={createPlannedSlotAction}
+          deletePlannedSlotAction={deletePlannedSlotAction}
+          assignPlannedSlotAction={assignPlannedSlotAction}
+        />
+      )}
+
+      {isMoving && (
+        <div className="fixed bottom-4 right-4 z-40 px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-zinc-300">
+          Verschiebe…
+        </div>
       )}
     </div>
   );

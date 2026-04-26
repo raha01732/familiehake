@@ -1,6 +1,21 @@
 // /workspace/familiehake/src/app/tools/dienstplaner/utils.ts
 
 // ── Shared domain types ───────────────────────────────────────────────────────
+export type PositionCategory = "serviceleitung" | "projektionsleitung" | "projektion";
+
+export const POSITION_CATEGORIES: { value: PositionCategory; label: string }[] = [
+  { value: "serviceleitung", label: "Serviceleitung" },
+  { value: "projektionsleitung", label: "Projektionsleitung" },
+  { value: "projektion", label: "Projektion" },
+];
+
+const POSITION_CATEGORY_ORDER: Record<PositionCategory | "_other", number> = {
+  serviceleitung: 0,
+  projektionsleitung: 1,
+  projektion: 2,
+  _other: 3,
+};
+
 export type Employee = {
   id: number;
   name: string;
@@ -12,7 +27,40 @@ export type Employee = {
   is_active: boolean;
   employment_type: string;
   sort_order: number;
+  position_category: PositionCategory | null;
 };
+
+export type SpecialEvent = {
+  id: number;
+  event_date: string;
+  title: string;
+  position: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  note: string | null;
+};
+
+export type PlannedSlot = {
+  id: number;
+  slot_date: string;
+  position: string | null;
+  track_key: string | null;
+  start_time: string;
+  end_time: string;
+  note: string | null;
+  source: string;
+  assigned_employee_id: number | null;
+};
+
+export function sortEmployeesForGrid(employees: Employee[]): Employee[] {
+  return [...employees].sort((a, b) => {
+    const ca = POSITION_CATEGORY_ORDER[a.position_category ?? "_other"];
+    const cb = POSITION_CATEGORY_ORDER[b.position_category ?? "_other"];
+    if (ca !== cb) return ca - cb;
+    if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+    return a.name.localeCompare(b.name, "de");
+  });
+}
 
 export type Shift = {
   employee_id: number;

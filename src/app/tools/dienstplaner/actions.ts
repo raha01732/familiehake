@@ -6,7 +6,8 @@ import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
-import { addHoursToTime, generateAutoPlanSlots, type AutoPlanSlot, type PauseRule } from "./utils";
+import { addHoursToTime, calculateShiftMinutes, generateAutoPlanSlots, type AutoPlanSlot, type PauseRule } from "./utils";
+import { askAiToAssignSlots, dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
 
 const PLAN_PATH = "/tools/dienstplaner";
 const SETTINGS_PATH = "/tools/dienstplaner/settings";
@@ -546,6 +547,13 @@ export async function createEmployeeAction(formData: FormData) {
   const monthlyHours = Number(formData.get("monthly_hours") || 0);
   const weeklyHours = Number(formData.get("weekly_hours") || 0);
   const color = String(formData.get("color") || "#6366f1").trim();
+  const rawPositionCategory = String(formData.get("position_category") || "").trim();
+  const positionCategory =
+    rawPositionCategory === "serviceleitung" ||
+    rawPositionCategory === "projektionsleitung" ||
+    rawPositionCategory === "projektion"
+      ? rawPositionCategory
+      : null;
   if (!name) return;
 
   const sb = createAdminClient();
@@ -567,6 +575,7 @@ export async function createEmployeeAction(formData: FormData) {
     color,
     sort_order: nextSortOrder,
     is_active: true,
+    position_category: positionCategory,
   });
 
   revalidatePath(SETTINGS_PATH);
@@ -609,6 +618,20 @@ export async function updateEmployeeAction(formData: FormData) {
 
   const rawIsActive = formData.get("is_active");
   if (rawIsActive !== null) updates.is_active = rawIsActive === "true";
+
+  const rawPositionCategory = formData.get("position_category");
+  if (typeof rawPositionCategory === "string") {
+    const value = rawPositionCategory.trim();
+    if (!value) {
+      updates.position_category = null;
+    } else if (
+      value === "serviceleitung" ||
+      value === "projektionsleitung" ||
+      value === "projektion"
+    ) {
+      updates.position_category = value;
+    }
+  }
 
   if (Object.keys(updates).length === 0) return;
 
@@ -1061,6 +1084,563 @@ export async function clearPositionRequirementsAction(formData: FormData) {
 
   const sb = createAdminClient();
   await sb.from("dienstplan_position_requirements").delete().eq("requirement_date", requirementDate);
+
+  revalidatePath(PLAN_PATH);
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Sonderveranstaltungen
+// ──────────────────────────────────────────────────────────────────────
+
+export async function createSpecialEventAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const eventDate = String(formData.get("event_date") || "").trim();
+  const title = String(formData.get("title") || "").trim();
+  const position = String(formData.get("position") || "").trim();
+  const startTime = normalizeTimeInput(String(formData.get("start_time") || ""));
+  const endTime = normalizeTimeInput(String(formData.get("end_time") || ""));
+  const note = String(formData.get("note") || "").trim();
+  if (!eventDate || !title) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_special_events").insert({
+    event_date: eventDate,
+    title,
+    position: position || null,
+    start_time: startTime,
+    end_time: endTime,
+    note: note || null,
+  });
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function updateSpecialEventAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const id = Number(formData.get("id"));
+  const title = String(formData.get("title") || "").trim();
+  const position = String(formData.get("position") || "").trim();
+  const startTime = normalizeTimeInput(String(formData.get("start_time") || ""));
+  const endTime = normalizeTimeInput(String(formData.get("end_time") || ""));
+  const note = String(formData.get("note") || "").trim();
+  if (!id || !title) return;
+
+  const sb = createAdminClient();
+  await sb
+    .from("dienstplan_special_events")
+    .update({
+      title,
+      position: position || null,
+      start_time: startTime,
+      end_time: endTime,
+      note: note || null,
+    })
+    .eq("id", id);
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function deleteSpecialEventAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const id = Number(formData.get("id"));
+  if (!id) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_special_events").delete().eq("id", id);
+
+  revalidatePath(PLAN_PATH);
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Vorplanung – geplante (ggf. unbesetzte) Slots
+// ──────────────────────────────────────────────────────────────────────
+
+export async function createPlannedSlotAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const slotDate = String(formData.get("slot_date") || "").trim();
+  const position = String(formData.get("position") || "").trim();
+  const trackKey = String(formData.get("track_key") || "").trim();
+  const startTime = normalizeTimeInput(String(formData.get("start_time") || ""));
+  const endTime = normalizeTimeInput(String(formData.get("end_time") || ""));
+  const note = String(formData.get("note") || "").trim();
+  if (!slotDate || !startTime || !endTime) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_planned_slots").insert({
+    slot_date: slotDate,
+    position: position || null,
+    track_key: trackKey || null,
+    start_time: startTime,
+    end_time: endTime,
+    note: note || null,
+    source: "manual",
+  });
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function deletePlannedSlotAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const id = Number(formData.get("id"));
+  if (!id) return;
+
+  const sb = createAdminClient();
+  await sb.from("dienstplan_planned_slots").delete().eq("id", id);
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function assignPlannedSlotAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const id = Number(formData.get("id"));
+  const employeeId = Number(formData.get("employee_id"));
+  if (!id || !employeeId) return;
+
+  const sb = createAdminClient();
+  const { data: slot } = await sb
+    .from("dienstplan_planned_slots")
+    .select("id, slot_date, start_time, end_time, note")
+    .eq("id", id)
+    .maybeSingle();
+  if (!slot) return;
+
+  await sb.from("dienstplan_shifts").upsert(
+    {
+      employee_id: employeeId,
+      shift_date: slot.slot_date,
+      start_time: slot.start_time,
+      end_time: slot.end_time,
+      break_minutes: null,
+      comment: slot.note ?? null,
+      raw_input: "from-planned-slot",
+    },
+    { onConflict: "employee_id,shift_date" }
+  );
+
+  await sb.from("dienstplan_planned_slots").delete().eq("id", id);
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function buildPreplanForMonthAction(formData: FormData) {
+  await assertAdminForDienstplanAutomation();
+
+  const month = String(formData.get("month") || "");
+  const range = getMonthRange(month);
+  if (!range) return;
+
+  const overwriteExisting = formData.get("overwrite_existing") === "true";
+
+  const sb = createAdminClient();
+  const [trackResult, weekdayPosResult, specialEventsResult, existingShiftsResult] = await Promise.all([
+    sb.from("dienstplan_shift_tracks").select("track_key, start_time, end_time"),
+    sb
+      .from("dienstplan_weekday_position_requirements")
+      .select("weekday, track_key, position, note"),
+    sb
+      .from("dienstplan_special_events")
+      .select("event_date, title, position, start_time, end_time, note")
+      .gte("event_date", range.start)
+      .lte("event_date", range.end),
+    sb
+      .from("dienstplan_shifts")
+      .select("employee_id, shift_date, start_time, end_time")
+      .gte("shift_date", range.start)
+      .lte("shift_date", range.end),
+  ]);
+
+  const tracks = (trackResult.data ?? []) as { track_key: string; start_time: string; end_time: string }[];
+  const trackMap = new Map(tracks.map((t) => [t.track_key, t]));
+  const weekdayPositions = (weekdayPosResult.data ?? []) as {
+    weekday: number;
+    track_key: string;
+    position: string;
+    note: string | null;
+  }[];
+  const specialEvents = (specialEventsResult.data ?? []) as {
+    event_date: string;
+    title: string;
+    position: string | null;
+    start_time: string | null;
+    end_time: string | null;
+    note: string | null;
+  }[];
+  const existingShifts = (existingShiftsResult.data ?? []) as {
+    employee_id: number;
+    shift_date: string;
+    start_time: string | null;
+    end_time: string | null;
+  }[];
+
+  if (overwriteExisting) {
+    await sb
+      .from("dienstplan_planned_slots")
+      .delete()
+      .gte("slot_date", range.start)
+      .lte("slot_date", range.end);
+  } else {
+    await sb
+      .from("dienstplan_planned_slots")
+      .delete()
+      .is("assigned_employee_id", null)
+      .gte("slot_date", range.start)
+      .lte("slot_date", range.end);
+  }
+
+  const slotsByDate = new Map<string, { position: string | null; track_key: string | null; start_time: string; end_time: string; note: string | null; source: string }[]>();
+
+  for (const day of buildMonthDays(range.start, range.end)) {
+    const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
+    const list: NonNullable<ReturnType<typeof slotsByDate.get>> = [];
+
+    for (const requirement of weekdayPositions) {
+      if (requirement.weekday !== weekday) continue;
+      const track = trackMap.get(requirement.track_key);
+      if (!track) continue;
+      list.push({
+        position: requirement.position,
+        track_key: requirement.track_key,
+        start_time: track.start_time.slice(0, 5),
+        end_time: track.end_time.slice(0, 5),
+        note: requirement.note,
+        source: "weekday_default",
+      });
+    }
+
+    slotsByDate.set(day, list);
+  }
+
+  for (const event of specialEvents) {
+    if (!event.start_time || !event.end_time) continue;
+    const list = slotsByDate.get(event.event_date) ?? [];
+    list.push({
+      position: event.position,
+      track_key: null,
+      start_time: event.start_time.slice(0, 5),
+      end_time: event.end_time.slice(0, 5),
+      note: `${event.title}${event.note ? ` – ${event.note}` : ""}`,
+      source: "event",
+    });
+    slotsByDate.set(event.event_date, list);
+  }
+
+  const inserts: {
+    slot_date: string;
+    position: string | null;
+    track_key: string | null;
+    start_time: string;
+    end_time: string;
+    note: string | null;
+    source: string;
+  }[] = [];
+
+  if (!overwriteExisting) {
+    const existingByDate = new Map<string, number>();
+    for (const shift of existingShifts) {
+      existingByDate.set(shift.shift_date, (existingByDate.get(shift.shift_date) ?? 0) + 1);
+    }
+    for (const [date, list] of slotsByDate) {
+      const existing = existingByDate.get(date) ?? 0;
+      const remaining = list.slice(existing);
+      for (const slot of remaining) {
+        inserts.push({ slot_date: date, ...slot });
+      }
+    }
+  } else {
+    for (const [date, list] of slotsByDate) {
+      for (const slot of list) {
+        inserts.push({ slot_date: date, ...slot });
+      }
+    }
+  }
+
+  if (inserts.length > 0) {
+    await sb.from("dienstplan_planned_slots").insert(inserts);
+  }
+
+  revalidatePath(PLAN_PATH);
+}
+
+export async function autoFillPlannedSlotsAction(formData: FormData) {
+  await assertAdminForDienstplanAutomation();
+
+  const month = String(formData.get("month") || "");
+  const range = getMonthRange(month);
+  if (!range) return;
+
+  const sb = createAdminClient();
+  const [employeesResult, slotsResult, availabilityResult, pauseRulesResult, existingShiftsResult] = await Promise.all([
+    sb
+      .from("dienstplan_employees")
+      .select("id, position, position_category, monthly_hours, weekly_hours")
+      .eq("is_active", true),
+    sb
+      .from("dienstplan_planned_slots")
+      .select("id, slot_date, position, start_time, end_time")
+      .is("assigned_employee_id", null)
+      .gte("slot_date", range.start)
+      .lte("slot_date", range.end)
+      .order("slot_date"),
+    sb
+      .from("dienstplan_availability")
+      .select("employee_id, availability_date, status, fixed_start, fixed_end")
+      .gte("availability_date", range.start)
+      .lte("availability_date", range.end),
+    sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
+    sb
+      .from("dienstplan_shifts")
+      .select("employee_id, shift_date, start_time, end_time")
+      .gte("shift_date", range.start)
+      .lte("shift_date", range.end),
+  ]);
+
+  const employees = (employeesResult.data ?? []) as {
+    id: number;
+    position: string | null;
+    position_category: string | null;
+    monthly_hours: number;
+    weekly_hours: number;
+  }[];
+  const slots = (slotsResult.data ?? []) as {
+    id: number;
+    slot_date: string;
+    position: string | null;
+    start_time: string;
+    end_time: string;
+  }[];
+  const availability = (availabilityResult.data ?? []) as {
+    employee_id: number;
+    availability_date: string;
+    status: string | null;
+    fixed_start: string | null;
+    fixed_end: string | null;
+  }[];
+  const pauseRules = (pauseRulesResult.data ?? []) as PauseRule[];
+  const existingShifts = (existingShiftsResult.data ?? []) as {
+    employee_id: number;
+    shift_date: string;
+    start_time: string | null;
+    end_time: string | null;
+  }[];
+
+  const generated = generateAutoPlanSlots({
+    employees,
+    existingShifts,
+    availability,
+    slots: slots.map((slot) => ({
+      shift_date: slot.slot_date,
+      position: slot.position,
+      start_time: slot.start_time.slice(0, 5),
+      end_time: slot.end_time.slice(0, 5),
+    })),
+    pauseRules,
+    maxShiftsPerWeek: 7,
+  });
+
+  if (generated.length === 0) return;
+
+  // Map jeden geplanten Slot der ersten passenden Zuweisung zu (Datum + Zeit)
+  const assignedSlotIds = new Set<number>();
+  const filledShifts: typeof generated = [];
+  for (const assignment of generated) {
+    const matching = slots.find(
+      (slot) =>
+        !assignedSlotIds.has(slot.id) &&
+        slot.slot_date === assignment.shift_date &&
+        slot.start_time.slice(0, 5) === assignment.start_time &&
+        slot.end_time.slice(0, 5) === assignment.end_time
+    );
+    if (!matching) continue;
+    assignedSlotIds.add(matching.id);
+    filledShifts.push(assignment);
+  }
+
+  if (filledShifts.length > 0) {
+    await sb.from("dienstplan_shifts").upsert(
+      filledShifts.map((shift) => ({
+        ...shift,
+        break_minutes: null,
+        comment: null,
+        raw_input: "auto-fill-slot",
+      })),
+      { onConflict: "employee_id,shift_date" }
+    );
+  }
+
+  if (assignedSlotIds.size > 0) {
+    await sb
+      .from("dienstplan_planned_slots")
+      .delete()
+      .in("id", Array.from(assignedSlotIds));
+  }
+
+  revalidatePath(PLAN_PATH);
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// KI-Assistent: ordnet unbesetzte Slots fairen Mitarbeitenden zu
+// ──────────────────────────────────────────────────────────────────────
+
+export async function aiFillPlannedSlotsAction(formData: FormData) {
+  await assertAdminForDienstplanAutomation();
+
+  if (!dienstplanAiEnabled()) {
+    throw new Error("KI ist nicht verfügbar (AI_GATEWAY_API_KEY fehlt).");
+  }
+
+  const month = String(formData.get("month") || "");
+  const range = getMonthRange(month);
+  if (!range) return;
+
+  const sb = createAdminClient();
+  const [employeesResult, slotsResult, availabilityResult, shiftsResult, pauseRulesResult] = await Promise.all([
+    sb
+      .from("dienstplan_employees")
+      .select("id, name, position, position_category, monthly_hours, weekly_hours")
+      .eq("is_active", true),
+    sb
+      .from("dienstplan_planned_slots")
+      .select("id, slot_date, position, start_time, end_time, note")
+      .is("assigned_employee_id", null)
+      .gte("slot_date", range.start)
+      .lte("slot_date", range.end)
+      .order("slot_date"),
+    sb
+      .from("dienstplan_availability")
+      .select("employee_id, availability_date, status, fixed_start, fixed_end")
+      .gte("availability_date", range.start)
+      .lte("availability_date", range.end),
+    sb
+      .from("dienstplan_shifts")
+      .select("employee_id, start_time, end_time, break_minutes")
+      .gte("shift_date", range.start)
+      .lte("shift_date", range.end),
+    sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
+  ]);
+
+  const employees = (employeesResult.data ?? []) as {
+    id: number;
+    name: string;
+    position: string | null;
+    position_category: string | null;
+    monthly_hours: number;
+    weekly_hours: number;
+  }[];
+  const slots = (slotsResult.data ?? []) as {
+    id: number;
+    slot_date: string;
+    position: string | null;
+    start_time: string;
+    end_time: string;
+    note: string | null;
+  }[];
+  const availability = (availabilityResult.data ?? []) as {
+    employee_id: number;
+    availability_date: string;
+    status: string | null;
+    fixed_start: string | null;
+    fixed_end: string | null;
+  }[];
+  const shifts = (shiftsResult.data ?? []) as {
+    employee_id: number;
+    start_time: string | null;
+    end_time: string | null;
+    break_minutes: number | null;
+  }[];
+  const pauseRules = (pauseRulesResult.data ?? []) as PauseRule[];
+
+  if (slots.length === 0) return;
+
+  const currentHoursByEmployee = new Map<number, number>();
+  for (const shift of shifts) {
+    const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules, shift.break_minutes);
+    if (!summary) continue;
+    currentHoursByEmployee.set(
+      shift.employee_id,
+      (currentHoursByEmployee.get(shift.employee_id) ?? 0) + summary.workMinutes / 60
+    );
+  }
+
+  const aiResponse = await askAiToAssignSlots({
+    month,
+    slots: slots.map((slot) => ({
+      id: slot.id,
+      date: slot.slot_date,
+      weekday: new Date(`${slot.slot_date}T00:00:00Z`).getUTCDay(),
+      position: slot.position,
+      start_time: slot.start_time.slice(0, 5),
+      end_time: slot.end_time.slice(0, 5),
+      note: slot.note,
+    })),
+    employees: employees.map((emp) => ({
+      id: emp.id,
+      name: emp.name,
+      position: emp.position,
+      position_category: emp.position_category,
+      monthly_target_hours: Number(emp.monthly_hours) || 0,
+      weekly_target_hours: Number(emp.weekly_hours) || 0,
+      current_month_hours: Math.round(((currentHoursByEmployee.get(emp.id) ?? 0) + Number.EPSILON) * 100) / 100,
+    })),
+    availability: availability.map((entry) => ({
+      employee_id: entry.employee_id,
+      date: entry.availability_date,
+      status: entry.status,
+      fixed_start: entry.fixed_start,
+      fixed_end: entry.fixed_end,
+    })),
+  });
+
+  if (aiResponse.assignments.length === 0) return;
+
+  const slotsById = new Map(slots.map((s) => [s.id, s]));
+  const employeeIds = new Set(employees.map((e) => e.id));
+  const usedEmployeeOnDay = new Set<string>();
+  const validAssignments: { slot_id: number; employee_id: number }[] = [];
+
+  for (const a of aiResponse.assignments) {
+    const slot = slotsById.get(a.slot_id);
+    if (!slot) continue;
+    if (!employeeIds.has(a.employee_id)) continue;
+    const dayKey = `${a.employee_id}-${slot.slot_date}`;
+    if (usedEmployeeOnDay.has(dayKey)) continue;
+    usedEmployeeOnDay.add(dayKey);
+    validAssignments.push({ slot_id: slot.id, employee_id: a.employee_id });
+  }
+
+  if (validAssignments.length === 0) return;
+
+  const inserts = validAssignments
+    .map(({ slot_id, employee_id }) => {
+      const slot = slotsById.get(slot_id);
+      if (!slot) return null;
+      return {
+        employee_id,
+        shift_date: slot.slot_date,
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        break_minutes: null,
+        comment: slot.note ?? null,
+        raw_input: "ai-assignment",
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  if (inserts.length > 0) {
+    await sb.from("dienstplan_shifts").upsert(inserts, { onConflict: "employee_id,shift_date" });
+    await sb
+      .from("dienstplan_planned_slots")
+      .delete()
+      .in(
+        "id",
+        validAssignments.map((a) => a.slot_id)
+      );
+  }
 
   revalidatePath(PLAN_PATH);
 }
