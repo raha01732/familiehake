@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/tools/dienstplaner", label: "Monatsplan", exact: true },
   { href: "/tools/dienstplaner/mitarbeiter", label: "Mitarbeiter", exact: false },
+  { href: "/tools/dienstplaner/verfuegbarkeit", label: "Verfügbarkeiten", exact: false },
   { href: "/tools/dienstplaner/einstellungen", label: "Einstellungen", exact: false },
 ];
 

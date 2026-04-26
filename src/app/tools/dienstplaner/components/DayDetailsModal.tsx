@@ -27,7 +27,7 @@ function formatDateLabel(dateStr: string) {
 }
 
 const inputCls =
-  "rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-1 text-xs text-zinc-100 focus:border-cyan-500/70 focus:outline-none";
+  "rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1 text-xs text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground)/0.7)] focus:border-[hsl(var(--ring))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring)/0.2)] disabled:opacity-60";
 
 export default function DayDetailsModal({
   date,
@@ -60,15 +60,17 @@ export default function DayDetailsModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-3xl shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between p-5 border-b border-zinc-800">
+      <div className="relative bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl w-full max-w-3xl shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-[hsl(var(--border))]">
           <div>
-            <h2 className="font-semibold text-zinc-100">{formatDateLabel(date)}</h2>
-            <p className="text-xs text-zinc-500 mt-0.5">Sonderveranstaltungen & geplante Slots</p>
+            <h2 className="font-semibold text-[hsl(var(--foreground))]">{formatDateLabel(date)}</h2>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
+              Sonderveranstaltungen & geplante Slots
+            </p>
           </div>
           <button
             onClick={onClose}
-            className="text-zinc-400 hover:text-zinc-100 p-1 rounded-lg hover:bg-zinc-800 transition-colors"
+            className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] p-1 rounded-lg hover:bg-[hsl(var(--secondary))] transition-colors"
             aria-label="Schließen"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -78,21 +80,25 @@ export default function DayDetailsModal({
         </div>
 
         {error && (
-          <div className="px-5 py-2 bg-red-950/40 text-red-300 text-xs border-b border-red-900/40">{error}</div>
+          <div className="px-5 py-2 bg-[hsl(var(--destructive)/0.12)] text-[hsl(var(--destructive))] text-xs border-b border-[hsl(var(--destructive)/0.3)]">
+            {error}
+          </div>
         )}
 
         <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-6">
           {/* ── Sonderveranstaltungen ───────────────────────────────────── */}
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-zinc-200">Sonderveranstaltungen</h3>
+            <h3 className="text-sm font-semibold text-[hsl(var(--foreground))]">Sonderveranstaltungen</h3>
             {specialEvents.length === 0 ? (
-              <p className="text-xs text-zinc-500">Noch keine Sonderveranstaltung an diesem Tag.</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                Noch keine Sonderveranstaltung an diesem Tag.
+              </p>
             ) : (
               <ul className="flex flex-col gap-2">
                 {specialEvents.map((event) => (
                   <li
                     key={event.id}
-                    className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2"
+                    className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.4)] px-3 py-2"
                   >
                     <form
                       action={withForm(updateEventAction)}
@@ -130,7 +136,7 @@ export default function DayDetailsModal({
                       />
                       <button
                         type="submit"
-                        className="text-xs text-emerald-500 hover:text-emerald-400 px-2"
+                        className="text-xs text-emerald-500 hover:text-emerald-400 px-2 font-medium"
                         disabled={isPending}
                       >
                         Speichern
@@ -138,14 +144,14 @@ export default function DayDetailsModal({
                       <button
                         type="submit"
                         formAction={withForm(deleteEventAction)}
-                        className="text-xs text-red-500 hover:text-red-400 px-2"
+                        className="text-xs text-[hsl(var(--destructive))] hover:opacity-80 px-2 font-medium"
                         disabled={isPending}
                       >
                         Löschen
                       </button>
                     </form>
                     {event.note && (
-                      <div className="mt-1 text-[11px] text-zinc-500">{event.note}</div>
+                      <div className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">{event.note}</div>
                     )}
                   </li>
                 ))}
@@ -153,7 +159,7 @@ export default function DayDetailsModal({
             )}
             <form
               action={withForm(createEventAction)}
-              className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_1fr_auto] gap-2 items-center pt-2 border-t border-zinc-800"
+              className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_1fr_auto] gap-2 items-center pt-2 border-t border-[hsl(var(--border))]"
             >
               <input type="hidden" name="event_date" value={date} />
               <input
@@ -165,15 +171,10 @@ export default function DayDetailsModal({
               />
               <input name="start_time" type="time" className={`${inputCls} w-24`} disabled={isPending} />
               <input name="end_time" type="time" className={`${inputCls} w-24`} disabled={isPending} />
-              <input
-                name="position"
-                placeholder="Position (optional)"
-                className={inputCls}
-                disabled={isPending}
-              />
+              <input name="position" placeholder="Position (optional)" className={inputCls} disabled={isPending} />
               <button
                 type="submit"
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1 rounded-md disabled:opacity-50"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-md disabled:opacity-50"
                 disabled={isPending}
               >
                 + Veranstaltung
@@ -183,9 +184,9 @@ export default function DayDetailsModal({
 
           {/* ── Geplante Slots ──────────────────────────────────────────── */}
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-zinc-200">Geplante / unbesetzte Slots</h3>
+            <h3 className="text-sm font-semibold text-[hsl(var(--foreground))]">Geplante / unbesetzte Slots</h3>
             {plannedSlots.length === 0 ? (
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
                 Keine geplanten Slots. Lege unten manuell einen Slot an oder nutze „Vorplanung erstellen" oben.
               </p>
             ) : (
@@ -193,21 +194,23 @@ export default function DayDetailsModal({
                 {plannedSlots.map((slot) => (
                   <li
                     key={slot.id}
-                    className="rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 flex flex-col gap-2"
+                    className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 flex flex-col gap-2"
                   >
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="inline-flex items-center gap-1 text-xs text-red-300">
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-red-500">
                         <span className="w-2 h-2 rounded-full bg-red-500" />
                         {slot.start_time.slice(0, 5)}–{slot.end_time.slice(0, 5)}
                       </span>
-                      <span className="text-xs text-zinc-300">{slot.position ?? "Beliebig"}</span>
-                      {slot.note && <span className="text-[11px] text-zinc-500">— {slot.note}</span>}
-                      <span className="ml-auto text-[10px] uppercase tracking-wide text-zinc-600">
+                      <span className="text-xs text-[hsl(var(--foreground))]">{slot.position ?? "Beliebig"}</span>
+                      {slot.note && (
+                        <span className="text-[11px] text-[hsl(var(--muted-foreground))]">— {slot.note}</span>
+                      )}
+                      <span className="ml-auto text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground)/0.7)]">
                         {slot.source}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <form action={withForm(assignPlannedSlotAction)} className="flex items-center gap-2">
+                      <form action={withForm(assignPlannedSlotAction)} className="flex items-center gap-2 flex-1">
                         <input type="hidden" name="id" value={slot.id} />
                         <select
                           name="employee_id"
@@ -227,7 +230,7 @@ export default function DayDetailsModal({
                         </select>
                         <button
                           type="submit"
-                          className="text-xs text-emerald-500 hover:text-emerald-400 px-2"
+                          className="text-xs text-emerald-500 hover:text-emerald-400 px-2 font-medium"
                           disabled={isPending}
                         >
                           Zuweisen
@@ -237,7 +240,7 @@ export default function DayDetailsModal({
                         <input type="hidden" name="id" value={slot.id} />
                         <button
                           type="submit"
-                          className="text-xs text-red-500 hover:text-red-400 px-2"
+                          className="text-xs text-[hsl(var(--destructive))] hover:opacity-80 px-2 font-medium"
                           disabled={isPending}
                         >
                           Slot löschen
@@ -250,7 +253,7 @@ export default function DayDetailsModal({
             )}
             <form
               action={withForm(createPlannedSlotAction)}
-              className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_1fr_auto] gap-2 items-center pt-2 border-t border-zinc-800"
+              className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_1fr_auto] gap-2 items-center pt-2 border-t border-[hsl(var(--border))]"
             >
               <input type="hidden" name="slot_date" value={date} />
               <input
@@ -261,15 +264,10 @@ export default function DayDetailsModal({
               />
               <input name="start_time" type="time" className={`${inputCls} w-24`} required disabled={isPending} />
               <input name="end_time" type="time" className={`${inputCls} w-24`} required disabled={isPending} />
-              <input
-                name="note"
-                placeholder="Notiz"
-                className={inputCls}
-                disabled={isPending}
-              />
+              <input name="note" placeholder="Notiz" className={inputCls} disabled={isPending} />
               <button
                 type="submit"
-                className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-1 rounded-md disabled:opacity-50"
+                className="bg-red-600 hover:bg-red-500 text-white text-xs font-semibold px-3 py-1.5 rounded-md disabled:opacity-50"
                 disabled={isPending}
               >
                 + Roter Slot
@@ -277,18 +275,18 @@ export default function DayDetailsModal({
             </form>
           </section>
 
-          {/* hint */}
-          <p className="text-[11px] text-zinc-500">
-            <span className="text-emerald-400 font-medium">Tipp:</span> Sonderveranstaltungen mit Position +
-            Zeit fließen automatisch in die Vorplanung ein. Rote Slots werden vom Auto-Plan oder KI-Assistent
-            besetzt.
+          <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+            <span className="text-emerald-500 font-medium">Tipp:</span> Sonderveranstaltungen mit Position + Zeit
+            fließen automatisch in die Vorplanung ein. Rote Slots werden vom Auto-Plan oder KI-Assistent besetzt.
+            Wird eine Schicht manuell angelegt, die exakt zu einem roten Slot passt (Datum + Start + Ende), wird
+            der Slot automatisch entfernt.
           </p>
         </div>
 
-        <div className="px-5 py-3 border-t border-zinc-800 flex justify-end">
+        <div className="px-5 py-3 border-t border-[hsl(var(--border))] flex justify-end">
           <button
             onClick={onClose}
-            className="text-xs px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-md transition-colors"
+            className="text-xs px-3 py-1.5 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] rounded-md transition-colors"
           >
             Schließen
           </button>
