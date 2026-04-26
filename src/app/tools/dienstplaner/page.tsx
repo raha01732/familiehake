@@ -9,11 +9,28 @@ import {
   saveAvailabilityAction,
   autoGenerateMonthPlanAction,
   clearMonthAction,
+  buildPreplanForMonthAction,
+  autoFillPlannedSlotsAction,
+  aiFillPlannedSlotsAction,
+  createSpecialEventAction,
+  updateSpecialEventAction,
+  deleteSpecialEventAction,
+  createPlannedSlotAction,
+  deletePlannedSlotAction,
+  assignPlannedSlotAction,
 } from "./actions";
 import MonthlyGrid from "./components/MonthlyGrid";
-import type { Employee, Shift, Availability, DateRequirement, ShiftTrack } from "./utils";
+import type {
+  Employee,
+  Shift,
+  Availability,
+  ShiftTrack,
+  SpecialEvent,
+  PlannedSlot,
+} from "./utils";
 import { buildMonthDays, getCurrentMonth } from "./utils";
 import type { PauseRule } from "./utils";
+import { dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
 
 export const metadata = { title: "Dienstplaner" };
 export const dynamic = "force-dynamic";
@@ -39,13 +56,16 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
     empResult,
     shiftResult,
     availResult,
-    reqResult,
     pauseResult,
     trackResult,
+    eventsResult,
+    plannedResult,
   ] = await Promise.all([
     sb
       .from("dienstplan_employees")
-      .select("id, name, position, department, monthly_hours, weekly_hours, color, is_active, employment_type, sort_order")
+      .select(
+        "id, name, position, department, monthly_hours, weekly_hours, color, is_active, employment_type, sort_order, position_category"
+      )
       .eq("is_active", true)
       .order("sort_order")
       .order("id"),
@@ -59,22 +79,33 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       .select("employee_id, availability_date, status, fixed_start, fixed_end")
       .gte("availability_date", start)
       .lte("availability_date", end),
-    sb
-      .from("dienstplan_date_requirements")
-      .select("requirement_date, required_shifts, service_required_shifts, note")
-      .gte("requirement_date", start)
-      .lte("requirement_date", end),
     sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
     sb.from("dienstplan_shift_tracks").select("track_key, label, start_time, end_time").order("start_time"),
+    sb
+      .from("dienstplan_special_events")
+      .select("id, event_date, title, position, start_time, end_time, note")
+      .gte("event_date", start)
+      .lte("event_date", end)
+      .order("event_date")
+      .order("start_time"),
+    sb
+      .from("dienstplan_planned_slots")
+      .select("id, slot_date, position, track_key, start_time, end_time, note, source, assigned_employee_id")
+      .gte("slot_date", start)
+      .lte("slot_date", end)
+      .order("slot_date")
+      .order("start_time"),
   ]);
 
   const employees = (empResult.data ?? []) as Employee[];
   const shifts = (shiftResult.data ?? []) as Shift[];
   const availability = (availResult.data ?? []) as Availability[];
-  const requirements = (reqResult.data ?? []) as DateRequirement[];
   const pauseRules = (pauseResult.data ?? []) as PauseRule[];
   const shiftTracks = (trackResult.data ?? []) as ShiftTrack[];
+  const specialEvents = (eventsResult.data ?? []) as SpecialEvent[];
+  const plannedSlots = (plannedResult.data ?? []) as PlannedSlot[];
   const days = buildMonthDays(month);
+  const aiEnabled = dienstplanAiEnabled();
 
   return (
     <MonthlyGrid
@@ -83,16 +114,27 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       employees={employees}
       shifts={shifts}
       availability={availability}
-      requirements={requirements}
       pauseRules={pauseRules}
       shiftTracks={shiftTracks}
+      specialEvents={specialEvents}
+      plannedSlots={plannedSlots}
       isAdmin={isAdmin}
+      aiEnabled={aiEnabled}
       saveShiftAction={saveShiftAction}
       deleteShiftAction={deleteShiftAction}
       moveShiftAction={moveShiftAction}
       saveAvailabilityAction={saveAvailabilityAction}
       autoGenerateAction={autoGenerateMonthPlanAction}
       clearMonthAction={clearMonthAction}
+      buildPreplanAction={buildPreplanForMonthAction}
+      autoFillSlotsAction={autoFillPlannedSlotsAction}
+      aiFillSlotsAction={aiFillPlannedSlotsAction}
+      createSpecialEventAction={createSpecialEventAction}
+      updateSpecialEventAction={updateSpecialEventAction}
+      deleteSpecialEventAction={deleteSpecialEventAction}
+      createPlannedSlotAction={createPlannedSlotAction}
+      deletePlannedSlotAction={deletePlannedSlotAction}
+      assignPlannedSlotAction={assignPlannedSlotAction}
     />
   );
 }

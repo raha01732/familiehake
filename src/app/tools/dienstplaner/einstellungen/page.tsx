@@ -25,7 +25,7 @@ export default async function EinstellungenPage() {
   ]);
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 flex flex-col gap-8 animate-fade-up">
+    <div className="max-w-7xl mx-auto px-4 py-8 flex flex-col gap-8 animate-fade-up">
       {/* Header */}
       <div className="flex flex-col gap-2">
         <div

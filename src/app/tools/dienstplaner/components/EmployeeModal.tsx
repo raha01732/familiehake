@@ -2,7 +2,7 @@
 
 import { useRef, useTransition, useState } from "react";
 import type { Employee } from "../utils";
-import { EMPLOYEE_COLORS, EMPLOYMENT_TYPES } from "../utils";
+import { EMPLOYEE_COLORS, EMPLOYMENT_TYPES, POSITION_CATEGORIES } from "../utils";
 
 type Props = {
   employee?: Employee | null;
@@ -122,20 +122,39 @@ export default function EmployeeModal({
             </div>
           </div>
 
-          {/* Employment type */}
-          <div>
-            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Beschäftigungsart</label>
-            <select
-              name="employment_type"
-              defaultValue={employee?.employment_type ?? "vollzeit"}
-              className={inputCls}
-            >
-              {EMPLOYMENT_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
+          {/* Employment type & Sortierungs-Kategorie */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Beschäftigungsart</label>
+              <select
+                name="employment_type"
+                defaultValue={employee?.employment_type ?? "vollzeit"}
+                className={inputCls}
+              >
+                {EMPLOYMENT_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+                Bereich (Spalten-Sortierung)
+              </label>
+              <select
+                name="position_category"
+                defaultValue={employee?.position_category ?? ""}
+                className={inputCls}
+              >
+                <option value="">— ungesetzt —</option>
+                {POSITION_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Hours */}
