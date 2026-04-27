@@ -4,6 +4,7 @@ import { useState, useTransition, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type {
   Employee,
+  EmploymentHourDefault,
   Shift,
   Availability,
   ShiftTrack,
@@ -12,7 +13,9 @@ import type {
 } from "../utils";
 import {
   calculateShiftMinutes,
+  calculateUrlaubMinutesByEmployee,
   formatMinutesAsHours,
+  getGermanHolidays,
   getInitials,
   getPrevMonth,
   getNextMonth,
@@ -35,6 +38,7 @@ type Props = {
   shiftTracks: ShiftTrack[];
   specialEvents: SpecialEvent[];
   plannedSlots: PlannedSlot[];
+  employmentHourDefaults: EmploymentHourDefault[];
   isAdmin: boolean;
   aiEnabled: boolean;
   saveShiftAction: (_fd: FormData) => Promise<void>;
@@ -104,6 +108,7 @@ export default function MonthlyGrid({
   shiftTracks,
   specialEvents,
   plannedSlots,
+  employmentHourDefaults,
   isAdmin,
   aiEnabled,
   saveShiftAction,
@@ -143,6 +148,16 @@ export default function MonthlyGrid({
 
   const sortedEmployees = useMemo(() => sortEmployeesForGrid(employees), [employees]);
 
+  const holidayMap = useMemo(() => {
+    const year = Number(month.split("-")[0]) || new Date().getUTCFullYear();
+    // Auch das Vorjahr/Nachjahr abdecken, damit Tage am Monatsrand noch Treffer haben
+    const map = new Map<string, string>();
+    for (const yr of [year - 1, year, year + 1]) {
+      for (const [k, v] of getGermanHolidays(yr)) map.set(k, v);
+    }
+    return map;
+  }, [month]);
+
   // ── Lookup-Maps ────────────────────────────────────────────────────────
   const shiftMap = useMemo(() => {
     const map = new Map<string, Shift>();
@@ -177,7 +192,7 @@ export default function MonthlyGrid({
     return map;
   }, [plannedSlots]);
 
-  const empMonthlyMinutes = useMemo(() => {
+  const empShiftMinutes = useMemo(() => {
     const map = new Map<number, number>();
     for (const s of shifts) {
       const summary = calculateShiftMinutes(s.start_time, s.end_time, pauseRules, s.break_minutes);
@@ -186,6 +201,19 @@ export default function MonthlyGrid({
     }
     return map;
   }, [shifts, pauseRules]);
+
+  const empUrlaubMinutes = useMemo(
+    () => calculateUrlaubMinutesByEmployee(availability, employees, employmentHourDefaults),
+    [availability, employees, employmentHourDefaults]
+  );
+
+  // Summe aus Schichten + angerechneter Urlaub pro Mitarbeiter (für Ist/Differenz im Footer)
+  const empMonthlyMinutes = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const [id, mins] of empShiftMinutes) map.set(id, (map.get(id) ?? 0) + mins);
+    for (const [id, mins] of empUrlaubMinutes) map.set(id, (map.get(id) ?? 0) + mins);
+    return map;
+  }, [empShiftMinutes, empUrlaubMinutes]);
 
   const empAvailCounts = useMemo(() => {
     const map = new Map<number, { f: number; u: number; k: number }>();
@@ -465,30 +493,33 @@ export default function MonthlyGrid({
 
         {isAdmin && (
           <div className="ml-auto flex items-center gap-2 flex-wrap">
+            {/* Schritt 1: Grundgerüst (rote Slots) erzeugen */}
             <button
               onClick={() => handleBuildPreplan(false)}
               disabled={isBuildingPreplan}
               className="px-3 py-1.5 text-xs bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg transition-colors disabled:opacity-50"
-              title="Erstellt aus Wochentag-Bedarf + Sonderveranstaltungen die offenen (roten) Slots"
+              title="Schritt 1: Aus Wochentag-Bedarf + Sonderveranstaltungen werden die offenen, roten Slots des Monats erstellt."
             >
-              {isBuildingPreplan ? "Erstelle…" : "Vorplanung"}
+              {isBuildingPreplan ? "Erstelle…" : "1. Vorplanung"}
             </button>
+
+            {/* Schritt 2: Slots besetzen (Auto + optional KI) */}
             {totalOpenSlots > 0 && (
               <>
                 <button
                   onClick={handleAutoFillSlots}
                   disabled={isAutoFilling}
                   className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors disabled:opacity-60"
-                  title="Versucht offene Slots fair zu besetzen"
+                  title="Schritt 2: deterministischer Algorithmus verteilt die roten Slots fair auf Mitarbeitende (Soll-Stunden, Verfügbarkeiten, Wochenlimit)."
                 >
-                  {isAutoFilling ? "Fülle…" : "Auto füllen"}
+                  {isAutoFilling ? "Fülle…" : "2. Auto-Plan"}
                 </button>
                 {aiEnabled && (
                   <button
                     onClick={handleAiFillSlots}
                     disabled={isAiFilling}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-medium rounded-lg transition-colors disabled:opacity-60"
-                    title="Lässt die KI offene Slots fair zuweisen"
+                    title="Alternativ zu Auto-Plan: KI (Gemini) verteilt die roten Slots — gleiche Regeln, andere Heuristik."
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -498,11 +529,13 @@ export default function MonthlyGrid({
                         d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
                       />
                     </svg>
-                    {isAiFilling ? "KI plant…" : "KI füllen"}
+                    {isAiFilling ? "KI plant…" : "2. KI-Plan"}
                   </button>
                 )}
               </>
             )}
+
+            {/* Destruktiv */}
             {showClearConfirm ? (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-red-400">Alle Schichten löschen?</span>
@@ -521,25 +554,28 @@ export default function MonthlyGrid({
                 </button>
               </div>
             ) : (
-              <>
-                <button
-                  onClick={() => setShowClearConfirm(true)}
-                  className="px-3 py-1.5 text-xs bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg transition-colors"
-                >
-                  Monat leeren
-                </button>
-                <button
-                  onClick={() => setShowAutoPlanConfig(true)}
-                  disabled={isAutoPlanning}
-                  className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors disabled:opacity-60"
-                >
-                  {isAutoPlanning ? "Plane…" : "Auto-Plan (Bedarf)"}
-                </button>
-              </>
+              <button
+                onClick={() => setShowClearConfirm(true)}
+                className="px-3 py-1.5 text-xs bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg transition-colors"
+              >
+                Monat leeren
+              </button>
             )}
           </div>
         )}
       </div>
+
+      {/* Workflow-Hinweis für Admins */}
+      {isAdmin && (
+        <div className="px-4 py-1.5 border-b border-[hsl(var(--border))] bg-[hsl(var(--card)/0.6)] text-[11px] text-[hsl(var(--muted-foreground))]">
+          Workflow: <strong className="text-[hsl(var(--foreground))]">1. Vorplanung</strong> erzeugt rote Slots
+          aus Wochentag-Bedarf + Sonderveranstaltungen ·{" "}
+          <strong className="text-[hsl(var(--foreground))]">2. Auto-Plan</strong>
+          {aiEnabled && <> oder <strong className="text-[hsl(var(--foreground))]">KI-Plan</strong></>} verteilt
+          die Slots fair auf Mitarbeitende. Manuelle Schichten, die exakt zu einem Slot passen, entfernen den
+          Slot automatisch.
+        </div>
+      )}
 
       {(moveError || actionError || aiNotice) && (
         <div
@@ -617,27 +653,65 @@ export default function MonthlyGrid({
               const d = new Date(`${day}T00:00:00Z`);
               const wd = d.getUTCDay();
               const isToday = day === today;
-              const isWeekend = wd === 0 || wd === 6;
-              const rowBg = isToday
-                ? "bg-indigo-950/30"
-                : isWeekend
-                ? "bg-[hsl(var(--secondary)/0.4)]"
-                : "bg-[hsl(var(--card))]";
+              const holidayName = holidayMap.get(day);
+              const isHoliday = Boolean(holidayName);
+              // Donnerstag (wd === 4) markiert den Anfang der Kino-Spielwoche
+              const isWeekStart = wd === 4;
+
+              // Hintergrund nach Priorität: Heute > Feiertag > Sonntag > Samstag > Standard
+              let rowBg = "bg-[hsl(var(--card))]";
+              if (isToday) {
+                rowBg = "bg-indigo-950/30";
+              } else if (isHoliday) {
+                rowBg = "bg-amber-400/15";
+              } else if (wd === 0) {
+                rowBg = "bg-rose-900/25";
+              } else if (wd === 6) {
+                rowBg = "bg-rose-500/10";
+              }
+
+              const weekStartCls = isWeekStart
+                ? "border-t-[3px] border-t-[hsl(var(--primary)/0.6)]"
+                : "border-t border-[hsl(var(--border))]/40";
+
               return (
-                <tr key={day} className={`border-b border-[hsl(var(--border))]/60 ${rowBg}`}>
-                  <td className={`sticky left-0 z-10 px-2 py-1 align-top ${rowBg} border-r border-[hsl(var(--border))]/40`}>
+                <tr key={day} className={`${weekStartCls} ${rowBg}`}>
+                  <td
+                    className={`sticky left-0 z-10 px-2 py-1 align-top ${rowBg} border-r border-[hsl(var(--border))]/40`}
+                  >
                     <div className="text-[11px] font-medium text-[hsl(var(--foreground))] tabular-nums">
                       {String(d.getUTCDate()).padStart(2, "0")}.
                       {String(d.getUTCMonth() + 1).padStart(2, "0")}.
                     </div>
-                    <div className="text-[9px] text-[hsl(var(--muted-foreground))] tabular-nums">{d.getUTCFullYear()}</div>
+                    <div className="text-[9px] text-[hsl(var(--muted-foreground))] tabular-nums">
+                      {d.getUTCFullYear()}
+                    </div>
                   </td>
-                  <td className={`sticky left-[80px] z-10 px-1 py-1 text-center align-top ${rowBg} border-r border-[hsl(var(--border))]/40`}>
-                    <span className={`text-[11px] ${isWeekend ? "text-[hsl(var(--muted-foreground))]" : "text-[hsl(var(--foreground))]"}`}>
+                  <td
+                    className={`sticky left-[80px] z-10 px-1 py-1 text-center align-top ${rowBg} border-r border-[hsl(var(--border))]/40`}
+                  >
+                    <span
+                      className={`text-[11px] font-medium ${
+                        wd === 0
+                          ? "text-rose-300"
+                          : wd === 6
+                          ? "text-rose-400"
+                          : isHoliday
+                          ? "text-amber-500"
+                          : "text-[hsl(var(--foreground))]"
+                      }`}
+                    >
                       {WEEKDAY_SHORT[wd]}
                     </span>
                   </td>
-                  <td className={`sticky left-[128px] z-10 align-top ${rowBg} border-r border-[hsl(var(--border))]/40`}>
+                  <td
+                    className={`sticky left-[128px] z-10 align-top ${rowBg} border-r border-[hsl(var(--border))]/40`}
+                  >
+                    {isHoliday && (
+                      <div className="px-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-amber-500">
+                        🎉 {holidayName}
+                      </div>
+                    )}
                     {renderRemarksCell(day)}
                   </td>
                   {sortedEmployees.map((emp) => (
@@ -774,6 +848,7 @@ export default function MonthlyGrid({
           shifts={shifts}
           availability={availability}
           pauseRules={pauseRules}
+          employmentHourDefaults={employmentHourDefaults}
           onClose={() => setEmployeeSummary(null)}
         />
       )}

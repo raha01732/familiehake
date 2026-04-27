@@ -5,11 +5,14 @@ import {
   deletePauseRuleAction,
   deletePositionMatrixRowAction,
   deleteShiftTrackAction,
+  saveEmploymentHourDefaultAction,
   savePositionMatrixRowAction,
   saveShiftTrackAction,
   saveWeekdayRequirementAction,
   updatePauseRuleAction,
 } from "./actions";
+import FormFeedback from "./components/FormFeedback";
+import { EMPLOYMENT_TYPES } from "./utils";
 
 type PauseRule = {
   id: number;
@@ -37,6 +40,11 @@ type WeekdayPositionRequirement = {
   note: string | null;
 };
 
+type EmploymentHourDefaultRow = {
+  employment_type: string;
+  vacation_hours_per_day: number;
+};
+
 const WEEKDAYS_MON_FIRST = [
   { id: 1, label: "Montag", short: "Mo" },
   { id: 2, label: "Dienstag", short: "Di" },
@@ -52,6 +60,7 @@ type SettingsPanelProps = {
   weekdayRequirements: WeekdayRequirement[];
   shiftTracks: ShiftTrack[];
   weekdayPositionRequirements: WeekdayPositionRequirement[];
+  employmentHourDefaults: EmploymentHourDefaultRow[];
   isAdmin: boolean;
 };
 
@@ -98,8 +107,12 @@ export default function SettingsPanel({
   weekdayRequirements,
   shiftTracks,
   weekdayPositionRequirements,
+  employmentHourDefaults,
   isAdmin,
 }: SettingsPanelProps) {
+  const hourDefaultByType = new Map(
+    employmentHourDefaults.map((d) => [d.employment_type, Number(d.vacation_hours_per_day) || 0])
+  );
   const weekdayMap = new Map<number, number>();
   for (const rule of weekdayRequirements) {
     weekdayMap.set(rule.weekday, rule.required_shifts);
@@ -139,58 +152,69 @@ export default function SettingsPanel({
               </div>
             )}
             {shiftTracks.map((track) => (
-              <form
+              <div
                 key={track.track_key}
-                action={saveShiftTrackAction}
-                className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.4)] px-3 py-2"
+                className="grid grid-cols-1 sm:grid-cols-[1fr_auto] items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.4)] px-3 py-2"
               >
-                <input type="hidden" name="track_key" value={track.track_key} />
-                <input
-                  name="label"
-                  defaultValue={track.label}
-                  className={`${inputBase} px-3 py-1.5`}
-                  placeholder="Bezeichnung"
-                  required
-                  disabled={isReadOnly}
-                />
-                <input
-                  name="start_time"
-                  type="time"
-                  defaultValue={track.start_time.slice(0, 5)}
-                  className={`${inputBase} px-2 py-1.5 w-28`}
-                  required
-                  disabled={isReadOnly}
-                />
-                <input
-                  name="end_time"
-                  type="time"
-                  defaultValue={track.end_time.slice(0, 5)}
-                  className={`${inputBase} px-2 py-1.5 w-28`}
-                  required
-                  disabled={isReadOnly}
-                />
-                <button
-                  type="submit"
-                  className="text-xs text-emerald-500 hover:text-emerald-400 px-2"
-                  disabled={isReadOnly}
+                <FormFeedback
+                  action={saveShiftTrackAction}
+                  className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2"
                 >
-                  Speichern
-                </button>
-                <button
-                  type="submit"
-                  formAction={deleteShiftTrackAction}
-                  className="text-xs text-amber-500 hover:text-amber-400 px-2"
-                  disabled={isReadOnly}
-                  title="Schiene löschen (entfernt auch zugehörigen Positionsbedarf)"
+                  <input type="hidden" name="track_key" value={track.track_key} />
+                  <input
+                    name="label"
+                    defaultValue={track.label}
+                    className={`${inputBase} px-3 py-1.5`}
+                    placeholder="Bezeichnung"
+                    required
+                    disabled={isReadOnly}
+                  />
+                  <input
+                    name="start_time"
+                    type="time"
+                    defaultValue={track.start_time.slice(0, 5)}
+                    className={`${inputBase} px-2 py-1.5 w-28`}
+                    required
+                    disabled={isReadOnly}
+                  />
+                  <input
+                    name="end_time"
+                    type="time"
+                    defaultValue={track.end_time.slice(0, 5)}
+                    className={`${inputBase} px-2 py-1.5 w-28`}
+                    required
+                    disabled={isReadOnly}
+                  />
+                  <button
+                    type="submit"
+                    className="text-xs text-emerald-500 hover:text-emerald-400 px-2 font-medium"
+                    disabled={isReadOnly}
+                  >
+                    Speichern
+                  </button>
+                </FormFeedback>
+                <FormFeedback
+                  action={deleteShiftTrackAction}
+                  successText="Gelöscht"
+                  className="flex items-center"
                 >
-                  Löschen
-                </button>
-              </form>
+                  <input type="hidden" name="track_key" value={track.track_key} />
+                  <button
+                    type="submit"
+                    className="text-xs text-amber-500 hover:text-amber-400 px-2 font-medium"
+                    disabled={isReadOnly}
+                    title="Schiene löschen (entfernt auch zugehörigen Positionsbedarf)"
+                  >
+                    Löschen
+                  </button>
+                </FormFeedback>
+              </div>
             ))}
           </div>
 
-          <form
+          <FormFeedback
             action={createShiftTrackAction}
+            successText="Schiene angelegt"
             className="flex flex-wrap items-center gap-2 border-t border-[hsl(var(--border))] pt-3"
           >
             <input
@@ -221,7 +245,7 @@ export default function SettingsPanel({
             >
               + Schiene
             </button>
-          </form>
+          </FormFeedback>
         </div>
 
         <div className="card p-5 flex flex-col gap-4">
@@ -276,56 +300,65 @@ export default function SettingsPanel({
                           {rows.map((row) => (
                             <tr key={row.position} className="border-t border-[hsl(var(--border))]/60">
                               <td className="py-1 pr-2" colSpan={10}>
-                                <form
-                                  action={savePositionMatrixRowAction}
-                                  className="grid grid-cols-[11rem_repeat(7,minmax(2.5rem,1fr))_12rem_auto_auto] items-center gap-2"
-                                >
-                                  <input type="hidden" name="track_key" value={track.track_key} />
-                                  <input type="hidden" name="original_position" value={row.position} />
-                                  <input
-                                    name="position"
-                                    defaultValue={row.position}
-                                    className={`${inputBase} px-2 py-1`}
-                                    required
-                                    disabled={isReadOnly}
-                                  />
-                                  {WEEKDAYS_MON_FIRST.map((weekday) => (
+                                <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+                                  <FormFeedback
+                                    action={savePositionMatrixRowAction}
+                                    className="grid grid-cols-[11rem_repeat(7,minmax(2.5rem,1fr))_12rem_auto_auto] items-center gap-2"
+                                  >
+                                    <input type="hidden" name="track_key" value={track.track_key} />
+                                    <input type="hidden" name="original_position" value={row.position} />
                                     <input
-                                      key={weekday.id}
-                                      type="number"
-                                      min={0}
-                                      step={1}
-                                      name={`count_${weekday.id}`}
-                                      defaultValue={row.counts[weekday.id] ?? 0}
-                                      className={numberInputCls}
+                                      name="position"
+                                      defaultValue={row.position}
+                                      className={`${inputBase} px-2 py-1`}
+                                      required
                                       disabled={isReadOnly}
-                                      aria-label={`${row.position} ${weekday.label}`}
                                     />
-                                  ))}
-                                  <input
-                                    name="note"
-                                    defaultValue={row.note ?? ""}
-                                    placeholder="Bemerkung"
-                                    className={`${inputBase} px-2 py-1`}
-                                    disabled={isReadOnly}
-                                  />
-                                  <button
-                                    type="submit"
-                                    className="text-xs text-emerald-500 hover:text-emerald-400 px-2"
-                                    disabled={isReadOnly}
+                                    {WEEKDAYS_MON_FIRST.map((weekday) => (
+                                      <input
+                                        key={weekday.id}
+                                        type="number"
+                                        min={0}
+                                        step={1}
+                                        name={`count_${weekday.id}`}
+                                        defaultValue={row.counts[weekday.id] ?? 0}
+                                        className={numberInputCls}
+                                        disabled={isReadOnly}
+                                        aria-label={`${row.position} ${weekday.label}`}
+                                      />
+                                    ))}
+                                    <input
+                                      name="note"
+                                      defaultValue={row.note ?? ""}
+                                      placeholder="Bemerkung"
+                                      className={`${inputBase} px-2 py-1`}
+                                      disabled={isReadOnly}
+                                    />
+                                    <button
+                                      type="submit"
+                                      className="text-xs text-emerald-500 hover:text-emerald-400 px-2 font-medium"
+                                      disabled={isReadOnly}
+                                    >
+                                      Speichern
+                                    </button>
+                                  </FormFeedback>
+                                  <FormFeedback
+                                    action={deletePositionMatrixRowAction}
+                                    successText="Gelöscht"
+                                    className="flex items-center"
                                   >
-                                    Speichern
-                                  </button>
-                                  <button
-                                    type="submit"
-                                    formAction={deletePositionMatrixRowAction}
-                                    className="text-xs text-amber-500 hover:text-amber-400 px-2"
-                                    disabled={isReadOnly}
-                                    title="Diese Position-Zeile löschen"
-                                  >
-                                    Löschen
-                                  </button>
-                                </form>
+                                    <input type="hidden" name="track_key" value={track.track_key} />
+                                    <input type="hidden" name="position" value={row.position} />
+                                    <button
+                                      type="submit"
+                                      className="text-xs text-amber-500 hover:text-amber-400 px-2 font-medium"
+                                      disabled={isReadOnly}
+                                      title="Diese Position-Zeile löschen"
+                                    >
+                                      Löschen
+                                    </button>
+                                  </FormFeedback>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -340,8 +373,9 @@ export default function SettingsPanel({
                       </table>
                     </div>
 
-                    <form
+                    <FormFeedback
                       action={savePositionMatrixRowAction}
+                      successText="Position angelegt"
                       className="grid grid-cols-[11rem_repeat(7,minmax(2.5rem,1fr))_12rem_auto] items-center gap-2 border-t border-[hsl(var(--border))]/60 pt-2"
                     >
                       <input type="hidden" name="track_key" value={track.track_key} />
@@ -378,7 +412,7 @@ export default function SettingsPanel({
                       >
                         + Position
                       </button>
-                    </form>
+                    </FormFeedback>
                   </div>
                 );
               })}
@@ -395,7 +429,11 @@ export default function SettingsPanel({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-[hsl(var(--foreground))]">
             {WEEKDAYS_MON_FIRST.map((weekday) => (
-              <form key={weekday.id} action={saveWeekdayRequirementAction} className="flex items-center gap-3">
+              <FormFeedback
+                key={weekday.id}
+                action={saveWeekdayRequirementAction}
+                className="flex items-center gap-3"
+              >
                 <input type="hidden" name="weekday" value={weekday.id} />
                 <span className="w-28 text-[hsl(var(--foreground))]">{weekday.label}</span>
                 <input
@@ -408,12 +446,54 @@ export default function SettingsPanel({
                 />
                 <button
                   type="submit"
-                  className="text-xs text-emerald-500 hover:text-emerald-400"
+                  className="text-xs text-emerald-500 hover:text-emerald-400 font-medium"
                   disabled={isReadOnly}
                 >
                   Speichern
                 </button>
-              </form>
+              </FormFeedback>
+            ))}
+          </div>
+        </div>
+
+        <div className="card p-5 flex flex-col gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">
+              Urlaubsstunden je Beschäftigungstyp
+            </h3>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
+              Wieviele Stunden pro Urlaubstag werden dem Soll angerechnet? Gilt für die Ist-Berechnung im
+              Monatsplan, im Mitarbeiter-Modal und für die Fairness-Bewertung im Auto- bzw. KI-Plan.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {EMPLOYMENT_TYPES.map((type) => (
+              <FormFeedback
+                key={type.value}
+                action={saveEmploymentHourDefaultAction}
+                className="flex items-center gap-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.4)] px-3 py-2"
+              >
+                <input type="hidden" name="employment_type" value={type.value} />
+                <span className="w-32 text-sm text-[hsl(var(--foreground))]">{type.label}</span>
+                <input
+                  name="vacation_hours_per_day"
+                  type="number"
+                  min={0}
+                  max={24}
+                  step={0.25}
+                  defaultValue={hourDefaultByType.get(type.value) ?? 0}
+                  className={`${inputBase} w-24 px-2 py-1`}
+                  disabled={isReadOnly}
+                />
+                <span className="text-xs text-[hsl(var(--muted-foreground))]">h / Urlaubstag</span>
+                <button
+                  type="submit"
+                  className="ml-auto text-xs text-emerald-500 hover:text-emerald-400 font-medium"
+                  disabled={isReadOnly}
+                >
+                  Speichern
+                </button>
+              </FormFeedback>
             ))}
           </div>
         </div>
@@ -437,8 +517,9 @@ export default function SettingsPanel({
               {pauseRules.map((rule) => (
                 <tr key={rule.id} className="border-t border-[hsl(var(--border))]">
                   <td className="py-2 pr-2">
-                    <form action={updatePauseRuleAction} className="flex items-center gap-2">
+                    <FormFeedback action={updatePauseRuleAction} className="flex items-center gap-2">
                       <input type="hidden" name="id" value={rule.id} />
+                      <input type="hidden" name="pause_minutes" value={rule.pause_minutes} />
                       <input
                         name="min_minutes"
                         type="number"
@@ -449,16 +530,17 @@ export default function SettingsPanel({
                       />
                       <button
                         type="submit"
-                        className="text-xs text-emerald-500 hover:text-emerald-400"
+                        className="text-xs text-emerald-500 hover:text-emerald-400 font-medium"
                         disabled={isReadOnly}
                       >
                         Speichern
                       </button>
-                    </form>
+                    </FormFeedback>
                   </td>
                   <td className="py-2 pr-2">
-                    <form action={updatePauseRuleAction} className="flex items-center gap-2">
+                    <FormFeedback action={updatePauseRuleAction} className="flex items-center gap-2">
                       <input type="hidden" name="id" value={rule.id} />
+                      <input type="hidden" name="min_minutes" value={rule.min_minutes} />
                       <input
                         name="pause_minutes"
                         type="number"
@@ -469,31 +551,39 @@ export default function SettingsPanel({
                       />
                       <button
                         type="submit"
-                        className="text-xs text-emerald-500 hover:text-emerald-400"
+                        className="text-xs text-emerald-500 hover:text-emerald-400 font-medium"
                         disabled={isReadOnly}
                       >
                         Speichern
                       </button>
-                    </form>
+                    </FormFeedback>
                   </td>
                   <td className="py-2 text-right">
-                    <form action={deletePauseRuleAction}>
+                    <FormFeedback
+                      action={deletePauseRuleAction}
+                      successText="Gelöscht"
+                      className="flex items-center justify-end"
+                    >
                       <input type="hidden" name="id" value={rule.id} />
                       <button
                         type="submit"
-                        className="text-xs text-amber-500 hover:text-amber-400"
+                        className="text-xs text-amber-500 hover:text-amber-400 font-medium"
                         disabled={isReadOnly}
                       >
                         Löschen
                       </button>
-                    </form>
+                    </FormFeedback>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          <form action={createPauseRuleAction} className="flex flex-wrap items-center gap-3">
+          <FormFeedback
+            action={createPauseRuleAction}
+            successText="Regel angelegt"
+            className="flex flex-wrap items-center gap-3"
+          >
             <input
               name="min_minutes"
               type="number"
@@ -517,7 +607,7 @@ export default function SettingsPanel({
             >
               + Regel
             </button>
-          </form>
+          </FormFeedback>
         </div>
       </div>
     </div>

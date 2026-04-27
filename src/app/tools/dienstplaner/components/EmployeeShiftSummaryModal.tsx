@@ -1,8 +1,14 @@
 "use client";
 
 import { useMemo } from "react";
-import type { Employee, Shift, Availability } from "../utils";
-import { calculateShiftMinutes, formatMinutesAsHours, getInitials, type PauseRule } from "../utils";
+import type { Employee, EmploymentHourDefault, Shift, Availability } from "../utils";
+import {
+  calculateShiftMinutes,
+  calculateUrlaubMinutesByEmployee,
+  formatMinutesAsHours,
+  getInitials,
+  type PauseRule,
+} from "../utils";
 
 type Props = {
   employee: Employee;
@@ -10,6 +16,7 @@ type Props = {
   shifts: Shift[];
   availability: Availability[];
   pauseRules: PauseRule[];
+  employmentHourDefaults: EmploymentHourDefault[];
   onClose: () => void;
 };
 
@@ -28,6 +35,7 @@ export default function EmployeeShiftSummaryModal({
   shifts,
   availability,
   pauseRules,
+  employmentHourDefaults,
   onClose,
 }: Props) {
   const empShifts = useMemo(
@@ -43,7 +51,7 @@ export default function EmployeeShiftSummaryModal({
     [availability, employee.id]
   );
 
-  const totalWorkMinutes = useMemo(
+  const shiftWorkMinutes = useMemo(
     () =>
       empShifts.reduce((sum, shift) => {
         const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules, shift.break_minutes);
@@ -52,6 +60,12 @@ export default function EmployeeShiftSummaryModal({
     [empShifts, pauseRules]
   );
 
+  const urlaubMinutes = useMemo(() => {
+    const map = calculateUrlaubMinutesByEmployee(availability, [employee], employmentHourDefaults);
+    return map.get(employee.id) ?? 0;
+  }, [availability, employee, employmentHourDefaults]);
+
+  const totalWorkMinutes = shiftWorkMinutes + urlaubMinutes;
   const targetMinutes = (employee.monthly_hours ?? 0) * 60;
   const diffMinutes = totalWorkMinutes - targetMinutes;
 
@@ -99,7 +113,14 @@ export default function EmployeeShiftSummaryModal({
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">Ist</div>
-            <div className="font-semibold text-[hsl(var(--foreground))]">{formatMinutesAsHours(totalWorkMinutes)}h</div>
+            <div className="font-semibold text-[hsl(var(--foreground))]">
+              {formatMinutesAsHours(totalWorkMinutes)}h
+            </div>
+            {urlaubMinutes > 0 && (
+              <div className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                inkl. {formatMinutesAsHours(urlaubMinutes)}h Urlaub
+              </div>
+            )}
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">Differenz</div>

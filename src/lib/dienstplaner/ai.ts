@@ -55,7 +55,7 @@ Aufgabe: ordne unbesetzte Schichten ("Slots") fairen Mitarbeitenden zu, sodass:
 - niemand mehr als seine Wochen-Sollstunden +20% in einer ISO-Woche bekommt,
 - niemand zwei Schichten am gleichen Tag bekommt,
 - Verfügbarkeitsstatus respektiert wird:
-    * status "F" oder "K" → Mitarbeiter NICHT einsetzen
+    * status "F" (Frei), "U" (Urlaub) oder "K" (Krank) → Mitarbeiter NICHT einsetzen
     * status "fix" → nur einsetzen wenn fixed_start ≤ slot.start_time und fixed_end ≥ slot.end_time
     * status "fr" (Frühdienst bevorzugt) → nicht in Spätdiensten ab 15:00 Uhr,
     * status "sp" (Spätdienst bevorzugt) → nicht in Frühdiensten vor 13:00 Uhr,
@@ -63,18 +63,76 @@ Aufgabe: ordne unbesetzte Schichten ("Slots") fairen Mitarbeitenden zu, sodass:
     (slot "serviceleitung" → category "serviceleitung", slot "projektion" → "projektion" oder "projektionsleitung").
 - Nicht alle Slots MÜSSEN besetzt werden — wenn keine faire Zuweisung möglich ist, lieber leer lassen.
 
-Antworte ausschließlich mit JSON nach folgendem Schema (kein Markdown, kein Erklärtext drumherum):
+WICHTIG: Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt nach folgendem Schema. Kein Markdown, keine Code-Fences, kein Erklärtext davor oder danach. Antwortbeispiel ist KOMPLETT JSON:
 {
   "assignments": [
-    { "slot_id": <number>, "employee_id": <number>, "reason": "<kurz, max 80 Zeichen>" }
+    { "slot_id": 12, "employee_id": 4, "reason": "Soll noch 18h bis Soll" }
   ],
-  "notes": "<optional kurze Gesamteinschätzung>"
+  "notes": "kurze Gesamteinschätzung"
 }`;
 
 type GatewayResponse = {
   choices?: Array<{ message?: { content?: string } }>;
   error?: { message?: string };
 };
+
+// Findet das erste vollständige Top-Level-JSON-Objekt in einem String. Robust
+// gegen umgebenden Erklärtext und Markdown-Code-Fences (```json … ```).
+function parseLooseJson(input: string): unknown {
+  const trimmed = input.trim();
+  // 1) Direkter Versuch
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // weitermachen
+  }
+
+  // 2) Code-Fences entfernen
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenceMatch?.[1]) {
+    try {
+      return JSON.parse(fenceMatch[1].trim());
+    } catch {
+      // weitermachen
+    }
+  }
+
+  // 3) Erstes balanciertes Top-Level-{…}-Objekt extrahieren
+  const start = trimmed.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < trimmed.length; i += 1) {
+    const ch = trimmed[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && inString) {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        const candidate = trimmed.slice(start, i + 1);
+        try {
+          return JSON.parse(candidate);
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
 
 export async function askAiToAssignSlots(input: {
   month: string;
@@ -98,6 +156,11 @@ export async function askAiToAssignSlots(input: {
     2
   );
 
+  // Hinweis: response_format ist absichtlich NICHT gesetzt. Einige Provider
+  // (z.B. Gemini über den Gateway-Compat-Layer) lehnen den Parameter mit 400
+  // ab. Stattdessen verlangt der System-Prompt strikten JSON-Output und der
+  // Parser unten zieht das erste {…}-Block heraus, falls Modelle drumherum
+  // doch Text generieren.
   const res = await fetch(`${GATEWAY_BASE}/chat/completions`, {
     method: "POST",
     headers: {
@@ -112,7 +175,6 @@ export async function askAiToAssignSlots(input: {
       ],
       temperature: 0.2,
       max_tokens: 4000,
-      response_format: { type: "json_object" },
     }),
     cache: "no-store",
   });
@@ -126,11 +188,9 @@ export async function askAiToAssignSlots(input: {
   if (typeof content !== "string") {
     throw new Error("AI Gateway hat keine Antwort geliefert");
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error("AI Gateway hat ungültiges JSON geliefert");
+  const parsed = parseLooseJson(content);
+  if (!parsed) {
+    throw new Error("AI Gateway hat kein verwertbares JSON geliefert");
   }
   if (!parsed || typeof parsed !== "object") {
     throw new Error("AI Gateway hat unerwartete Struktur geliefert");

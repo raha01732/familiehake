@@ -14,7 +14,7 @@ export default async function EinstellungenPage() {
   const isAdmin = role === "admin" || user?.id === env().PRIMARY_SUPERADMIN_ID;
 
   const sb = createAdminClient();
-  const [pauseResult, weekdayResult, trackResult, weekdayPosResult] = await Promise.all([
+  const [pauseResult, weekdayResult, trackResult, weekdayPosResult, hourDefaultsResult] = await Promise.all([
     sb.from("dienstplan_pause_rules").select("id, min_minutes, pause_minutes").order("min_minutes"),
     sb.from("dienstplan_weekday_requirements").select("weekday, required_shifts").order("weekday"),
     sb.from("dienstplan_shift_tracks").select("track_key, label, start_time, end_time").order("start_time"),
@@ -22,6 +22,9 @@ export default async function EinstellungenPage() {
       .from("dienstplan_weekday_position_requirements")
       .select("id, weekday, track_key, position, note")
       .order("weekday"),
+    sb
+      .from("dienstplan_employment_hour_defaults")
+      .select("employment_type, vacation_hours_per_day"),
   ]);
 
   return (
@@ -54,6 +57,7 @@ export default async function EinstellungenPage() {
         weekdayRequirements={weekdayResult.data ?? []}
         shiftTracks={trackResult.data ?? []}
         weekdayPositionRequirements={weekdayPosResult.data ?? []}
+        employmentHourDefaults={hourDefaultsResult.data ?? []}
         isAdmin={isAdmin}
       />
     </div>

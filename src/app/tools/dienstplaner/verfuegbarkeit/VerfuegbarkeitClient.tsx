@@ -12,6 +12,7 @@ type Props = {
   availability: Availability[];
   isAdmin: boolean;
   saveAvailabilityAction: (_fd: FormData) => Promise<void>;
+  clearMonthAvailabilityAction: (_fd: FormData) => Promise<void>;
 };
 
 const WEEKDAY_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
@@ -38,6 +39,7 @@ export default function VerfuegbarkeitClient({
   availability,
   isAdmin,
   saveAvailabilityAction,
+  clearMonthAvailabilityAction,
 }: Props) {
   const router = useRouter();
   const today = getTodayString();
@@ -47,6 +49,30 @@ export default function VerfuegbarkeitClient({
   const [bulkFrom, setBulkFrom] = useState(`${month}-01`);
   const [bulkTo, setBulkTo] = useState(`${month}-01`);
   const [bulkEmployeeId, setBulkEmployeeId] = useState<number | "">("");
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isClearing, startClearing] = useTransition();
+  const [saveFlash, setSaveFlash] = useState<string | null>(null);
+
+  function flashSuccess(message: string) {
+    setSaveFlash(message);
+    setTimeout(() => setSaveFlash((current) => (current === message ? null : current)), 5000);
+  }
+
+  function handleClearMonth() {
+    if (!isAdmin) return;
+    const fd = new FormData();
+    fd.set("month", month);
+    setSaveError(null);
+    startClearing(async () => {
+      try {
+        await clearMonthAvailabilityAction(fd);
+        setShowClearConfirm(false);
+        flashSuccess("Verfügbarkeiten gelöscht");
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : "Löschen fehlgeschlagen");
+      }
+    });
+  }
 
   const sortedEmployees = useMemo(() => sortEmployeesForGrid(employees), [employees]);
 
@@ -88,6 +114,7 @@ export default function VerfuegbarkeitClient({
     startTransition(async () => {
       try {
         await saveAvailabilityAction(fd);
+        flashSuccess(status ? `Status „${status}" gespeichert` : "Status entfernt");
       } catch (err) {
         setSaveError(err instanceof Error ? err.message : "Speichern fehlgeschlagen");
       }
@@ -114,6 +141,7 @@ export default function VerfuegbarkeitClient({
           fd.set("status", bulkStatus);
           await saveAvailabilityAction(fd);
         }
+        flashSuccess(`${targets.length} Tag${targets.length === 1 ? "" : "e"} gespeichert`);
       } catch (err) {
         setSaveError(err instanceof Error ? err.message : "Bulk-Speichern fehlgeschlagen");
       }
@@ -157,6 +185,34 @@ export default function VerfuegbarkeitClient({
           >
             Heute
           </button>
+          {isAdmin && (
+            showClearConfirm ? (
+              <div className="ml-2 flex items-center gap-2">
+                <span className="text-xs text-red-400">Alle Verfügbarkeiten löschen?</span>
+                <button
+                  onClick={handleClearMonth}
+                  disabled={isClearing}
+                  className="px-3 py-1 bg-red-900 hover:bg-red-800 border border-red-700 text-red-200 text-xs rounded-md transition-colors disabled:opacity-50"
+                >
+                  {isClearing ? "…" : "Ja, löschen"}
+                </button>
+                <button
+                  onClick={() => setShowClearConfirm(false)}
+                  className="px-3 py-1 bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] text-xs rounded-md hover:bg-[hsl(var(--muted))] transition-colors"
+                >
+                  Abbrechen
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowClearConfirm(true)}
+                className="ml-2 px-2.5 py-1 text-xs bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-md transition-colors"
+                title="Alle Verfügbarkeits-Einträge dieses Monats löschen (F, U, K, fr, sp, fix)"
+              >
+                Verfügbarkeiten leeren
+              </button>
+            )
+          )}
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2 text-xs">
@@ -225,14 +281,24 @@ export default function VerfuegbarkeitClient({
               ))}
             </select>
           </div>
-          <button
-            type="button"
-            onClick={applyBulk}
-            disabled={pending || !bulkEmployeeId || !bulkFrom || !bulkTo}
-            className="rounded-lg bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-xs font-semibold px-4 py-2 disabled:opacity-50"
-          >
-            {pending ? "Speichere…" : "Auf Zeitraum anwenden"}
-          </button>
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              onClick={applyBulk}
+              disabled={pending || !bulkEmployeeId || !bulkFrom || !bulkTo}
+              className="rounded-lg bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-xs font-semibold px-4 py-2 disabled:opacity-50"
+            >
+              {pending ? "Speichere…" : "Auf Zeitraum anwenden"}
+            </button>
+            {!pending && saveFlash && (
+              <span
+                role="status"
+                className="text-[10px] font-medium text-emerald-500 inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10"
+              >
+                ✓ {saveFlash}
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -242,6 +308,16 @@ export default function VerfuegbarkeitClient({
           <button onClick={() => setSaveError(null)} className="hover:opacity-80">
             ✕
           </button>
+        </div>
+      )}
+
+      {/* Globale Flash-Meldung – auch sichtbar wenn der Bulk-Editor nicht offen ist (z.B. bei Cell-Edits) */}
+      {saveFlash && (
+        <div
+          role="status"
+          className="fixed bottom-4 right-4 z-40 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-500 shadow-lg backdrop-blur"
+        >
+          ✓ {saveFlash}
         </div>
       )}
 

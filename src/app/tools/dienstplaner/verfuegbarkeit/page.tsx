@@ -3,7 +3,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import VerfuegbarkeitClient from "./VerfuegbarkeitClient";
-import { saveAvailabilityAction } from "../actions";
+import { saveAvailabilityAction, clearMonthAvailabilityAction } from "../actions";
 import type { Availability, Employee } from "../utils";
 import { buildMonthDays, getCurrentMonth } from "../utils";
 import { CalendarDays } from "lucide-react";
@@ -108,6 +108,7 @@ export default async function VerfuegbarkeitPage({ searchParams }: PageProps) {
         availability={availability}
         isAdmin={isAdmin}
         saveAvailabilityAction={saveAvailabilityAction}
+        clearMonthAvailabilityAction={clearMonthAvailabilityAction}
       />
     </div>
   );
