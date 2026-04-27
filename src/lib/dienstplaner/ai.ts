@@ -1,13 +1,12 @@
 // src/lib/dienstplaner/ai.ts
-// KI-gestützte Schichtbesetzung über Vercel AI Gateway.
-// Nutzt standardmäßig ein Gemini-Modell (großzügiger Free-Tier).
+// KI-gestützte Schichtbesetzung über Google Gemini (OpenAI-kompatibler Endpoint).
 import { env } from "@/lib/env";
 
-const GATEWAY_BASE = "https://ai-gateway.vercel.sh/v1";
-const DEFAULT_MODEL = "google/gemini-2.5-flash";
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 
 export function dienstplanAiEnabled(): boolean {
-  return Boolean(env().AI_GATEWAY_API_KEY);
+  return Boolean(env().GEMINI_API_KEY);
 }
 
 export type AiSlotInput = {
@@ -71,7 +70,7 @@ WICHTIG: Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt nach folgendem 
   "notes": "kurze Gesamteinschätzung"
 }`;
 
-type GatewayResponse = {
+type GeminiResponse = {
   choices?: Array<{ message?: { content?: string } }>;
   error?: { message?: string };
 };
@@ -140,10 +139,10 @@ export async function askAiToAssignSlots(input: {
   employees: AiEmployeeInput[];
   availability: AiAvailabilityInput[];
 }): Promise<AiAssignmentResponse> {
-  const key = env().AI_GATEWAY_API_KEY;
-  if (!key) throw new Error("AI_GATEWAY_API_KEY ist nicht konfiguriert");
+  const key = env().GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY ist nicht konfiguriert");
 
-  const model = env().AI_GATEWAY_MODEL || DEFAULT_MODEL;
+  const model = env().GEMINI_MODEL || DEFAULT_MODEL;
 
   const userMessage = JSON.stringify(
     {
@@ -156,12 +155,10 @@ export async function askAiToAssignSlots(input: {
     2
   );
 
-  // Hinweis: response_format ist absichtlich NICHT gesetzt. Einige Provider
-  // (z.B. Gemini über den Gateway-Compat-Layer) lehnen den Parameter mit 400
-  // ab. Stattdessen verlangt der System-Prompt strikten JSON-Output und der
-  // Parser unten zieht das erste {…}-Block heraus, falls Modelle drumherum
-  // doch Text generieren.
-  const res = await fetch(`${GATEWAY_BASE}/chat/completions`, {
+  // Hinweis: response_format wird bewusst weggelassen. Der System-Prompt
+  // verlangt strikten JSON-Output, und parseLooseJson() unten zieht das
+  // erste {…}-Block heraus, falls Modelle drumherum doch Text generieren.
+  const res = await fetch(`${GEMINI_BASE}/chat/completions`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${key}`,
@@ -181,19 +178,19 @@ export async function askAiToAssignSlots(input: {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`AI Gateway ${res.status}: ${text.slice(0, 300)}`);
+    throw new Error(`Gemini ${res.status}: ${text.slice(0, 300)}`);
   }
-  const json = (await res.json()) as GatewayResponse;
+  const json = (await res.json()) as GeminiResponse;
   const content = json.choices?.[0]?.message?.content;
   if (typeof content !== "string") {
-    throw new Error("AI Gateway hat keine Antwort geliefert");
+    throw new Error("Gemini hat keine Antwort geliefert");
   }
   const parsed = parseLooseJson(content);
   if (!parsed) {
-    throw new Error("AI Gateway hat kein verwertbares JSON geliefert");
+    throw new Error("Gemini hat kein verwertbares JSON geliefert");
   }
   if (!parsed || typeof parsed !== "object") {
-    throw new Error("AI Gateway hat unerwartete Struktur geliefert");
+    throw new Error("Gemini hat unerwartete Struktur geliefert");
   }
   const obj = parsed as Record<string, unknown>;
   const assignmentsRaw = Array.isArray(obj.assignments) ? obj.assignments : [];

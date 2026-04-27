@@ -1586,7 +1586,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   await assertAdminForDienstplanAutomation();
 
   if (!dienstplanAiEnabled()) {
-    throw new Error("KI ist nicht verfügbar (AI_GATEWAY_API_KEY fehlt).");
+    throw new Error("KI ist nicht verfügbar (GEMINI_API_KEY fehlt).");
   }
 
   const month = String(formData.get("month") || "");
