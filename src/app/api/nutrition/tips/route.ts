@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { applyRateLimit } from "@/lib/ratelimit";
-import { aiGatewayEnabled, chat } from "@/lib/nutrition/ai-gateway";
+import { geminiEnabled, chat } from "@/lib/nutrition/gemini";
 import { search as tavilySearch, tavilyEnabled, type TavilyResult } from "@/lib/nutrition/tavily";
 import { allergyLabels, dietLabel } from "@/lib/nutrition/constants";
 
@@ -45,11 +45,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid question" }, { status: 400 });
   }
 
-  if (!aiGatewayEnabled()) {
+  if (!geminiEnabled()) {
     return NextResponse.json(
       {
         ok: false,
-        error: "AI_GATEWAY_API_KEY fehlt — Ernährungstipps sind deaktiviert.",
+        error: "GEMINI_API_KEY fehlt — Ernährungstipps sind deaktiviert.",
       },
       { status: 503 },
     );

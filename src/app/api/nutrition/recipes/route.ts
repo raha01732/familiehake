@@ -8,9 +8,9 @@ import {
   type SpoonacularRecipe,
 } from "@/lib/nutrition/spoonacular";
 import {
-  aiGatewayEnabled,
+  geminiEnabled,
   chatJson,
-} from "@/lib/nutrition/ai-gateway";
+} from "@/lib/nutrition/gemini";
 import {
   mapDietToSpoonacular,
   mapAllergiesToSpoonacular,
@@ -96,12 +96,12 @@ export async function GET(req: NextRequest) {
   }
 
   // AI-Fallback (oder primär, wenn kein Spoonacular-Key vorhanden)
-  if (!aiGatewayEnabled()) {
+  if (!geminiEnabled()) {
     return NextResponse.json(
       {
         ok: false,
         error:
-          "Keine Rezept-Quelle konfiguriert. Bitte SPOONACULAR_API_KEY oder AI_GATEWAY_API_KEY setzen.",
+          "Keine Rezept-Quelle konfiguriert. Bitte SPOONACULAR_API_KEY oder GEMINI_API_KEY setzen.",
       },
       { status: 503 },
     );
