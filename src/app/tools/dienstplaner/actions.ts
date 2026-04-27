@@ -6,7 +6,14 @@ import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
-import { addHoursToTime, calculateShiftMinutes, generateAutoPlanSlots, type AutoPlanSlot, type PauseRule } from "./utils";
+import {
+  addHoursToTime,
+  calculateShiftMinutes,
+  calculateUrlaubMinutesByEmployee,
+  generateAutoPlanSlots,
+  type AutoPlanSlot,
+  type PauseRule,
+} from "./utils";
 import { askAiToAssignSlots, dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
 
 const PLAN_PATH = "/tools/dienstplaner";
@@ -228,6 +235,47 @@ export async function clearMonthAction(formData: FormData) {
     .lte("shift_date", range.end);
 
   revalidatePath(PLAN_PATH);
+}
+
+export async function saveEmploymentHourDefaultAction(formData: FormData) {
+  await assertAuthenticatedForDienstplanWrite();
+
+  const employmentType = String(formData.get("employment_type") || "").trim();
+  const vacationHoursRaw = String(formData.get("vacation_hours_per_day") || "0").trim().replace(",", ".");
+  const vacationHours = Number(vacationHoursRaw);
+  if (!employmentType || !Number.isFinite(vacationHours) || vacationHours < 0 || vacationHours > 24) return;
+
+  const sb = createAdminClient();
+  await sb
+    .from("dienstplan_employment_hour_defaults")
+    .upsert(
+      {
+        employment_type: employmentType,
+        vacation_hours_per_day: vacationHours,
+      },
+      { onConflict: "employment_type" }
+    );
+
+  revalidatePath(SETTINGS_PATH);
+  revalidatePath(PLAN_PATH);
+}
+
+export async function clearMonthAvailabilityAction(formData: FormData) {
+  await assertAdminForDienstplanAutomation();
+
+  const month = String(formData.get("month") || "");
+  const range = getMonthRange(month);
+  if (!range) return;
+
+  const sb = createAdminClient();
+  await sb
+    .from("dienstplan_availability")
+    .delete()
+    .gte("availability_date", range.start)
+    .lte("availability_date", range.end);
+
+  revalidatePath(PLAN_PATH);
+  revalidatePath("/tools/dienstplaner/verfuegbarkeit");
 }
 
 export async function autoGenerateMonthPlanAction(formData: FormData) {
@@ -1402,10 +1450,17 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
   if (!range) return;
 
   const sb = createAdminClient();
-  const [employeesResult, slotsResult, availabilityResult, pauseRulesResult, existingShiftsResult] = await Promise.all([
+  const [
+    employeesResult,
+    slotsResult,
+    availabilityResult,
+    pauseRulesResult,
+    existingShiftsResult,
+    hourDefaultsResult,
+  ] = await Promise.all([
     sb
       .from("dienstplan_employees")
-      .select("id, position, position_category, monthly_hours, weekly_hours")
+      .select("id, position, position_category, employment_type, monthly_hours, weekly_hours")
       .eq("is_active", true),
     sb
       .from("dienstplan_planned_slots")
@@ -1425,12 +1480,14 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
       .select("employee_id, shift_date, start_time, end_time")
       .gte("shift_date", range.start)
       .lte("shift_date", range.end),
+    sb.from("dienstplan_employment_hour_defaults").select("employment_type, vacation_hours_per_day"),
   ]);
 
   const employees = (employeesResult.data ?? []) as {
     id: number;
     position: string | null;
     position_category: string | null;
+    employment_type: string;
     monthly_hours: number;
     weekly_hours: number;
   }[];
@@ -1455,6 +1512,16 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
     start_time: string | null;
     end_time: string | null;
   }[];
+  const hourDefaults = (hourDefaultsResult.data ?? []) as {
+    employment_type: string;
+    vacation_hours_per_day: number;
+  }[];
+
+  const extraMinutesByEmployee = calculateUrlaubMinutesByEmployee(
+    availability.map((a) => ({ employee_id: a.employee_id, status: a.status })),
+    employees.map((e) => ({ id: e.id, employment_type: e.employment_type })),
+    hourDefaults
+  );
 
   const generated = generateAutoPlanSlots({
     employees,
@@ -1468,6 +1535,7 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
     })),
     pauseRules,
     maxShiftsPerWeek: 7,
+    extraMonthlyMinutesByEmployee: extraMinutesByEmployee,
   });
 
   if (generated.length === 0) return;
@@ -1526,10 +1594,17 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   if (!range) return;
 
   const sb = createAdminClient();
-  const [employeesResult, slotsResult, availabilityResult, shiftsResult, pauseRulesResult] = await Promise.all([
+  const [
+    employeesResult,
+    slotsResult,
+    availabilityResult,
+    shiftsResult,
+    pauseRulesResult,
+    hourDefaultsResult,
+  ] = await Promise.all([
     sb
       .from("dienstplan_employees")
-      .select("id, name, position, position_category, monthly_hours, weekly_hours")
+      .select("id, name, position, position_category, employment_type, monthly_hours, weekly_hours")
       .eq("is_active", true),
     sb
       .from("dienstplan_planned_slots")
@@ -1549,6 +1624,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
       .gte("shift_date", range.start)
       .lte("shift_date", range.end),
     sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
+    sb.from("dienstplan_employment_hour_defaults").select("employment_type, vacation_hours_per_day"),
   ]);
 
   const employees = (employeesResult.data ?? []) as {
@@ -1556,6 +1632,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     name: string;
     position: string | null;
     position_category: string | null;
+    employment_type: string;
     monthly_hours: number;
     weekly_hours: number;
   }[];
@@ -1581,8 +1658,18 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     break_minutes: number | null;
   }[];
   const pauseRules = (pauseRulesResult.data ?? []) as PauseRule[];
+  const hourDefaults = (hourDefaultsResult.data ?? []) as {
+    employment_type: string;
+    vacation_hours_per_day: number;
+  }[];
 
   if (slots.length === 0) return;
+
+  const urlaubMinutesByEmployee = calculateUrlaubMinutesByEmployee(
+    availability.map((a) => ({ employee_id: a.employee_id, status: a.status })),
+    employees.map((e) => ({ id: e.id, employment_type: e.employment_type })),
+    hourDefaults
+  );
 
   const currentHoursByEmployee = new Map<number, number>();
   for (const shift of shifts) {
@@ -1592,6 +1679,9 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
       shift.employee_id,
       (currentHoursByEmployee.get(shift.employee_id) ?? 0) + summary.workMinutes / 60
     );
+  }
+  for (const [empId, mins] of urlaubMinutesByEmployee) {
+    currentHoursByEmployee.set(empId, (currentHoursByEmployee.get(empId) ?? 0) + mins / 60);
   }
 
   const aiResponse = await askAiToAssignSlots({
@@ -1628,6 +1718,13 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   const slotsById = new Map(slots.map((s) => [s.id, s]));
   const employeeIds = new Set(employees.map((e) => e.id));
   const usedEmployeeOnDay = new Set<string>();
+  const blockedByAvailability = new Set<string>();
+  for (const entry of availability) {
+    const status = (entry.status ?? "").toLowerCase();
+    if (status === "f" || status === "u" || status === "k") {
+      blockedByAvailability.add(`${entry.employee_id}-${entry.availability_date}`);
+    }
+  }
   const validAssignments: { slot_id: number; employee_id: number }[] = [];
 
   for (const a of aiResponse.assignments) {
@@ -1635,6 +1732,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     if (!slot) continue;
     if (!employeeIds.has(a.employee_id)) continue;
     const dayKey = `${a.employee_id}-${slot.slot_date}`;
+    if (blockedByAvailability.has(dayKey)) continue; // F/U/K hart sperren, falls die KI sich verirrt
     if (usedEmployeeOnDay.has(dayKey)) continue;
     usedEmployeeOnDay.add(dayKey);
     validAssignments.push({ slot_id: slot.id, employee_id: a.employee_id });

@@ -22,6 +22,7 @@ import {
 import MonthlyGrid from "./components/MonthlyGrid";
 import type {
   Employee,
+  EmploymentHourDefault,
   Shift,
   Availability,
   ShiftTrack,
@@ -96,7 +97,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
     employeeRows = (fallback.data ?? []) as EmployeeRow[];
   }
 
-  const [shiftResult, availResult, pauseResult, trackResult, eventsResult, plannedResult] = await Promise.all([
+  const [shiftResult, availResult, pauseResult, trackResult, eventsResult, plannedResult, hourDefaultsResult] = await Promise.all([
     sb
       .from("dienstplan_shifts")
       .select("employee_id, shift_date, start_time, end_time, break_minutes, comment")
@@ -123,6 +124,9 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       .lte("slot_date", end)
       .order("slot_date")
       .order("start_time"),
+    sb
+      .from("dienstplan_employment_hour_defaults")
+      .select("employment_type, vacation_hours_per_day"),
   ]);
 
   const employees: Employee[] = employeeRows.map((row) => ({
@@ -135,6 +139,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
   const shiftTracks = (trackResult.data ?? []) as ShiftTrack[];
   const specialEvents = (eventsResult.data ?? []) as SpecialEvent[];
   const plannedSlots = (plannedResult.data ?? []) as PlannedSlot[];
+  const employmentHourDefaults = (hourDefaultsResult.data ?? []) as EmploymentHourDefault[];
   const days = buildMonthDays(month);
   const aiEnabled = dienstplanAiEnabled();
 
@@ -149,6 +154,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       shiftTracks={shiftTracks}
       specialEvents={specialEvents}
       plannedSlots={plannedSlots}
+      employmentHourDefaults={employmentHourDefaults}
       isAdmin={isAdmin}
       aiEnabled={aiEnabled}
       saveShiftAction={saveShiftAction}

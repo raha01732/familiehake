@@ -93,6 +93,31 @@ export type ShiftTrack = {
   end_time: string;
 };
 
+export type EmploymentHourDefault = {
+  employment_type: string;
+  vacation_hours_per_day: number;
+};
+
+/** Wieviele Minuten Urlaub bekommt ein Mitarbeiter im aktuellen Monat angerechnet? */
+export function calculateUrlaubMinutesByEmployee(
+  availability: { employee_id: number; status: string | null }[],
+  employees: { id: number; employment_type: string }[],
+  defaults: { employment_type: string; vacation_hours_per_day: number }[]
+): Map<number, number> {
+  const defaultMap = new Map(defaults.map((d) => [d.employment_type, Number(d.vacation_hours_per_day) || 0]));
+  const empType = new Map(employees.map((e) => [e.id, e.employment_type]));
+  const result = new Map<number, number>();
+  for (const entry of availability) {
+    if ((entry.status ?? "").toLowerCase() !== "u") continue;
+    const type = empType.get(entry.employee_id);
+    if (!type) continue;
+    const hpd = defaultMap.get(type) ?? 0;
+    if (hpd <= 0) continue;
+    result.set(entry.employee_id, (result.get(entry.employee_id) ?? 0) + hpd * 60);
+  }
+  return result;
+}
+
 export const EMPLOYEE_COLORS = [
   "#6366f1", "#8b5cf6", "#ec4899", "#f97316",
   "#22c55e", "#06b6d4", "#eab308", "#ef4444",
@@ -260,6 +285,51 @@ export function addHoursToTime(time: string, hoursToAdd: number) {
   return toTimeString(timeInMinutes + hoursToAdd * 60);
 }
 
+// ── Feiertage (Niedersachsen-Set, deckt die für Braunschweig relevanten ab) ──
+function easterSunday(year: number): Date {
+  // Anonymous Gregorian Algorithm
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function dateKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function addUtcDays(date: Date, n: number): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + n));
+}
+
+/** Datum-String → Feiertagsname (für DE/NS). Leer wenn kein Feiertag. */
+export function getGermanHolidays(year: number): Map<string, string> {
+  const map = new Map<string, string>();
+  map.set(`${year}-01-01`, "Neujahr");
+  const easter = easterSunday(year);
+  map.set(dateKey(addUtcDays(easter, -2)), "Karfreitag");
+  map.set(dateKey(addUtcDays(easter, 1)), "Ostermontag");
+  map.set(dateKey(addUtcDays(easter, 39)), "Christi Himmelfahrt");
+  map.set(dateKey(addUtcDays(easter, 50)), "Pfingstmontag");
+  map.set(`${year}-05-01`, "Tag der Arbeit");
+  map.set(`${year}-10-03`, "Tag der Deutschen Einheit");
+  map.set(`${year}-10-31`, "Reformationstag");
+  map.set(`${year}-12-25`, "1. Weihnachtstag");
+  map.set(`${year}-12-26`, "2. Weihnachtstag");
+  return map;
+}
+
 export function getThursdayWeekKey(dateValue: string) {
   const date = new Date(`${dateValue}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return null;
@@ -304,13 +374,20 @@ export function generateAutoPlanSlots(params: {
   slots: AutoPlanSlot[];
   pauseRules: PauseRule[];
   maxShiftsPerWeek?: number;
+  /** Bereits angerechnete Minuten pro Mitarbeiter (z.B. Urlaubs-Minuten), bevor die Schichten verteilt werden. */
+  extraMonthlyMinutesByEmployee?: Map<number, number>;
 }) {
-  const { employees, existingShifts, availability, slots, pauseRules, maxShiftsPerWeek = 7 } = params;
+  const { employees, existingShifts, availability, slots, pauseRules, maxShiftsPerWeek = 7, extraMonthlyMinutesByEmployee } = params;
   const availabilityMap = new Map(
     availability.map((entry) => [`${entry.employee_id}-${entry.availability_date}`, entry])
   );
   const assignedByDay = new Map<string, Set<number>>();
   const totalMinutesByEmployee = new Map<number, number>();
+  if (extraMonthlyMinutesByEmployee) {
+    for (const [id, mins] of extraMonthlyMinutesByEmployee) {
+      totalMinutesByEmployee.set(id, (totalMinutesByEmployee.get(id) ?? 0) + mins);
+    }
+  }
   const weeklyMinutesByEmployee = new Map<string, number>();
   const weeklyShiftCountByEmployee = new Map<string, number>();
   const assignmentCount = new Map<number, number>();
@@ -350,7 +427,7 @@ export function generateAutoPlanSlots(params: {
       const candidateEndTime = isServiceleitung ? (addHoursToTime(slot.start_time, 8) ?? slot.end_time) : slot.end_time;
       const availabilityEntry = availabilityMap.get(`${employee.id}-${slot.shift_date}`);
       const availabilityStatus = availabilityEntry?.status?.toLowerCase() ?? null;
-      if (availabilityStatus === "f" || availabilityStatus === "k") continue;
+      if (availabilityStatus === "f" || availabilityStatus === "k" || availabilityStatus === "u") continue;
       if (
         availabilityStatus === "fix" &&
         (!availabilityEntry?.fixed_start ||
