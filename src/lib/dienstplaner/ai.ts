@@ -71,7 +71,10 @@ WICHTIG: Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt nach folgendem 
 }`;
 
 type GeminiResponse = {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{
+    message?: { content?: string };
+    finish_reason?: string;
+  }>;
   error?: { message?: string };
 };
 
@@ -155,9 +158,10 @@ export async function askAiToAssignSlots(input: {
     2
   );
 
-  // Hinweis: response_format wird bewusst weggelassen. Der System-Prompt
-  // verlangt strikten JSON-Output, und parseLooseJson() unten zieht das
-  // erste {…}-Block heraus, falls Modelle drumherum doch Text generieren.
+  // reasoning_effort: "low" begrenzt Gemini 2.5 Thinking, damit das
+  // max_tokens-Budget für den finalen JSON-Output reicht.
+  // response_format erzwingt sauberes JSON; parseLooseJson() bleibt als
+  // Fallback, falls Modelle trotzdem Text drumherum erzeugen.
   const res = await fetch(`${GEMINI_BASE}/chat/completions`, {
     method: "POST",
     headers: {
@@ -171,7 +175,9 @@ export async function askAiToAssignSlots(input: {
         { role: "user", content: userMessage },
       ],
       temperature: 0.2,
-      max_tokens: 4000,
+      max_tokens: 8000,
+      response_format: { type: "json_object" },
+      reasoning_effort: "low",
     }),
     cache: "no-store",
   });
@@ -182,12 +188,18 @@ export async function askAiToAssignSlots(input: {
   }
   const json = (await res.json()) as GeminiResponse;
   const content = json.choices?.[0]?.message?.content;
-  if (typeof content !== "string") {
-    throw new Error("Gemini hat keine Antwort geliefert");
+  if (typeof content !== "string" || content.trim().length === 0) {
+    const finishReason = json.choices?.[0]?.finish_reason ?? "unknown";
+    throw new Error(
+      `Gemini hat keine Antwort geliefert (finish_reason=${finishReason}). ` +
+        `Mögliche Ursache: Token-Limit durch Thinking erschöpft.`
+    );
   }
   const parsed = parseLooseJson(content);
   if (!parsed) {
-    throw new Error("Gemini hat kein verwertbares JSON geliefert");
+    throw new Error(
+      `Gemini hat kein verwertbares JSON geliefert. Antwort-Snippet: ${content.slice(0, 200)}`
+    );
   }
   if (!parsed || typeof parsed !== "object") {
     throw new Error("Gemini hat unerwartete Struktur geliefert");
