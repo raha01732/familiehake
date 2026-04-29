@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
+import { encryptJournal, decryptJournal } from "@/lib/journal-crypto";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,8 +35,12 @@ export async function PATCH(
   }
 
   const patch: Record<string, string> = {};
-  if (typeof body.title === "string") patch.title = body.title.slice(0, MAX_TITLE);
-  if (typeof body.content_md === "string") patch.content_md = body.content_md.slice(0, MAX_CONTENT);
+  if (typeof body.title === "string") {
+    patch.title_enc = encryptJournal(body.title.slice(0, MAX_TITLE), userId);
+  }
+  if (typeof body.content_md === "string") {
+    patch.content_enc = encryptJournal(body.content_md.slice(0, MAX_CONTENT), userId);
+  }
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ ok: false, error: "no fields" }, { status: 400 });
@@ -47,7 +52,7 @@ export async function PATCH(
     .update(patch)
     .eq("id", id)
     .eq("user_id", userId)
-    .select("id,title,content_md,created_at,updated_at")
+    .select("id,title_enc,content_enc,created_at,updated_at")
     .single();
 
   if (error) {
@@ -58,7 +63,21 @@ export async function PATCH(
     return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ ok: true, data });
+  try {
+    return NextResponse.json({
+      ok: true,
+      data: {
+        id: data.id,
+        title: decryptJournal(data.title_enc, userId),
+        content_md: decryptJournal(data.content_enc, userId),
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+      },
+    });
+  } catch (err) {
+    console.error("journal entries PATCH decrypt error:", (err as Error).message);
+    return NextResponse.json({ ok: false, error: "decrypt error" }, { status: 500 });
+  }
 }
 
 export async function DELETE(

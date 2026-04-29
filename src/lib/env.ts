@@ -25,6 +25,8 @@ const baseSchema = z.object({
   NEXT_PUBLIC_POSTHOG_KEY: z.string().optional(),
   NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
   FINANCE_ENCRYPTION_KEY: z.string().min(16).optional(),
+  JOURNAL_ENCRYPTION_KEY: z.string().min(16).optional(),
+  CALENDAR_ENCRYPTION_KEY: z.string().min(16).optional(),
   // Nutrition tool
   SPOONACULAR_API_KEY: z.string().min(1).optional(),
   GEMINI_API_KEY: z.string().min(1).optional(),
@@ -42,6 +44,8 @@ const requiredInProduction = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "PRIMARY_SUPERADMIN_ID",
   "FINANCE_ENCRYPTION_KEY",
+  "JOURNAL_ENCRYPTION_KEY",
+  "CALENDAR_ENCRYPTION_KEY",
 ] as const;
 
 type Env = z.infer<typeof baseSchema> &

@@ -960,3 +960,48 @@ create table if not exists notification_preferences (
   email_enabled boolean not null default true,
   updated_at timestamptz not null default now()
 );
+
+-- ─────────────────────────────────────────────
+-- Journal (private Tagebuch-Einträge)
+-- title und content sind AES-256-GCM verschlüsselt: base64(iv).base64(authTag).base64(ciphertext)
+-- Schlüssel: JOURNAL_ENCRYPTION_KEY (eigenständig — kompromittierter Key betrifft nur Journal)
+-- ─────────────────────────────────────────────
+
+create table if not exists journal_entries (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  title_enc text not null,
+  content_enc text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists journal_entries_user_id_idx
+  on journal_entries(user_id);
+
+create index if not exists journal_entries_user_created_idx
+  on journal_entries(user_id, created_at desc);
+
+-- ─────────────────────────────────────────────
+-- Calendar Events (persönliche Termine)
+-- title/location/description verschlüsselt; starts_at/ends_at bleiben Klartext für Filter und Sortierung
+-- Schlüssel: CALENDAR_ENCRYPTION_KEY (eigenständig)
+-- ─────────────────────────────────────────────
+
+create table if not exists calendar_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  title_enc text not null,
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
+  location_enc text,
+  description_enc text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists calendar_events_user_id_idx
+  on calendar_events(user_id);
+
+create index if not exists calendar_events_user_starts_idx
+  on calendar_events(user_id, starts_at);
