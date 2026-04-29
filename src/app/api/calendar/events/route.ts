@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
+import { encryptCalendar, decryptCalendar } from "@/lib/calendar-crypto";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,10 +12,30 @@ const MAX_TITLE = 300;
 const MAX_LOCATION = 300;
 const MAX_DESCRIPTION = 5_000;
 
+type StoredRow = {
+  id: string;
+  title_enc: string;
+  starts_at: string;
+  ends_at: string;
+  location_enc: string | null;
+  description_enc: string | null;
+};
+
 function isValidIso(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const t = Date.parse(value);
   return Number.isFinite(t);
+}
+
+function decryptRow(row: StoredRow, userId: string) {
+  return {
+    id: row.id,
+    title: decryptCalendar(row.title_enc, userId),
+    starts_at: row.starts_at,
+    ends_at: row.ends_at,
+    location: row.location_enc ? decryptCalendar(row.location_enc, userId) : null,
+    description: row.description_enc ? decryptCalendar(row.description_enc, userId) : null,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -27,7 +48,7 @@ export async function GET(req: NextRequest) {
   const sb = createAdminClient();
   const { data, error } = await sb
     .from("calendar_events")
-    .select("id,title,starts_at,ends_at,location,description")
+    .select("id,title_enc,starts_at,ends_at,location_enc,description_enc")
     .eq("user_id", userId)
     .order("starts_at", { ascending: true });
 
@@ -36,7 +57,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "db error" }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, data: data ?? [] });
+  try {
+    const decrypted = (data ?? []).map((row) => decryptRow(row as StoredRow, userId));
+    return NextResponse.json({ ok: true, data: decrypted });
+  } catch (err) {
+    console.error("calendar events GET decrypt error:", (err as Error).message);
+    return NextResponse.json({ ok: false, error: "decrypt error" }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -69,9 +96,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "ends_at before starts_at" }, { status: 400 });
   }
 
-  const location =
+  const locationPlain =
     typeof body.location === "string" ? body.location.slice(0, MAX_LOCATION) : null;
-  const description =
+  const descriptionPlain =
     typeof body.description === "string" ? body.description.slice(0, MAX_DESCRIPTION) : null;
 
   const sb = createAdminClient();
@@ -79,13 +106,13 @@ export async function POST(req: NextRequest) {
     .from("calendar_events")
     .insert({
       user_id: userId,
-      title,
+      title_enc: encryptCalendar(title, userId),
       starts_at: body.starts_at,
       ends_at: body.ends_at,
-      location,
-      description,
+      location_enc: locationPlain ? encryptCalendar(locationPlain, userId) : null,
+      description_enc: descriptionPlain ? encryptCalendar(descriptionPlain, userId) : null,
     })
-    .select("id,title,starts_at,ends_at,location,description")
+    .select("id,title_enc,starts_at,ends_at,location_enc,description_enc")
     .single();
 
   if (error) {
@@ -93,5 +120,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "db error" }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, data });
+  return NextResponse.json({ ok: true, data: decryptRow(data as StoredRow, userId) });
 }

@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { toICS } from "@/lib/ics";
 import { applyRateLimit } from "@/lib/ratelimit";
+import { decryptCalendar } from "@/lib/calendar-crypto";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,20 +19,26 @@ export async function GET(req: NextRequest) {
   const sb = createAdminClient();
   const { data } = await sb
     .from("calendar_events")
-    .select("id,title,starts_at,ends_at,location,description")
+    .select("id,title_enc,starts_at,ends_at,location_enc,description_enc")
     .eq("user_id", userId)
     .order("starts_at", { ascending: true });
 
-  const ics = toICS(
-    (data ?? []).map((e) => ({
+  let events;
+  try {
+    events = (data ?? []).map((e) => ({
       uid: e.id,
-      title: e.title,
+      title: decryptCalendar(e.title_enc, userId),
       startsAt: e.starts_at,
       endsAt: e.ends_at,
-      location: e.location ?? "",
-      description: e.description ?? "",
-    }))
-  );
+      location: e.location_enc ? decryptCalendar(e.location_enc, userId) : "",
+      description: e.description_enc ? decryptCalendar(e.description_enc, userId) : "",
+    }));
+  } catch (err) {
+    console.error("calender export decrypt error:", (err as Error).message);
+    return NextResponse.json({ ok: false, error: "decrypt error" }, { status: 500 });
+  }
+
+  const ics = toICS(events);
 
   return new NextResponse(ics, {
     status: 200,
