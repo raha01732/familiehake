@@ -3,17 +3,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { createClient } from "@/lib/supabase/browser";
 import { decryptWith, encryptFor, generateRSA, importPrivateKey, importPublicKey } from "@/lib/crypto";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
 type Msg = { id: string; sender_id: string; recipient_id: string; ciphertext: string; created_at: string };
- 
+
 type RevealFn = (ciphertext: string) => Promise<string>;
 
 export default function MessagesPage() {
   const isPreview = process.env.NEXT_PUBLIC_VERCEL_ENV === "preview";
-  const sb = useMemo(() => createClient(), []);
   const { userId } = useAuth();
   const { user } = useUser();
   const [privPEM, setPrivPEM] = useState<string | null>(() => {
@@ -26,54 +24,49 @@ export default function MessagesPage() {
 
   // RSA-Schlüssel erzeugen & öffentlichen Schlüssel publizieren
   async function ensureKey() {
-    if (!sb) return;
     if (privPEM) return;
     const kp = await generateRSA();
     localStorage.setItem("e2e_private_pem", kp.privatePEM);
     setPrivPEM(kp.privatePEM);
-    await sb.from("user_keys").upsert({ user_id: userId, public_key_pem: kp.publicPEM }, { onConflict: "user_id" });
+    await fetch("/api/keys", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ public_key_pem: kp.publicPEM }),
+    });
   }
 
   async function loadChat(peerId: string) {
-    if (!sb) return;
     if (!peerId) return;
-    const { data } = await sb
-      .from("messages")
-      .select("id,sender_id,recipient_id,ciphertext,created_at")
-      .or(
-        `and(sender_id.eq.${userId},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${userId})`
-      )
-      .order("created_at", { ascending: true });
-    setMessages(data ?? []);
+    const res = await fetch(`/api/messages?peer=${encodeURIComponent(peerId)}`);
+    const json = await res.json();
+    setMessages(json?.ok ? (json.data ?? []) : []);
   }
 
   async function send() {
-    if (!sb) return;
     if (!plain.trim() || !recipientId) return;
 
     // Public Key des Empfängers holen
-    const { data: keyRows } = await sb
-      .from("user_keys")
-      .select("public_key_pem")
-      .eq("user_id", recipientId)
-      .single();
+    const keyRes = await fetch(`/api/keys?userId=${encodeURIComponent(recipientId)}`);
+    const keyJson = await keyRes.json();
+    const publicPem = keyJson?.data?.public_key_pem as string | undefined;
 
-    if (!keyRows?.public_key_pem) {
+    if (!publicPem) {
       alert("Empfänger hat keinen öffentlichen Schlüssel publiziert.");
       return;
     }
 
-    const pubKey = await importPublicKey(keyRows.public_key_pem);
+    const pubKey = await importPublicKey(publicPem);
     const ciphertext = await encryptFor(pubKey, plain.trim());
 
-    const { data } = await sb
-      .from("messages")
-      .insert({ sender_id: userId, recipient_id: recipientId, ciphertext })
-      .select("*")
-      .single();
+    const res = await fetch("/api/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recipient_id: recipientId, ciphertext }),
+    });
+    const json = await res.json();
 
-    if (data) {
-      setMessages((m) => [...m, data]);
+    if (json?.ok && json.data) {
+      setMessages((m) => [...m, json.data]);
       setPlain("");
     }
   }

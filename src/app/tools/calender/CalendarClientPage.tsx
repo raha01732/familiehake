@@ -1,9 +1,8 @@
 // /workspace/familiehake/src/app/tools/calender/CalendarClientPage.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/browser";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
 type Row = {
@@ -17,36 +16,36 @@ type Row = {
 
 export default function CalendarPage() {
   const isPreview = process.env.NEXT_PUBLIC_VERCEL_ENV === "preview";
-  const sb = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<Row[]>([]);
   const [form, setForm] = useState<Partial<Row>>({ title: "", starts_at: "", ends_at: "", location: "", description: "" });
 
   useEffect(() => {
-    if (!sb) return;
+    let cancelled = false;
     (async () => {
-      const { data } = await sb
-        .from("calendar_events")
-        .select("id,title,starts_at,ends_at,location,description")
-        .order("starts_at", { ascending: true });
-      setRows(data ?? []);
+      const res = await fetch("/api/calendar/events");
+      const json = await res.json();
+      if (!cancelled && json?.ok) setRows(json.data ?? []);
     })();
-  }, [sb]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function addEvent() {
-    if (!sb) return;
     if (!form.title || !form.starts_at || !form.ends_at) return;
-    const { data } = await sb
-      .from("calendar_events")
-      .insert({
+    const res = await fetch("/api/calendar/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         title: form.title,
         starts_at: form.starts_at,
         ends_at: form.ends_at,
-        location: form.location,
-        description: form.description,
-      })
-      .select("*")
-      .single();
-    if (data) setRows((r) => [...r, data]);
+        location: form.location ?? null,
+        description: form.description ?? null,
+      }),
+    });
+    const json = await res.json();
+    if (json?.ok && json.data) setRows((r) => [...r, json.data]);
     setForm({ title: "", starts_at: "", ends_at: "", location: "", description: "" });
   }
 

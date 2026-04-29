@@ -1,8 +1,7 @@
 // /workspace/familiehake/src/app/tools/journal/JournalClientPage.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { createClient } from "@/lib/supabase/browser";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 
@@ -24,7 +23,6 @@ const DRAFT_DEBOUNCE_MS = 1500;
 
 export default function JournalPage() {
   const isPreview = process.env.NEXT_PUBLIC_VERCEL_ENV === "preview";
-  const sb = useMemo(() => createClient(), []);
   const { userId } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,24 +32,21 @@ export default function JournalPage() {
 
   // ── Initial load + Drafts wiederherstellen ────────────────────────────────
   useEffect(() => {
-    if (!sb) return;
     let cancelled = false;
     (async () => {
-      const { data } = await sb
-        .from("journal_entries")
-        .select("id,title,content_md,created_at,updated_at")
-        .order("created_at", { ascending: false });
+      const res = await fetch("/api/journal/entries");
+      const json = await res.json();
       if (cancelled) return;
-      const dbRows: Row[] = data ?? [];
+      const dbRows: Row[] = json?.ok ? (json.data ?? []) : [];
 
       // Drafts pro Eintrag prüfen — bei vorhandenem Draft den Inhalt überschreiben
       const restored: Record<string, DraftState> = {};
       const finalRows: Row[] = await Promise.all(
         dbRows.map(async (row): Promise<Row> => {
           try {
-            const res = await fetch(`/api/journal/draft?entryId=${row.id}`);
-            const json = await res.json();
-            const draft = json?.data;
+            const draftRes = await fetch(`/api/journal/draft?entryId=${row.id}`);
+            const draftJson = await draftRes.json();
+            const draft = draftJson?.data;
             if (draft && draft.saved_at && new Date(draft.saved_at) > new Date(row.updated_at)) {
               restored[row.id] = {
                 saving: false,
@@ -75,7 +70,7 @@ export default function JournalPage() {
     return () => {
       cancelled = true;
     };
-  }, [sb]);
+  }, []);
 
   // ── Aufräumen bei Unmount ────────────────────────────────────────────────
   useEffect(() => {
@@ -86,15 +81,15 @@ export default function JournalPage() {
   }, []);
 
   async function createEntry() {
-    if (!sb) return;
     const title = `Eintrag ${new Date().toLocaleDateString()}`;
-    const { data, error } = await sb
-      .from("journal_entries")
-      .insert({ title, content_md: "# Neuer Eintrag\n\n" })
-      .select("id,title,content_md,created_at,updated_at")
-      .single();
-    if (!error && data) {
-      setRows((r) => [data, ...r]);
+    const res = await fetch("/api/journal/entries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content_md: "# Neuer Eintrag\n\n" }),
+    });
+    const json = await res.json();
+    if (json?.ok && json.data) {
+      setRows((r) => [json.data, ...r]);
     }
   }
 
@@ -148,18 +143,19 @@ export default function JournalPage() {
   }
 
   async function saveRow(row: Row) {
-    if (!sb) return;
     // Pending Draft-Save abbrechen — wir gehen direkt in die DB
     if (draftTimers.current[row.id]) {
       clearTimeout(draftTimers.current[row.id]);
       delete draftTimers.current[row.id];
     }
     startSaving(async () => {
-      const { error } = await sb
-        .from("journal_entries")
-        .update({ title: row.title, content_md: row.content_md })
-        .eq("id", row.id);
-      if (!error) {
+      const res = await fetch(`/api/journal/entries/${row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: row.title, content_md: row.content_md }),
+      });
+      const json = await res.json();
+      if (json?.ok) {
         // Draft entfernen — DB ist nun die Wahrheit
         await fetch(`/api/journal/draft?entryId=${row.id}`, { method: "DELETE" }).catch(() => {});
         setDraftState((s) => {
