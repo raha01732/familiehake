@@ -96,34 +96,36 @@ export default function EmployeeModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col overflow-hidden">
-        {/* Header (fixiert oben) */}
-        <div className="flex items-center gap-3 p-5 border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] flex-shrink-0">
+    <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative min-h-full flex items-start justify-center p-4 sm:p-6">
+        <div className="relative w-full max-w-lg my-auto bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl">
+          {/* Header (klebt oben am Modal) */}
           <div
-            className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 transition-colors"
-            style={{ backgroundColor: selectedColor }}
+            className="flex items-center gap-3 p-5 border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] rounded-t-2xl sticky top-0 z-10"
           >
-            {employee ? employee.name.slice(0, 2).toUpperCase() : "NM"}
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 transition-colors"
+              style={{ backgroundColor: selectedColor }}
+            >
+              {employee ? employee.name.slice(0, 2).toUpperCase() : "NM"}
+            </div>
+            <h2 className="font-semibold text-[hsl(var(--foreground))]">
+              {isEdit ? "Mitarbeiter bearbeiten" : "Neuer Mitarbeiter"}
+            </h2>
+            <button
+              onClick={onClose}
+              className="ml-auto text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] p-1 rounded-lg hover:bg-[hsl(var(--secondary))] transition-colors"
+              aria-label="Schließen"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-          <h2 className="font-semibold text-[hsl(var(--foreground))]">
-            {isEdit ? "Mitarbeiter bearbeiten" : "Neuer Mitarbeiter"}
-          </h2>
-          <button
-            onClick={onClose}
-            className="ml-auto text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] p-1 rounded-lg hover:bg-[hsl(var(--secondary))] transition-colors"
-            aria-label="Schließen"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
 
-        <form ref={formRef} onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
-          {/* Scrollbarer Body */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <form ref={formRef} onSubmit={handleSubmit}>
+            <div className="p-5 space-y-4">
           {/* Name */}
           <div>
             <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
@@ -330,9 +332,9 @@ export default function EmployeeModal({
               ))}
             </div>
           </div>
-          </div>
-          {/* Footer (fixiert unten) */}
-          <div className="flex gap-2 p-5 border-t border-[hsl(var(--border))] bg-[hsl(var(--card))] flex-shrink-0">
+            </div>
+            {/* Footer (klebt unten am Modal) */}
+            <div className="flex flex-wrap gap-2 p-5 border-t border-[hsl(var(--border))] bg-[hsl(var(--card))] rounded-b-2xl sticky bottom-0 z-10">
             {isEdit && isAdmin && (
               confirmDelete ? (
                 <div className="flex gap-2 items-center">
@@ -377,8 +379,9 @@ export default function EmployeeModal({
             >
               {isPending ? "Speichern …" : isEdit ? "Speichern" : "Anlegen"}
             </button>
-          </div>
-        </form>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
