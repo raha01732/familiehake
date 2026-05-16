@@ -11,8 +11,11 @@ import {
   calculateShiftMinutes,
   calculateUrlaubMinutesByEmployee,
   generateAutoPlanSlots,
+  inferPositionCategory,
+  normalizeAllowedPositions,
   type AutoPlanSlot,
   type PauseRule,
+  type PositionCategory,
 } from "./utils";
 import { askAiToAssignSlots, dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
 
@@ -122,7 +125,22 @@ export async function saveShiftAction(formData: FormData) {
 
   const sb = createAdminClient();
   if (!startTimeRaw.trim() || !endTimeRaw.trim()) {
+    const { data: existingShift } = await sb
+      .from("dienstplan_shifts")
+      .select("start_time, end_time, comment")
+      .eq("employee_id", employeeId)
+      .eq("shift_date", shiftDate)
+      .maybeSingle();
     await sb.from("dienstplan_shifts").delete().eq("employee_id", employeeId).eq("shift_date", shiftDate);
+    if (existingShift?.start_time && existingShift.end_time) {
+      await reopenSlotForDeletedShift(sb, {
+        slotDate: shiftDate,
+        startTime: existingShift.start_time,
+        endTime: existingShift.end_time,
+        note: existingShift.comment ?? null,
+        previousEmployeeId: employeeId,
+      });
+    }
     revalidatePath(PLAN_PATH);
     return;
   }
@@ -133,6 +151,19 @@ export async function saveShiftAction(formData: FormData) {
   const breakMinutesRaw = formData.get("break_minutes");
   const breakMinutes = breakMinutesRaw !== null && breakMinutesRaw !== "" ? Number(breakMinutesRaw) : null;
   const comment = formData.get("comment") ? String(formData.get("comment")) : null;
+
+  // Vor dem Anlegen: prüfen, ob es einen passenden offenen Slot mit dezidierter Position gibt
+  const { data: matchingSlot } = await sb
+    .from("dienstplan_planned_slots")
+    .select("position")
+    .eq("slot_date", shiftDate)
+    .eq("start_time", startTime)
+    .eq("end_time", endTime)
+    .is("assigned_employee_id", null)
+    .limit(1)
+    .maybeSingle();
+
+  await assertEmployeeAllowedForShift(sb, employeeId, matchingSlot?.position ?? null);
 
   const { data: existingShift } = await sb
     .from("dienstplan_shifts")
@@ -293,7 +324,7 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
 
   const sb = createAdminClient();
   const [employeesResult, pauseRulesResult, availabilityResult, weekdayRequirementsResult, dateRequirementsResult, shiftTracksResult, weekdayPositionRequirementsResult, datePositionRequirementsResult] = await Promise.all([
-    sb.from("dienstplan_employees").select("id, position, monthly_hours, weekly_hours"),
+    sb.from("dienstplan_employees").select("id, name, position, monthly_hours, weekly_hours, allowed_positions").eq("is_active", true),
     sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
     sb.from("dienstplan_availability").select("employee_id, availability_date, status, fixed_start, fixed_end").gte("availability_date", range.start).lte("availability_date", range.end),
     sb.from("dienstplan_weekday_requirements").select("weekday, required_shifts"),
@@ -303,12 +334,21 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
     sb.from("dienstplan_position_requirements").select("requirement_date, position, track_key, start_time, end_time").gte("requirement_date", range.start).lte("requirement_date", range.end),
   ]);
 
-  const employees = (employeesResult.data ?? []) as {
+  const employees = ((employeesResult.data ?? []) as {
     id: number;
+    name: string;
     position: string | null;
     monthly_hours: number;
     weekly_hours: number;
-  }[];
+    allowed_positions: string[] | null;
+  }[]).map((row) => ({
+    id: row.id,
+    name: row.name,
+    position: row.position,
+    monthly_hours: row.monthly_hours,
+    weekly_hours: row.weekly_hours,
+    allowed_positions: normalizeAllowedPositions(row.allowed_positions),
+  }));
   const pauseRules = (pauseRulesResult.data ?? []) as PauseRule[];
   const availability = (availabilityResult.data ?? []) as {
     employee_id: number;
@@ -438,7 +478,7 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
       })
     : slots;
 
-  const generatedShifts = generateAutoPlanSlots({
+  const { plannedShifts: generatedShifts, unfilledSlots } = generateAutoPlanSlots({
     employees,
     existingShifts: existingShiftsForPlan,
     availability: respectAvailability ? availability : [],
@@ -447,11 +487,7 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
     maxShiftsPerWeek,
   });
 
-  if (generatedShifts.length === 0) {
-    return;
-  }
-
-  if (overwriteExisting) {
+  if (overwriteExisting && generatedShifts.length > 0) {
     await sb.from("dienstplan_shifts").delete().gte("shift_date", range.start).lte("shift_date", range.end);
   }
   if (generatedShifts.length > 0) {
@@ -466,6 +502,7 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
   }
 
   revalidatePath(PLAN_PATH);
+  return { plannedShifts: generatedShifts, unfilledSlots };
 }
 
 export async function moveShiftAction(formData: FormData) {
@@ -619,6 +656,39 @@ async function isCallerDienstplanAdmin() {
   return role === "admin" || user.id === env().PRIMARY_SUPERADMIN_ID;
 }
 
+function extractAllowedPositions(formData: FormData): PositionCategory[] {
+  const raw = formData.getAll("allowed_positions");
+  return normalizeAllowedPositions(raw);
+}
+
+/**
+ * Prüft, ob die gegebene Schicht für den Mitarbeiter erlaubt ist.
+ * Wirft POSITION_NOT_ALLOWED:<empName>:<category>, wenn der Mitarbeiter
+ * für die abgeleitete Position nicht freigeschaltet ist.
+ * slotPosition wird bevorzugt; fällt auf die Mitarbeiter-Position zurück.
+ */
+async function assertEmployeeAllowedForShift(
+  sb: ReturnType<typeof createAdminClient>,
+  employeeId: number,
+  slotPosition?: string | null
+) {
+  const { data: emp } = await sb
+    .from("dienstplan_employees")
+    .select("name, allowed_positions, position_category, position")
+    .eq("id", employeeId)
+    .maybeSingle();
+  if (!emp) return;
+  const allowed = normalizeAllowedPositions(emp.allowed_positions);
+  const category =
+    inferPositionCategory(slotPosition) ??
+    (emp.position_category as PositionCategory | null | undefined) ??
+    inferPositionCategory(emp.position);
+  if (!category) return;
+  if (allowed.length === 0 || !allowed.includes(category)) {
+    throw new Error(`POSITION_NOT_ALLOWED:${emp.name}:${category}`);
+  }
+}
+
 export async function createEmployeeAction(formData: FormData) {
   await assertAuthenticatedForDienstplanWrite();
   const callerIsAdmin = await isCallerDienstplanAdmin();
@@ -639,6 +709,7 @@ export async function createEmployeeAction(formData: FormData) {
       : null;
   const rawUserId = String(formData.get("user_id") || "").trim();
   const userId = callerIsAdmin && rawUserId ? rawUserId : null;
+  const allowedPositions = extractAllowedPositions(formData);
   if (!name) return;
 
   const sb = createAdminClient();
@@ -674,6 +745,10 @@ export async function createEmployeeAction(formData: FormData) {
     sort_order: nextSortOrder,
     is_active: true,
     position_category: positionCategory,
+    allowed_positions:
+      allowedPositions.length > 0
+        ? allowedPositions
+        : (["serviceleitung", "projektionsleitung", "projektion"] as PositionCategory[]),
     user_id: userId,
   });
 
@@ -741,6 +816,10 @@ export async function updateEmployeeAction(formData: FormData) {
     }
   }
 
+  if (formData.has("allowed_positions")) {
+    updates.allowed_positions = extractAllowedPositions(formData);
+  }
+
   if (Object.keys(updates).length === 0) return;
 
   const sb = createAdminClient();
@@ -787,9 +866,88 @@ export async function deleteShiftAction(formData: FormData) {
   if (!employeeId || !shiftDate) return;
 
   const sb = createAdminClient();
+
+  // Zuerst die Schicht laden, damit wir nach dem Löschen einen offenen Slot anlegen können.
+  const { data: existingShift } = await sb
+    .from("dienstplan_shifts")
+    .select("start_time, end_time, comment")
+    .eq("employee_id", employeeId)
+    .eq("shift_date", shiftDate)
+    .maybeSingle();
+
   await sb.from("dienstplan_shifts").delete().eq("employee_id", employeeId).eq("shift_date", shiftDate);
 
+  if (existingShift?.start_time && existingShift.end_time) {
+    await reopenSlotForDeletedShift(sb, {
+      slotDate: shiftDate,
+      startTime: existingShift.start_time,
+      endTime: existingShift.end_time,
+      note: existingShift.comment ?? null,
+      previousEmployeeId: employeeId,
+    });
+  }
+
   revalidatePath(PLAN_PATH);
+}
+
+/**
+ * Stellt sicher, dass für einen entfernten Schicht-Zeitraum wieder ein offener
+ * planned_slot existiert. Reaktiviert einen evtl. dem Mitarbeiter zugewiesenen
+ * Slot oder legt einen neuen unbesetzten Slot an, wenn kein passender vorhanden ist.
+ */
+async function reopenSlotForDeletedShift(
+  sb: ReturnType<typeof createAdminClient>,
+  args: {
+    slotDate: string;
+    startTime: string;
+    endTime: string;
+    note: string | null;
+    previousEmployeeId: number;
+  }
+) {
+  const startKey = args.startTime.slice(0, 5);
+  const endKey = args.endTime.slice(0, 5);
+
+  // 1) Falls dem gelöschten Mitarbeiter ein Slot zugewiesen war: Zuweisung lösen.
+  const { data: assignedSlot } = await sb
+    .from("dienstplan_planned_slots")
+    .select("id")
+    .eq("slot_date", args.slotDate)
+    .eq("assigned_employee_id", args.previousEmployeeId)
+    .gte("start_time", `${startKey}:00`)
+    .lte("start_time", `${startKey}:59`)
+    .limit(1)
+    .maybeSingle();
+  if (assignedSlot) {
+    await sb
+      .from("dienstplan_planned_slots")
+      .update({ assigned_employee_id: null })
+      .eq("id", assignedSlot.id);
+    return;
+  }
+
+  // 2) Sonst prüfen, ob bereits ein passender offener Slot existiert.
+  const { data: openSlot } = await sb
+    .from("dienstplan_planned_slots")
+    .select("id, start_time, end_time")
+    .eq("slot_date", args.slotDate)
+    .is("assigned_employee_id", null);
+
+  const matching = (openSlot ?? []).find(
+    (s) => s.start_time?.slice(0, 5) === startKey && s.end_time?.slice(0, 5) === endKey
+  );
+  if (matching) return;
+
+  // 3) Neuen offenen Slot anlegen.
+  await sb.from("dienstplan_planned_slots").insert({
+    slot_date: args.slotDate,
+    position: null,
+    track_key: null,
+    start_time: args.startTime,
+    end_time: args.endTime,
+    note: args.note,
+    source: "reopened-after-delete",
+  });
 }
 
 export async function createPauseRuleAction(formData: FormData) {
@@ -1327,10 +1485,12 @@ export async function assignPlannedSlotAction(formData: FormData) {
   const sb = createAdminClient();
   const { data: slot } = await sb
     .from("dienstplan_planned_slots")
-    .select("id, slot_date, start_time, end_time, note")
+    .select("id, slot_date, start_time, end_time, note, position")
     .eq("id", id)
     .maybeSingle();
   if (!slot) return;
+
+  await assertEmployeeAllowedForShift(sb, employeeId, slot.position ?? null);
 
   await sb.from("dienstplan_shifts").upsert(
     {
@@ -1530,14 +1690,23 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
     sb.from("dienstplan_employment_hour_defaults").select("employment_type, vacation_hours_per_day"),
   ]);
 
-  const employees = (employeesResult.data ?? []) as {
+  const employees = ((employeesResult.data ?? []) as {
     id: number;
     position: string | null;
     position_category: string | null;
     employment_type: string;
     monthly_hours: number;
     weekly_hours: number;
-  }[];
+    allowed_positions?: string[] | null;
+  }[]).map((row) => ({
+    id: row.id,
+    position: row.position,
+    position_category: row.position_category,
+    employment_type: row.employment_type,
+    monthly_hours: row.monthly_hours,
+    weekly_hours: row.weekly_hours,
+    allowed_positions: normalizeAllowedPositions(row.allowed_positions ?? null),
+  }));
   const slots = (slotsResult.data ?? []) as {
     id: number;
     slot_date: string;
@@ -1570,7 +1739,7 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
     hourDefaults
   );
 
-  const generated = generateAutoPlanSlots({
+  const { plannedShifts: generated, unfilledSlots } = generateAutoPlanSlots({
     employees,
     existingShifts,
     availability,
@@ -1585,7 +1754,9 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
     extraMonthlyMinutesByEmployee: extraMinutesByEmployee,
   });
 
-  if (generated.length === 0) return;
+  if (generated.length === 0) {
+    return { plannedShifts: generated, unfilledSlots };
+  }
 
   // Map jeden geplanten Slot der ersten passenden Zuweisung zu (Datum + Zeit)
   const assignedSlotIds = new Set<number>();
@@ -1623,6 +1794,7 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
   }
 
   revalidatePath(PLAN_PATH);
+  return { plannedShifts: generated, unfilledSlots };
 }
 
 // ──────────────────────────────────────────────────────────────────────

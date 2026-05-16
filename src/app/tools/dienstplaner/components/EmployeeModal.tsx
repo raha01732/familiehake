@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useTransition, useState, useMemo } from "react";
-import type { DirectoryUser, Employee } from "../utils";
+import type { DirectoryUser, Employee, PositionCategory } from "../utils";
 import { EMPLOYEE_COLORS, EMPLOYMENT_TYPES, POSITION_CATEGORIES } from "../utils";
 
 type Props = {
@@ -33,8 +33,24 @@ export default function EmployeeModal({
   const [isDeleting, startDelete] = useTransition();
   const [selectedColor, setSelectedColor] = useState(employee?.color ?? EMPLOYEE_COLORS[0]);
   const [selectedUserId, setSelectedUserId] = useState<string>(employee?.user_id ?? "");
+  const initialAllowed: PositionCategory[] =
+    employee?.allowed_positions && employee.allowed_positions.length > 0
+      ? employee.allowed_positions
+      : ["serviceleitung", "projektionsleitung", "projektion"];
+  const [allowedPositions, setAllowedPositions] = useState<Set<PositionCategory>>(
+    new Set(initialAllowed)
+  );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isEdit = Boolean(employee);
+
+  function togglePosition(value: PositionCategory) {
+    setAllowedPositions((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
 
   const userOptions = useMemo(() => {
     const takenByOther = new Set(
@@ -54,6 +70,10 @@ export default function EmployeeModal({
     const fd = new FormData(formRef.current);
     fd.set("color", selectedColor);
     fd.set("user_id", selectedUserId);
+    fd.delete("allowed_positions");
+    for (const pos of allowedPositions) {
+      fd.append("allowed_positions", pos);
+    }
     startTransition(async () => {
       if (isEdit && employee) {
         fd.set("id", String(employee.id));
@@ -201,6 +221,41 @@ export default function EmployeeModal({
                 className={inputCls}
               />
             </div>
+          </div>
+
+          {/* Freigeschaltete Positionen */}
+          <div>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+              Freigeschaltete Positionen
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {POSITION_CATEGORIES.map((cat) => {
+                const checked = allowedPositions.has(cat.value);
+                return (
+                  <label
+                    key={cat.value}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                      checked
+                        ? "border-[hsl(var(--primary)/0.6)] bg-[hsl(var(--primary)/0.08)]"
+                        : "border-[hsl(var(--border))] bg-[hsl(var(--background))]"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => togglePosition(cat.value)}
+                      className="h-4 w-4 accent-[hsl(var(--primary))]"
+                    />
+                    <span className="text-sm" style={{ color: "hsl(var(--foreground))" }}>
+                      {cat.label}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Der Mitarbeiter kann nur für angekreuzte Positionen eingeteilt werden.
+            </p>
           </div>
 
           {/* User-Zuordnung (nur Admins) */}

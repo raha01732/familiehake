@@ -10,6 +10,7 @@ import type {
   ShiftTrack,
   SpecialEvent,
   PlannedSlot,
+  UnfilledSlotReport,
 } from "../utils";
 import {
   calculateShiftMinutes,
@@ -45,10 +46,10 @@ type Props = {
   deleteShiftAction: (_fd: FormData) => Promise<void>;
   moveShiftAction: (_fd: FormData) => Promise<void>;
   saveAvailabilityAction: (_fd: FormData) => Promise<void>;
-  autoGenerateAction: (_fd: FormData) => Promise<void>;
+  autoGenerateAction: (_fd: FormData) => Promise<AutoPlanCallResult | void>;
   clearMonthAction: (_fd: FormData) => Promise<void>;
   buildPreplanAction: (_fd: FormData) => Promise<void>;
-  autoFillSlotsAction: (_fd: FormData) => Promise<void>;
+  autoFillSlotsAction: (_fd: FormData) => Promise<AutoPlanCallResult | void>;
   aiFillSlotsAction: (_fd: FormData) => Promise<void>;
   createSpecialEventAction: (_fd: FormData) => Promise<void>;
   updateSpecialEventAction: (_fd: FormData) => Promise<void>;
@@ -59,6 +60,11 @@ type Props = {
 };
 
 const WEEKDAY_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+
+type AutoPlanCallResult = {
+  plannedShifts: { employee_id: number; shift_date: string; start_time: string; end_time: string }[];
+  unfilledSlots: UnfilledSlotReport[];
+};
 
 const AVAIL_BADGE: Record<string, { label: string; cls: string }> = {
   f: { label: "F", cls: "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]" },
@@ -144,6 +150,7 @@ export default function MonthlyGrid({
   const [moveError, setMoveError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [aiNotice, setAiNotice] = useState<string | null>(null);
+  const [unfilledReport, setUnfilledReport] = useState<UnfilledSlotReport[] | null>(null);
   const dragSource = useRef<{ employeeId: number; date: string } | null>(null);
 
   const sortedEmployees = useMemo(() => sortEmployeesForGrid(employees), [employees]);
@@ -244,8 +251,11 @@ export default function MonthlyGrid({
     setActionError(null);
     startAutoPlanning(async () => {
       try {
-        await autoGenerateAction(fd);
+        const result = await autoGenerateAction(fd);
         setShowAutoPlanConfig(false);
+        if (result && result.unfilledSlots.length > 0) {
+          setUnfilledReport(result.unfilledSlots);
+        }
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Auto-Plan fehlgeschlagen");
       }
@@ -272,7 +282,10 @@ export default function MonthlyGrid({
     setActionError(null);
     startAutoFilling(async () => {
       try {
-        await autoFillSlotsAction(fd);
+        const result = await autoFillSlotsAction(fd);
+        if (result && result.unfilledSlots.length > 0) {
+          setUnfilledReport(result.unfilledSlots);
+        }
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Auto-Befüllung fehlgeschlagen");
       }
@@ -874,6 +887,106 @@ export default function MonthlyGrid({
           Verschiebe…
         </div>
       )}
+
+      {unfilledReport && (
+        <UnfilledSlotsModal
+          slots={unfilledReport}
+          onClose={() => setUnfilledReport(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function UnfilledSlotsModal({
+  slots,
+  onClose,
+}: {
+  slots: UnfilledSlotReport[];
+  onClose: () => void;
+}) {
+  const grouped = slots.reduce<Map<string, UnfilledSlotReport[]>>((acc, slot) => {
+    const list = acc.get(slot.shift_date) ?? [];
+    list.push(slot);
+    acc.set(slot.shift_date, list);
+    return acc;
+  }, new Map());
+  const orderedDates = Array.from(grouped.keys()).sort();
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl w-full max-w-2xl shadow-2xl max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center gap-3 p-5 border-b border-[hsl(var(--border))] sticky top-0 bg-[hsl(var(--card))] rounded-t-2xl">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/15 text-amber-500 flex-shrink-0">
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008zM12 3l9 16H3l9-16z" />
+            </svg>
+          </div>
+          <div className="min-w-0">
+            <h2 className="font-semibold text-[hsl(var(--foreground))]">Unbesetzte Schichten</h2>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
+              {slots.length} Schicht{slots.length === 1 ? "" : "en"} konnten nicht besetzt werden.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="ml-auto text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] p-1 rounded-lg hover:bg-[hsl(var(--secondary))] transition-colors"
+            aria-label="Schließen"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {orderedDates.map((date) => {
+            const list = grouped.get(date) ?? [];
+            const d = new Date(`${date}T00:00:00Z`);
+            const wd = WEEKDAY_SHORT[d.getUTCDay()];
+            const label = `${wd}, ${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.${d.getUTCFullYear()}`;
+            return (
+              <div
+                key={date}
+                className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.3)] p-3"
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[hsl(var(--muted-foreground))] mb-2">
+                  {label}
+                </p>
+                <ul className="space-y-2">
+                  {list.map((slot, idx) => (
+                    <li
+                      key={`${slot.shift_date}-${slot.start_time}-${idx}`}
+                      className="flex flex-col gap-1 rounded-lg bg-[hsl(var(--card))] border border-[hsl(var(--border))] px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                        <span className="font-semibold text-[hsl(var(--foreground))]">
+                          {slot.position ?? "(unspezifiziert)"}
+                        </span>
+                        <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                          {slot.start_time}–{slot.end_time}
+                        </span>
+                      </div>
+                      <div className="text-[12px] text-amber-500">
+                        Grund: {slot.reason}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="p-5 border-t border-[hsl(var(--border))] flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg transition-all"
+          >
+            Verstanden
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

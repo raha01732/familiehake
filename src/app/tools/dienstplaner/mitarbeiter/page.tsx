@@ -23,7 +23,7 @@ export default async function MitarbeiterPage() {
   const { data } = await sb
     .from("dienstplan_employees")
     .select(
-      "id, name, position, department, monthly_hours, weekly_hours, color, is_active, employment_type, sort_order, position_category, user_id"
+      "id, name, position, department, monthly_hours, weekly_hours, color, is_active, employment_type, sort_order, position_category, allowed_positions, user_id"
     )
     .order("sort_order")
     .order("id");

@@ -48,7 +48,7 @@ export default async function EinstellungenPage() {
             <span className="gradient-text">Einstellungen</span>
           </h1>
           <p className="mt-1 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
-            Pausenregeln, Schienen, Wochentag-Anforderungen
+            Pausenregeln, Schichtanforderungen, Wochentag-Bedarf
           </p>
         </div>
       </div>

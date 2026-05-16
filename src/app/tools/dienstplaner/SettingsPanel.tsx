@@ -123,7 +123,8 @@ export default function SettingsPanel({
   const isReadOnly = !isAdmin;
   const inputBase =
     "rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground)/0.7)] focus:border-[hsl(var(--ring))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring)/0.2)] disabled:opacity-60";
-  const numberInputCls = `${inputBase} w-12 text-center px-1 py-1`;
+  const checkboxCls =
+    "h-5 w-5 cursor-pointer rounded border border-[hsl(var(--border))] accent-[hsl(var(--primary))] disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
     <div className="relative">
@@ -131,24 +132,24 @@ export default function SettingsPanel({
         <header className="flex flex-col gap-2">
           <h2 className="text-xl font-semibold text-[hsl(var(--foreground))]">Einstellungen</h2>
           <p className="text-xs text-[hsl(var(--muted-foreground))]">
-            Schienen, Wochentag-Bedarf und Pausenregeln werden direkt hier gepflegt.
+            Schichtanforderungen, Wochentag-Bedarf und Pausenregeln werden direkt hier gepflegt.
             {isReadOnly ? " (Nur Admins können speichern.)" : ""}
           </p>
         </header>
 
         <div className="card p-5 flex flex-col gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Schienen</h3>
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Schichtanforderungen</h3>
             <p className="text-xs text-[hsl(var(--muted-foreground))]">
-              Lege feste Schichtzeiten an (z.&nbsp;B. „Frühdienst 08:00–16:00“). Schienen bilden die Grundlage für den
-              Positionsbedarf und die automatische Planung.
+              Lege feste Schichtzeiten an (z.&nbsp;B. „Frühdienst 08:00–16:00“). Schichtanforderungen bilden die
+              Grundlage für den Positionsbedarf und die automatische Planung.
             </p>
           </div>
 
           <div className="flex flex-col gap-2">
             {shiftTracks.length === 0 && (
               <div className="text-xs text-amber-500">
-                Noch keine Schienen angelegt. Lege unten deine erste Schicht an.
+                Noch keine Schichtanforderungen angelegt. Lege unten deine erste an.
               </div>
             )}
             {shiftTracks.map((track) => (
@@ -214,12 +215,12 @@ export default function SettingsPanel({
 
           <FormFeedback
             action={createShiftTrackAction}
-            successText="Schiene angelegt"
+            successText="Schichtanforderung angelegt"
             className="flex flex-wrap items-center gap-2 border-t border-[hsl(var(--border))] pt-3"
           >
             <input
               name="label"
-              placeholder="Neue Schiene (z.B. Frühdienst)"
+              placeholder="Neue Schichtanforderung (z.B. Frühdienst)"
               className={`${inputBase} px-3 py-1.5 flex-1 min-w-[180px]`}
               required
               disabled={isReadOnly}
@@ -243,23 +244,23 @@ export default function SettingsPanel({
               className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-1.5 px-3 rounded-lg disabled:opacity-50"
               disabled={isReadOnly}
             >
-              + Schiene
+              + Schichtanforderung
             </button>
           </FormFeedback>
         </div>
 
         <div className="card p-5 flex flex-col gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Positionsbedarf pro Schiene</h3>
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Positionsbedarf pro Schichtanforderung</h3>
             <p className="text-xs text-[hsl(var(--muted-foreground))]">
-              Trage pro Position direkt die benötigte Anzahl je Wochentag ein. Eine Zeile = eine Position auf einer
-              Schiene.
+              Hake an, an welchen Wochentagen die Position auf dieser Schichtanforderung benötigt wird. Für mehrere
+              Schichten der gleichen Position pro Tag legst du die Zeile erneut an.
             </p>
           </div>
 
           {shiftTracks.length === 0 ? (
             <div className="text-xs text-amber-500">
-              Lege zuerst Schienen an, bevor du den Positionsbedarf pflegst.
+              Lege zuerst Schichtanforderungen an, bevor du den Positionsbedarf pflegst.
             </div>
           ) : (
             <div className="flex flex-col gap-6">
@@ -315,17 +316,20 @@ export default function SettingsPanel({
                                       disabled={isReadOnly}
                                     />
                                     {WEEKDAYS_MON_FIRST.map((weekday) => (
-                                      <input
+                                      <div
                                         key={weekday.id}
-                                        type="number"
-                                        min={0}
-                                        step={1}
-                                        name={`count_${weekday.id}`}
-                                        defaultValue={row.counts[weekday.id] ?? 0}
-                                        className={numberInputCls}
-                                        disabled={isReadOnly}
-                                        aria-label={`${row.position} ${weekday.label}`}
-                                      />
+                                        className="flex items-center justify-center"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          value="1"
+                                          name={`count_${weekday.id}`}
+                                          defaultChecked={(row.counts[weekday.id] ?? 0) > 0}
+                                          className={checkboxCls}
+                                          disabled={isReadOnly}
+                                          aria-label={`${row.position} ${weekday.label}`}
+                                        />
+                                      </div>
                                     ))}
                                     <input
                                       name="note"
@@ -387,17 +391,16 @@ export default function SettingsPanel({
                         disabled={isReadOnly}
                       />
                       {WEEKDAYS_MON_FIRST.map((weekday) => (
-                        <input
-                          key={weekday.id}
-                          type="number"
-                          min={0}
-                          step={1}
-                          name={`count_${weekday.id}`}
-                          defaultValue={0}
-                          className={numberInputCls}
-                          disabled={isReadOnly}
-                          aria-label={`Neue Position ${weekday.label}`}
-                        />
+                        <div key={weekday.id} className="flex items-center justify-center">
+                          <input
+                            type="checkbox"
+                            value="1"
+                            name={`count_${weekday.id}`}
+                            className={checkboxCls}
+                            disabled={isReadOnly}
+                            aria-label={`Neue Position ${weekday.label}`}
+                          />
+                        </div>
                       ))}
                       <input
                         name="note"

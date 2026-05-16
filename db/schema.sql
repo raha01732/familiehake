@@ -360,6 +360,7 @@ create table if not exists dienstplan_employees (
   employment_type text not null default 'vollzeit',
   sort_order integer not null default 0,
   position_category text,
+  allowed_positions text[] not null default array['serviceleitung','projektionsleitung','projektion']::text[],
   user_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -628,6 +629,17 @@ begin
       and column_name = 'user_id'
   ) then
     alter table dienstplan_employees add column user_id text;
+  end if;
+
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'dienstplan_employees'
+      and column_name = 'allowed_positions'
+  ) then
+    alter table dienstplan_employees
+      add column allowed_positions text[] not null
+      default array['serviceleitung','projektionsleitung','projektion']::text[];
   end if;
 
   if not exists (

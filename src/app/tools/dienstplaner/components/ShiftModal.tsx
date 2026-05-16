@@ -18,6 +18,28 @@ type Props = {
 
 const WEEKDAY_LABELS = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 
+const POSITION_LABEL: Record<string, string> = {
+  serviceleitung: "Serviceleitung",
+  projektionsleitung: "Projektionsleitung",
+  projektion: "Projektion",
+};
+
+function humanizeShiftError(message: string): string {
+  if (!message) return "Fehler beim Speichern.";
+  if (message.startsWith("POSITION_NOT_ALLOWED:")) {
+    const [, empName, category] = message.split(":");
+    const positionLabel = POSITION_LABEL[category] ?? category;
+    return `„${empName}“ ist nicht für die Position „${positionLabel}“ freigeschaltet. Aktiviere die Position im Mitarbeiter-Modal oder weise die Schicht jemand anderem zu.`;
+  }
+  if (message === "INVALID_SHIFT_TIME") {
+    return "Bitte gültige Anfangs- und Endzeit angeben.";
+  }
+  if (message === "UNAUTHORIZED_NOT_LOGGED_IN" || message === "FORBIDDEN_WRITE_ACCESS") {
+    return "Keine Berechtigung zum Speichern dieser Schicht.";
+  }
+  return message;
+}
+
 function formatDateLabel(dateStr: string) {
   const d = new Date(`${dateStr}T00:00:00Z`);
   const wd = WEEKDAY_LABELS[d.getUTCDay()];
@@ -65,7 +87,7 @@ export default function ShiftModal({
         await saveAction(fd);
         onClose();
       } catch (err) {
-        setSaveError(err instanceof Error ? err.message : "Fehler beim Speichern.");
+        setSaveError(humanizeShiftError(err instanceof Error ? err.message : ""));
       }
     });
   }
