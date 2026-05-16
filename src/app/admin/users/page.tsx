@@ -70,7 +70,7 @@ async function fetchRoles(): Promise<DbRole[]> {
     return [];
   }
 
-  const allowed = new Set(["user", "admin", "superadmin"]); // superadmin optional, aber schadet nicht
+  const allowed = new Set(["user", "admin", "superadmin", "cinema"]); // cinema = Kino-Workspace Zugang
   return (
     data
       ?.filter((row) => allowed.has(String(row.name).toLowerCase()))

@@ -4,6 +4,8 @@ export type NavLink = {
   href: string;
   label: string;
   description?: string;
+  /** Workspace-Gruppierung in der Sidebar/Startseite. */
+  workspace?: "main" | "cinema";
 };
 
 export const TOOL_LINKS: NavLink[] = [
@@ -24,6 +26,14 @@ export const TOOL_LINKS: NavLink[] = [
     href: "/tools/dispoplaner",
     label: "Dispoplaner",
     description: "Kinovorstellungen Wochenplan",
+    workspace: "cinema",
+  },
+  {
+    routeKey: "tools/auslassplanung",
+    href: "/tools/auslassplanung",
+    label: "Auslassplanung",
+    description: "Reinigung pro Vorstellung – KI-gestützt",
+    workspace: "cinema",
   },
   {
     routeKey: "tools/dienstplaner",

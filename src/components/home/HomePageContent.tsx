@@ -17,6 +17,7 @@ import {
   Calendar,
   CalendarClock,
   CheckCircle2,
+  Clapperboard,
   Film,
   FolderOpen,
   HardDrive,
@@ -26,6 +27,7 @@ import {
   Monitor,
   Settings2,
   ShieldCheck,
+  Sparkles,
   Users,
   Wallet,
   AlertTriangle,
@@ -34,18 +36,19 @@ import {
 
 // ─── Icon-Map für Tool- und Admin-Links ────────────────────────────
 const TOOL_ICON_MAP: Record<string, LucideIcon> = {
-  "tools/files":       FolderOpen,
-  "tools/journal":     BookOpen,
-  "tools/dispoplaner": Film,
-  "tools/dienstplaner":CalendarClock,
-  "tools/calender":    Calendar,
-  "tools/messages":    MessageSquare,
-  "tools/storage":     HardDrive,
-  "tools/system":      Monitor,
-  "tools/finance":     Wallet,
-  "tools/vault":       KeyRound,
-  "tools/tasks":       ListChecks,
-  "tools/nutrition":   Apple,
+  "tools/files":          FolderOpen,
+  "tools/journal":        BookOpen,
+  "tools/dispoplaner":    Film,
+  "tools/auslassplanung": Sparkles,
+  "tools/dienstplaner":   CalendarClock,
+  "tools/calender":       Calendar,
+  "tools/messages":       MessageSquare,
+  "tools/storage":        HardDrive,
+  "tools/system":         Monitor,
+  "tools/finance":        Wallet,
+  "tools/vault":          KeyRound,
+  "tools/tasks":          ListChecks,
+  "tools/nutrition":      Apple,
 };
 
 const ADMIN_ICON_MAP: Record<string, LucideIcon> = {
@@ -285,41 +288,82 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
             aria-hidden
           />
 
-          {/* Tool-Links */}
-          <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em]"
-               style={{ color: "hsl(var(--muted-foreground))" }}>
-              Workspace
-            </p>
-            <nav className="flex flex-col gap-0.5">
-              {toolLinks.length === 0 ? (
-                <span className="px-3 py-2 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-                  Keine Tools freigeschaltet
-                </span>
-              ) : (
-                toolLinks.map((link) => {
-                  const Icon = TOOL_ICON_MAP[link.routeKey];
-                  return (
-                    <Link
-                      key={link.routeKey}
-                      href={link.href}
-                      className="nav-link flex items-center gap-2.5 px-3 py-2 text-sm font-medium"
-                    >
-                      {Icon && (
-                        <span
-                          className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg"
-                          style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary))" }}
-                        >
-                          <Icon size={13} strokeWidth={2.2} aria-hidden />
-                        </span>
-                      )}
-                      {link.label}
-                    </Link>
-                  );
-                })
-              )}
-            </nav>
-          </div>
+          {/* Tool-Links — Hauptgruppe */}
+          {(() => {
+            const mainTools = toolLinks.filter((l) => l.workspace !== "cinema");
+            const cinemaTools = toolLinks.filter((l) => l.workspace === "cinema");
+            return (
+              <>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em]"
+                     style={{ color: "hsl(var(--muted-foreground))" }}>
+                    Workspace
+                  </p>
+                  <nav className="flex flex-col gap-0.5">
+                    {mainTools.length === 0 ? (
+                      <span className="px-3 py-2 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                        Keine Tools freigeschaltet
+                      </span>
+                    ) : (
+                      mainTools.map((link) => {
+                        const Icon = TOOL_ICON_MAP[link.routeKey];
+                        return (
+                          <Link
+                            key={link.routeKey}
+                            href={link.href}
+                            className="nav-link flex items-center gap-2.5 px-3 py-2 text-sm font-medium"
+                          >
+                            {Icon && (
+                              <span
+                                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg"
+                                style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary))" }}
+                              >
+                                <Icon size={13} strokeWidth={2.2} aria-hidden />
+                              </span>
+                            )}
+                            {link.label}
+                          </Link>
+                        );
+                      })
+                    )}
+                  </nav>
+                </div>
+
+                {cinemaTools.length > 0 && (
+                  <>
+                    <div className="h-px w-full" style={{ background: "hsl(var(--border))" }} aria-hidden />
+                    <div className="space-y-2">
+                      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em]"
+                         style={{ color: "hsl(var(--muted-foreground))" }}>
+                        <Clapperboard size={11} aria-hidden style={{ color: "hsl(var(--primary))" }} />
+                        Kino-Workspace
+                      </p>
+                      <nav className="flex flex-col gap-0.5">
+                        {cinemaTools.map((link) => {
+                          const Icon = TOOL_ICON_MAP[link.routeKey] ?? Film;
+                          return (
+                            <Link
+                              key={link.routeKey}
+                              href={link.href}
+                              className="nav-link flex items-center gap-2.5 px-3 py-2 text-sm font-medium"
+                            >
+                              <span
+                                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg"
+                                style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary))" }}
+                              >
+                                <Icon size={13} strokeWidth={2.2} aria-hidden />
+                              </span>
+                              {link.label}
+                            </Link>
+                          );
+                        })}
+                      </nav>
+                    </div>
+                  </>
+                )}
+              </>
+            );
+          })()}
 
           {/* Admin-Links */}
           {adminLinks.length > 0 && (

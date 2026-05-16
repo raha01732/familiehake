@@ -1,0 +1,1070 @@
+"use client";
+
+import type { FormEvent, ReactNode } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import {
+  CalendarRange,
+  Clapperboard,
+  Pencil,
+  Plus,
+  Sparkles,
+  Trash2,
+  Users,
+} from "lucide-react";
+import {
+  INTENSITY_OPTIONS,
+  PREFERENCE_OPTIONS,
+  STAFF_COLORS,
+  getInitials,
+  formatTimeRange,
+  recommendStaffCount,
+  type CleaningAssignment,
+  type CleaningFeedback,
+  type CleaningPreference,
+  type CleaningShow,
+  type CleaningStaff,
+  type ShowIntensity,
+  type ShowPlanStatus,
+} from "./utils";
+
+type ActionFn = (_fd: FormData) => Promise<void>;
+type PlanFn = (_fd: FormData) => Promise<{
+  showId: number;
+  recommendedCount: number;
+  assignments: { staff_id: number; reason: string | null }[];
+  source: "ai" | "heuristic";
+  aiNote: string | null;
+  unmet?: string;
+} | null>;
+
+type Props = {
+  initialStaff: CleaningStaff[];
+  initialShows: CleaningShow[];
+  initialAssignments: CleaningAssignment[];
+  initialFeedback: CleaningFeedback[];
+  canEdit: boolean;
+  aiEnabled: boolean;
+  createStaffAction: ActionFn;
+  updateStaffAction: ActionFn;
+  deleteStaffAction: ActionFn;
+  createShowAction: ActionFn;
+  updateShowAction: ActionFn;
+  deleteShowAction: ActionFn;
+  planShowAction: PlanFn;
+  overrideAction: ActionFn;
+  saveFeedbackAction: ActionFn;
+};
+
+type Tab = "shows" | "staff";
+
+const STATUS_LABELS: Record<ShowPlanStatus, { label: string; cls: string }> = {
+  open:       { label: "Offen",     cls: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
+  planned:    { label: "Geplant",   cls: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
+  completed:  { label: "Erledigt",  cls: "bg-sky-500/15 text-sky-600 border-sky-500/30" },
+  cancelled:  { label: "Abgesagt",  cls: "bg-zinc-500/15 text-zinc-600 border-zinc-500/30" },
+};
+
+const INTENSITY_LABEL: Record<ShowIntensity, string> = {
+  light: "Leicht",
+  standard: "Standard",
+  intense: "Intensiv",
+};
+
+const inputCls =
+  "w-full bg-[hsl(var(--background))] border border-[hsl(var(--border))] rounded-lg px-3 py-2 text-[hsl(var(--foreground))] text-sm focus:outline-none focus:border-[hsl(var(--ring))] focus:ring-2 focus:ring-[hsl(var(--ring)/0.2)] placeholder:text-[hsl(var(--muted-foreground)/0.6)]";
+
+export default function AuslassplanungClient({
+  initialStaff,
+  initialShows,
+  initialAssignments,
+  initialFeedback,
+  canEdit,
+  aiEnabled,
+  createStaffAction,
+  updateStaffAction,
+  deleteStaffAction,
+  createShowAction,
+  updateShowAction,
+  deleteShowAction,
+  planShowAction,
+  overrideAction: _overrideAction,
+  saveFeedbackAction,
+}: Props) {
+  // overrideAction ist reserviert für ein zukünftiges Manuel-Override-UI.
+  void _overrideAction;
+  const router = useRouter();
+  const [tab, setTab] = useState<Tab>("shows");
+  const [staffModal, setStaffModal] = useState<CleaningStaff | null | undefined>(undefined);
+  const [showModal, setShowModal] = useState<CleaningShow | null | undefined>(undefined);
+  const [feedbackShow, setFeedbackShow] = useState<CleaningShow | null>(null);
+  const [planNotice, setPlanNotice] = useState<{
+    show: CleaningShow;
+    source: "ai" | "heuristic";
+    recommended: number;
+    aiNote: string | null;
+    unmet?: string;
+  } | null>(null);
+  const [planningShowId, setPlanningShowId] = useState<number | null>(null);
+  const [isPlanning, startPlanning] = useTransition();
+
+  const staffById = useMemo(() => {
+    const m = new Map<number, CleaningStaff>();
+    for (const s of initialStaff) m.set(s.id, s);
+    return m;
+  }, [initialStaff]);
+
+  const assignmentsByShow = useMemo(() => {
+    const m = new Map<number, CleaningAssignment[]>();
+    for (const a of initialAssignments) {
+      const list = m.get(a.show_id) ?? [];
+      list.push(a);
+      m.set(a.show_id, list);
+    }
+    return m;
+  }, [initialAssignments]);
+
+  const feedbackByShow = useMemo(() => {
+    const m = new Map<number, CleaningFeedback>();
+    for (const f of initialFeedback) m.set(f.show_id, f);
+    return m;
+  }, [initialFeedback]);
+
+  const activeStaffCount = initialStaff.filter((s) => s.is_active).length;
+  const preferredCount = initialStaff.filter((s) => s.is_active && s.preference === "preferred").length;
+
+  async function handlePlan(show: CleaningShow) {
+    setPlanningShowId(show.id);
+    startPlanning(async () => {
+      try {
+        const fd = new FormData();
+        fd.set("show_id", String(show.id));
+        const result = await planShowAction(fd);
+        if (result) {
+          setPlanNotice({
+            show,
+            source: result.source,
+            recommended: result.recommendedCount,
+            aiNote: result.aiNote,
+            unmet: result.unmet,
+          });
+        }
+        router.refresh();
+      } finally {
+        setPlanningShowId(null);
+      }
+    });
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col gap-6 animate-fade-up">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex flex-col gap-2">
+          <div
+            className="shimmer-badge inline-flex w-fit items-center gap-2 rounded-full px-3 py-1"
+            style={{ border: "1px solid hsl(var(--primary) / 0.3)" }}
+          >
+            <Clapperboard size={11} style={{ color: "hsl(var(--primary))" }} aria-hidden />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: "hsl(var(--primary))" }}>
+              Kino-Workspace
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            <span className="gradient-text">Auslassplanung</span>
+          </h1>
+          <p className="text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Reinigung pro Vorstellung — KI-gestützt, lernt aus Feedback.
+            {aiEnabled ? null : " (KI-Service nicht konfiguriert — Heuristik aktiv.)"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <TabButton active={tab === "shows"} onClick={() => setTab("shows")}>
+            <CalendarRange size={14} aria-hidden /> Vorstellungen
+            <span className="ml-1 text-[10px] opacity-70">{initialShows.length}</span>
+          </TabButton>
+          <TabButton active={tab === "staff"} onClick={() => setTab("staff")}>
+            <Users size={14} aria-hidden /> Reinigungskräfte
+            <span className="ml-1 text-[10px] opacity-70">{activeStaffCount}</span>
+          </TabButton>
+        </div>
+      </div>
+
+      {tab === "shows" ? (
+        <ShowsTab
+          shows={initialShows}
+          staffById={staffById}
+          assignmentsByShow={assignmentsByShow}
+          feedbackByShow={feedbackByShow}
+          canEdit={canEdit}
+          activeStaffCount={activeStaffCount}
+          preferredCount={preferredCount}
+          aiEnabled={aiEnabled}
+          isPlanning={isPlanning}
+          planningShowId={planningShowId}
+          onAdd={() => setShowModal(null)}
+          onEdit={(s) => setShowModal(s)}
+          onPlan={handlePlan}
+          onFeedback={(s) => setFeedbackShow(s)}
+        />
+      ) : (
+        <StaffTab
+          staff={initialStaff}
+          canEdit={canEdit}
+          onAdd={() => setStaffModal(null)}
+          onEdit={(s) => setStaffModal(s)}
+        />
+      )}
+
+      {staffModal !== undefined && (
+        <StaffModal
+          staff={staffModal}
+          canEdit={canEdit}
+          onClose={() => setStaffModal(undefined)}
+          createAction={createStaffAction}
+          updateAction={updateStaffAction}
+          deleteAction={deleteStaffAction}
+        />
+      )}
+
+      {showModal !== undefined && (
+        <ShowModal
+          show={showModal}
+          canEdit={canEdit}
+          onClose={() => setShowModal(undefined)}
+          createAction={createShowAction}
+          updateAction={updateShowAction}
+          deleteAction={deleteShowAction}
+        />
+      )}
+
+      {feedbackShow && (
+        <FeedbackModal
+          show={feedbackShow}
+          assignments={assignmentsByShow.get(feedbackShow.id) ?? []}
+          existing={feedbackByShow.get(feedbackShow.id) ?? null}
+          onClose={() => setFeedbackShow(null)}
+          saveAction={saveFeedbackAction}
+        />
+      )}
+
+      {planNotice && (
+        <PlanResultModal notice={planNotice} staffById={staffById} onClose={() => setPlanNotice(null)} />
+      )}
+
+      {/* overrideAction ist als Prop verfügbar — reserviert für ein
+          späteres manuelles Override-UI. Aktuell nicht in der UI angeboten. */}
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold border transition-colors ${
+        active
+          ? "bg-[hsl(var(--primary)/0.12)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))]"
+          : "bg-[hsl(var(--secondary))] border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── Tab: Vorstellungen ────────────────────────────────────────────────
+
+function ShowsTab({
+  shows,
+  staffById,
+  assignmentsByShow,
+  feedbackByShow,
+  canEdit,
+  activeStaffCount,
+  preferredCount,
+  aiEnabled,
+  isPlanning,
+  planningShowId,
+  onAdd,
+  onEdit,
+  onPlan,
+  onFeedback,
+}: {
+  shows: CleaningShow[];
+  staffById: Map<number, CleaningStaff>;
+  assignmentsByShow: Map<number, CleaningAssignment[]>;
+  feedbackByShow: Map<number, CleaningFeedback>;
+  canEdit: boolean;
+  activeStaffCount: number;
+  preferredCount: number;
+  aiEnabled: boolean;
+  isPlanning: boolean;
+  planningShowId: number | null;
+  onAdd: () => void;
+  onEdit: (show: CleaningShow) => void;
+  onPlan: (show: CleaningShow) => void;
+  onFeedback: (show: CleaningShow) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          {activeStaffCount} aktive Reinigungskräfte ({preferredCount} bevorzugt,{" "}
+          {activeStaffCount - preferredCount} im Zweifelsfall).
+          {aiEnabled ? " KI-Plan steht zur Verfügung." : " Heuristik wird verwendet (kein GEMINI_API_KEY)."}
+        </p>
+        {canEdit && (
+          <button
+            onClick={onAdd}
+            className="brand-button inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold"
+          >
+            <Plus size={14} /> Neue Vorstellung
+          </button>
+        )}
+      </div>
+
+      {shows.length === 0 ? (
+        <div className="feature-card text-center p-10" style={{ color: "hsl(var(--muted-foreground))" }}>
+          Noch keine Vorstellungen angelegt. Lege deine erste an, dann kann die KI planen.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {shows.map((show) => {
+            const assignments = assignmentsByShow.get(show.id) ?? [];
+            const feedback = feedbackByShow.get(show.id) ?? null;
+            const status = STATUS_LABELS[show.plan_status];
+            const planning = planningShowId === show.id && isPlanning;
+            const recommended =
+              show.ai_recommended_staff_count ?? recommendStaffCount(show.attendees, show.intensity);
+            const dateLabel = new Date(`${show.show_date}T00:00:00Z`).toLocaleDateString("de-DE", {
+              timeZone: "Europe/Berlin",
+              weekday: "short",
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+            });
+            return (
+              <div key={show.id} className="feature-card p-4 flex flex-col gap-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+                        Saal {show.hall_number}
+                        {show.hall_label ? ` – ${show.hall_label}` : ""}
+                      </span>
+                      <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${status.cls}`}>
+                        {status.label}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border border-[hsl(var(--border))]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                        {INTENSITY_LABEL[show.intensity]}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      {dateLabel} · {formatTimeRange(show.end_time, show.cleanup_minutes)}
+                    </div>
+                    {show.movie_title && (
+                      <div className="mt-0.5 text-xs italic" style={{ color: "hsl(var(--muted-foreground))" }}>
+                        „{show.movie_title}"
+                      </div>
+                    )}
+                    <div className="mt-1 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      {show.attendees} Besucher · {show.cleanup_minutes} min Reinigung
+                    </div>
+                  </div>
+                  {canEdit && (
+                    <button
+                      onClick={() => onEdit(show)}
+                      className="p-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+                      title="Bearbeiten"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="border-t border-[hsl(var(--border))] pt-3 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] uppercase font-semibold tracking-wide" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      Empfehlung: {recommended} {recommended === 1 ? "Mitarbeiter" : "Mitarbeiter"}
+                    </span>
+                    {canEdit && (
+                      <button
+                        onClick={() => onPlan(show)}
+                        disabled={planning}
+                        className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-2.5 py-1 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] hover:opacity-90 disabled:opacity-50"
+                      >
+                        <Sparkles size={12} /> {planning ? "Plane…" : aiEnabled ? "KI-Plan" : "Plan erstellen"}
+                      </button>
+                    )}
+                  </div>
+
+                  {assignments.length === 0 ? (
+                    <p className="text-xs italic" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      Noch keine Zuweisungen.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {assignments.map((a) => {
+                        const staff = staffById.get(a.staff_id);
+                        if (!staff) return null;
+                        return (
+                          <span
+                            key={a.id}
+                            className="inline-flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-0.5 text-xs"
+                            style={{
+                              backgroundColor: `${staff.color}1f`,
+                              color: staff.color,
+                              border: `1px solid ${staff.color}55`,
+                            }}
+                            title={a.reason ?? undefined}
+                          >
+                            <span
+                              className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
+                              style={{ backgroundColor: staff.color }}
+                            >
+                              {getInitials(staff.name)}
+                            </span>
+                            {staff.name}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {show.ai_notes && (
+                    <p className="text-[11px] italic" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      KI: {show.ai_notes}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-[hsl(var(--border))]">
+                  <div className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                    {feedback
+                      ? `Feedback: ${feedback.actual_staff_count} MA tatsächlich${
+                          feedback.rating ? ` · ${feedback.rating}/5` : ""
+                        }`
+                      : "Noch kein Feedback"}
+                  </div>
+                  {canEdit && (
+                    <button
+                      onClick={() => onFeedback(show)}
+                      className="text-xs font-medium text-[hsl(var(--primary))] hover:underline"
+                    >
+                      {feedback ? "Feedback bearbeiten" : "Feedback erfassen"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tab: Reinigungskräfte ─────────────────────────────────────────────
+
+function StaffTab({
+  staff,
+  canEdit,
+  onAdd,
+  onEdit,
+}: {
+  staff: CleaningStaff[];
+  canEdit: boolean;
+  onAdd: () => void;
+  onEdit: (s: CleaningStaff) => void;
+}) {
+  const preferred = staff.filter((s) => s.preference === "preferred");
+  const backup = staff.filter((s) => s.preference === "backup");
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          {preferred.length} bevorzugt · {backup.length} im Zweifelsfall.
+        </p>
+        {canEdit && (
+          <button onClick={onAdd} className="brand-button inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold">
+            <Plus size={14} /> Neuer Mitarbeiter
+          </button>
+        )}
+      </div>
+      <StaffGroup title="Bevorzugt" list={preferred} onEdit={onEdit} canEdit={canEdit} />
+      <StaffGroup title="Im Zweifelsfall" list={backup} onEdit={onEdit} canEdit={canEdit} muted />
+    </div>
+  );
+}
+
+function StaffGroup({
+  title,
+  list,
+  onEdit,
+  canEdit,
+  muted = false,
+}: {
+  title: string;
+  list: CleaningStaff[];
+  onEdit: (s: CleaningStaff) => void;
+  canEdit: boolean;
+  muted?: boolean;
+}) {
+  if (list.length === 0) return null;
+  return (
+    <div>
+      <p
+        className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em]"
+        style={{ color: muted ? "hsl(var(--muted-foreground) / 0.7)" : "hsl(var(--muted-foreground))" }}
+      >
+        {title} ({list.length})
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {list.map((s) => (
+          <div
+            key={s.id}
+            className="feature-card p-3 flex items-center gap-3"
+            style={{ opacity: s.is_active ? 1 : 0.55 }}
+          >
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+              style={{ backgroundColor: s.color }}
+            >
+              {getInitials(s.name)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold truncate" style={{ color: "hsl(var(--foreground))" }}>
+                {s.name}
+              </div>
+              {s.notes && (
+                <div className="text-[11px] truncate" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  {s.notes}
+                </div>
+              )}
+            </div>
+            {canEdit && (
+              <button
+                onClick={() => onEdit(s)}
+                className="p-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+                title="Bearbeiten"
+              >
+                <Pencil size={14} />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Staff-Modal ───────────────────────────────────────────────────────
+
+function StaffModal({
+  staff,
+  canEdit,
+  onClose,
+  createAction,
+  updateAction,
+  deleteAction,
+}: {
+  staff: CleaningStaff | null;
+  canEdit: boolean;
+  onClose: () => void;
+  createAction: ActionFn;
+  updateAction: ActionFn;
+  deleteAction: ActionFn;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [color, setColor] = useState(staff?.color ?? STAFF_COLORS[0]);
+  const [preference, setPreference] = useState<CleaningPreference>(staff?.preference ?? "preferred");
+  const isEdit = Boolean(staff);
+
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    fd.set("color", color);
+    fd.set("preference", preference);
+    startTransition(async () => {
+      if (isEdit && staff) {
+        fd.set("id", String(staff.id));
+        await updateAction(fd);
+      } else {
+        await createAction(fd);
+      }
+      router.refresh();
+      onClose();
+    });
+  }
+
+  function handleDelete() {
+    if (!staff) return;
+    const fd = new FormData();
+    fd.set("id", String(staff.id));
+    startTransition(async () => {
+      await deleteAction(fd);
+      router.refresh();
+      onClose();
+    });
+  }
+
+  return (
+    <ModalShell title={isEdit ? "Mitarbeiter bearbeiten" : "Neuer Mitarbeiter"} onClose={onClose}>
+      <form onSubmit={onSubmit} className="p-5 space-y-4">
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+            Name <span className="text-[hsl(var(--destructive))]">*</span>
+          </label>
+          <input name="name" required defaultValue={staff?.name ?? ""} className={inputCls} disabled={!canEdit} />
+        </div>
+
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Einsatz-Präferenz</label>
+          <div className="grid grid-cols-2 gap-2">
+            {PREFERENCE_OPTIONS.map((p) => (
+              <button
+                type="button"
+                key={p.value}
+                onClick={() => setPreference(p.value)}
+                disabled={!canEdit}
+                className={`text-left rounded-lg border p-2.5 text-xs transition-colors ${
+                  preference === p.value
+                    ? "border-[hsl(var(--primary)/0.6)] bg-[hsl(var(--primary)/0.08)]"
+                    : "border-[hsl(var(--border))] bg-[hsl(var(--background))]"
+                }`}
+              >
+                <div className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>{p.label}</div>
+                <div style={{ color: "hsl(var(--muted-foreground))" }}>{p.description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Notiz (optional)</label>
+          <input name="notes" defaultValue={staff?.notes ?? ""} className={inputCls} disabled={!canEdit} />
+        </div>
+
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-2">Farbe</label>
+          <div className="flex flex-wrap gap-2">
+            {STAFF_COLORS.map((c) => (
+              <button
+                type="button"
+                key={c}
+                onClick={() => setColor(c)}
+                disabled={!canEdit}
+                className="w-8 h-8 rounded-full transition-transform hover:scale-110"
+                style={{
+                  backgroundColor: c,
+                  outline: c === color ? "3px solid hsl(var(--ring))" : "none",
+                  outlineOffset: "2px",
+                }}
+                title={c}
+              />
+            ))}
+          </div>
+        </div>
+
+        {isEdit && (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="hidden" name="is_active" value={staff?.is_active ? "true" : "false"} />
+            <span style={{ color: "hsl(var(--foreground))" }}>
+              {staff?.is_active ? "Aktiv" : "Inaktiv"} —
+              <button
+                type="button"
+                onClick={(ev) => {
+                  const form = (ev.target as HTMLButtonElement).closest("form");
+                  const hidden = form?.querySelector<HTMLInputElement>('input[name="is_active"]');
+                  if (hidden) hidden.value = hidden.value === "true" ? "false" : "true";
+                }}
+                className="ml-1 text-xs underline text-[hsl(var(--primary))]"
+              >
+                umschalten
+              </button>
+            </span>
+          </label>
+        )}
+
+        <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+          {isEdit && canEdit && (
+            confirmDelete ? (
+              <div className="flex gap-1.5 items-center">
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="px-3 py-1.5 bg-[hsl(var(--destructive)/0.15)] border border-[hsl(var(--destructive)/0.4)] text-[hsl(var(--destructive))] text-xs rounded-lg"
+                >
+                  Wirklich löschen
+                </button>
+                <button type="button" onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs rounded-lg bg-[hsl(var(--secondary))]">
+                  Nein
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="inline-flex items-center gap-1 px-3 py-2 text-sm bg-[hsl(var(--destructive)/0.1)] hover:bg-[hsl(var(--destructive)/0.2)] border border-[hsl(var(--destructive)/0.4)] text-[hsl(var(--destructive))] rounded-lg"
+              >
+                <Trash2 size={14} /> Löschen
+              </button>
+            )
+          )}
+          <button type="button" onClick={onClose} className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg">
+            Abbrechen
+          </button>
+          {canEdit && (
+            <button
+              type="submit"
+              disabled={isPending}
+              className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg disabled:opacity-50"
+            >
+              {isPending ? "Speichern…" : isEdit ? "Speichern" : "Anlegen"}
+            </button>
+          )}
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// ── Show-Modal ────────────────────────────────────────────────────────
+
+function ShowModal({
+  show,
+  canEdit,
+  onClose,
+  createAction,
+  updateAction,
+  deleteAction,
+}: {
+  show: CleaningShow | null;
+  canEdit: boolean;
+  onClose: () => void;
+  createAction: ActionFn;
+  updateAction: ActionFn;
+  deleteAction: ActionFn;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [intensity, setIntensity] = useState<ShowIntensity>(show?.intensity ?? "standard");
+  const isEdit = Boolean(show);
+
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    fd.set("intensity", intensity);
+    startTransition(async () => {
+      if (isEdit && show) {
+        fd.set("id", String(show.id));
+        await updateAction(fd);
+      } else {
+        await createAction(fd);
+      }
+      router.refresh();
+      onClose();
+    });
+  }
+
+  function handleDelete() {
+    if (!show) return;
+    const fd = new FormData();
+    fd.set("id", String(show.id));
+    startTransition(async () => {
+      await deleteAction(fd);
+      router.refresh();
+      onClose();
+    });
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <ModalShell title={isEdit ? "Vorstellung bearbeiten" : "Neue Vorstellung"} onClose={onClose}>
+      <form onSubmit={onSubmit} className="p-5 space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+              Datum <span className="text-[hsl(var(--destructive))]">*</span>
+            </label>
+            <input type="date" name="show_date" required defaultValue={show?.show_date ?? today} className={inputCls} disabled={!canEdit} />
+          </div>
+          <div>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+              Endzeit <span className="text-[hsl(var(--destructive))]">*</span>
+            </label>
+            <input type="time" name="end_time" required defaultValue={show?.end_time?.slice(0, 5) ?? "20:00"} className={inputCls} disabled={!canEdit} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+              Saal-Nr. <span className="text-[hsl(var(--destructive))]">*</span>
+            </label>
+            <input type="number" name="hall_number" min={1} required defaultValue={show?.hall_number ?? 1} className={inputCls} disabled={!canEdit} />
+          </div>
+          <div>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Saalname (optional)</label>
+            <input name="hall_label" defaultValue={show?.hall_label ?? ""} className={inputCls} disabled={!canEdit} placeholder="z.B. Roter Saal" />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Filmtitel (optional)</label>
+          <input name="movie_title" defaultValue={show?.movie_title ?? ""} className={inputCls} disabled={!canEdit} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Besucher</label>
+            <input type="number" name="attendees" min={0} defaultValue={show?.attendees ?? 0} className={inputCls} disabled={!canEdit} />
+          </div>
+          <div>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Aufräumzeit (Minuten)</label>
+            <input type="number" name="cleanup_minutes" min={1} defaultValue={show?.cleanup_minutes ?? 15} className={inputCls} disabled={!canEdit} />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Reinigungsintensität</label>
+          <div className="grid grid-cols-3 gap-2">
+            {INTENSITY_OPTIONS.map((opt) => (
+              <button
+                type="button"
+                key={opt.value}
+                onClick={() => setIntensity(opt.value)}
+                disabled={!canEdit}
+                className={`text-left rounded-lg border p-2 text-xs transition-colors ${
+                  intensity === opt.value
+                    ? "border-[hsl(var(--primary)/0.6)] bg-[hsl(var(--primary)/0.08)]"
+                    : "border-[hsl(var(--border))] bg-[hsl(var(--background))]"
+                }`}
+              >
+                <div className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>{opt.label}</div>
+                <div style={{ color: "hsl(var(--muted-foreground))" }}>{opt.description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Interne Notiz (optional)</label>
+          <input name="notes" defaultValue={show?.notes ?? ""} className={inputCls} disabled={!canEdit} />
+        </div>
+        <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+          {isEdit && canEdit && (
+            confirmDelete ? (
+              <div className="flex gap-1.5 items-center">
+                <button type="button" onClick={handleDelete} className="px-3 py-1.5 bg-[hsl(var(--destructive)/0.15)] border border-[hsl(var(--destructive)/0.4)] text-[hsl(var(--destructive))] text-xs rounded-lg">
+                  Wirklich löschen
+                </button>
+                <button type="button" onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs rounded-lg bg-[hsl(var(--secondary))]">
+                  Nein
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-1 px-3 py-2 text-sm bg-[hsl(var(--destructive)/0.1)] hover:bg-[hsl(var(--destructive)/0.2)] border border-[hsl(var(--destructive)/0.4)] text-[hsl(var(--destructive))] rounded-lg">
+                <Trash2 size={14} /> Löschen
+              </button>
+            )
+          )}
+          <button type="button" onClick={onClose} className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg">
+            Abbrechen
+          </button>
+          {canEdit && (
+            <button type="submit" disabled={isPending} className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg disabled:opacity-50">
+              {isPending ? "Speichern…" : isEdit ? "Speichern" : "Anlegen"}
+            </button>
+          )}
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// ── Feedback-Modal ───────────────────────────────────────────────────
+
+function FeedbackModal({
+  show,
+  assignments,
+  existing,
+  onClose,
+  saveAction,
+}: {
+  show: CleaningShow;
+  assignments: CleaningAssignment[];
+  existing: CleaningFeedback | null;
+  onClose: () => void;
+  saveAction: ActionFn;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    fd.set("show_id", String(show.id));
+    startTransition(async () => {
+      await saveAction(fd);
+      router.refresh();
+      onClose();
+    });
+  }
+
+  return (
+    <ModalShell title="Feedback erfassen" onClose={onClose}>
+      <form onSubmit={onSubmit} className="p-5 space-y-4">
+        <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          Saal {show.hall_number} · {show.attendees} Besucher · {INTENSITY_LABEL[show.intensity]} —
+          {" "}geplante MA: {assignments.length}. Wieviele waren tatsächlich nötig? Wie ist es gelaufen?
+          Diese Daten fließen in zukünftige KI-Pläne.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+              Tatsächliche MA-Anzahl <span className="text-[hsl(var(--destructive))]">*</span>
+            </label>
+            <input
+              type="number"
+              name="actual_staff_count"
+              min={0}
+              required
+              defaultValue={existing?.actual_staff_count ?? assignments.length}
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Tatsächliche Dauer (Min, optional)</label>
+            <input
+              type="number"
+              name="actual_duration_minutes"
+              min={0}
+              defaultValue={existing?.actual_duration_minutes ?? ""}
+              className={inputCls}
+              placeholder={String(show.cleanup_minutes)}
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Bewertung (1=schlecht, 5=super)</label>
+          <select name="rating" defaultValue={existing?.rating ?? ""} className={inputCls}>
+            <option value="">— ohne Bewertung —</option>
+            <option value="1">1 — zu wenig Personal/zu langsam</option>
+            <option value="2">2</option>
+            <option value="3">3 — passend</option>
+            <option value="4">4</option>
+            <option value="5">5 — top, evtl. zu viel Personal</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">Notiz (optional)</label>
+          <textarea
+            name="notes"
+            rows={3}
+            defaultValue={existing?.notes ?? ""}
+            className={inputCls}
+            placeholder="z.B. Familienfilm, sehr klebrige Sitze"
+          />
+        </div>
+        <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+          <button type="button" onClick={onClose} className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg">
+            Abbrechen
+          </button>
+          <button type="submit" disabled={isPending} className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg disabled:opacity-50">
+            {isPending ? "Speichern…" : "Feedback speichern"}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// ── Plan-Result-Modal ────────────────────────────────────────────────
+
+function PlanResultModal({
+  notice,
+  staffById,
+  onClose,
+}: {
+  notice: {
+    show: CleaningShow;
+    source: "ai" | "heuristic";
+    recommended: number;
+    aiNote: string | null;
+    unmet?: string;
+  };
+  staffById: Map<number, CleaningStaff>;
+  onClose: () => void;
+}) {
+  void staffById;
+  return (
+    <ModalShell title={`Plan für Saal ${notice.show.hall_number}`} onClose={onClose}>
+      <div className="p-5 space-y-3">
+        <p className="text-sm" style={{ color: "hsl(var(--foreground))" }}>
+          <span className="font-semibold">{notice.source === "ai" ? "KI-Vorschlag:" : "Heuristik-Vorschlag:"}</span>{" "}
+          {notice.recommended} {notice.recommended === 1 ? "Mitarbeiter" : "Mitarbeiter"} empfohlen.
+        </p>
+        {notice.aiNote && (
+          <p className="text-xs italic" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Begründung: {notice.aiNote}
+          </p>
+        )}
+        {notice.unmet && (
+          <p className="text-xs" style={{ color: "hsl(32 95% 55%)" }}>
+            ⚠ {notice.unmet}
+          </p>
+        )}
+        <div className="flex justify-end pt-2">
+          <button onClick={onClose} className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg">
+            OK
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ── Modal-Hülle ──────────────────────────────────────────────────────
+
+function ModalShell({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative min-h-full flex items-start justify-center p-4 sm:p-6">
+        <div className="relative w-full max-w-lg my-auto bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl">
+          <div className="flex items-center gap-3 p-5 border-b border-[hsl(var(--border))] rounded-t-2xl sticky top-0 bg-[hsl(var(--card))] z-10">
+            <h2 className="font-semibold text-[hsl(var(--foreground))]">{title}</h2>
+            <button
+              onClick={onClose}
+              className="ml-auto text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] p-1 rounded-lg hover:bg-[hsl(var(--secondary))]"
+              aria-label="Schließen"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}

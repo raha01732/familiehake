@@ -24,7 +24,8 @@
       "Bash(git push *)",
       "Bash(git commit *)",
       "PowerShell(npm run *)",
-      "Bash(grep *)"
+      "Bash(grep *)",
+      "PowerShell(npm test *)"
     ]
   }
 }
