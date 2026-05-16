@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Employee } from "../utils";
+import type { DirectoryUser, Employee } from "../utils";
 import { EMPLOYMENT_TYPES, getInitials } from "../utils";
 import EmployeeModal from "../components/EmployeeModal";
 import { Users, UserPlus, Pencil } from "lucide-react";
 
 type Props = {
   initialEmployees: Employee[];
+  directoryUsers: DirectoryUser[];
   isAdmin: boolean;
   createAction: (_fd: FormData) => Promise<void>;
   updateAction: (_fd: FormData) => Promise<void>;
@@ -17,6 +18,7 @@ type Props = {
 
 export default function MitarbeiterClient({
   initialEmployees,
+  directoryUsers,
   isAdmin,
   createAction,
   updateAction,
@@ -110,6 +112,8 @@ export default function MitarbeiterClient({
       {modalEmployee !== undefined && (
         <EmployeeModal
           employee={modalEmployee}
+          allEmployees={initialEmployees}
+          directoryUsers={directoryUsers}
           onClose={() => setModalEmployee(undefined)}
           createAction={handleCreate}
           updateAction={handleUpdate}

@@ -22,7 +22,9 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "PowerShell(npm run *)",
+      "Bash(grep *)"
     ]
   }
 }

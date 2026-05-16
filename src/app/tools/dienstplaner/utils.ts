@@ -28,6 +28,12 @@ export type Employee = {
   employment_type: string;
   sort_order: number;
   position_category: PositionCategory | null;
+  user_id?: string | null;
+};
+
+export type DirectoryUser = {
+  id: string;
+  displayName: string;
 };
 
 export type SpecialEvent = {

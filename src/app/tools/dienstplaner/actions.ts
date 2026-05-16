@@ -612,8 +612,16 @@ export async function updateShiftDetailsAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
+async function isCallerDienstplanAdmin() {
+  const user = await currentUser();
+  if (!user) return false;
+  const role = getRoleFromPublicMetadata(user.publicMetadata);
+  return role === "admin" || user.id === env().PRIMARY_SUPERADMIN_ID;
+}
+
 export async function createEmployeeAction(formData: FormData) {
   await assertAuthenticatedForDienstplanWrite();
+  const callerIsAdmin = await isCallerDienstplanAdmin();
 
   const name = String(formData.get("name") || "").trim();
   const position = String(formData.get("position") || "").trim();
@@ -629,9 +637,24 @@ export async function createEmployeeAction(formData: FormData) {
     rawPositionCategory === "projektion"
       ? rawPositionCategory
       : null;
+  const rawUserId = String(formData.get("user_id") || "").trim();
+  const userId = callerIsAdmin && rawUserId ? rawUserId : null;
   if (!name) return;
 
   const sb = createAdminClient();
+
+  if (userId) {
+    const { data: existing } = await sb
+      .from("dienstplan_employees")
+      .select("id")
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      throw new Error("USER_ALREADY_ASSIGNED");
+    }
+  }
+
   const { data: lastEmployee } = await sb
     .from("dienstplan_employees")
     .select("sort_order")
@@ -651,6 +674,7 @@ export async function createEmployeeAction(formData: FormData) {
     sort_order: nextSortOrder,
     is_active: true,
     position_category: positionCategory,
+    user_id: userId,
   });
 
   revalidatePath(SETTINGS_PATH);
@@ -660,6 +684,7 @@ export async function createEmployeeAction(formData: FormData) {
 
 export async function updateEmployeeAction(formData: FormData) {
   await assertAuthenticatedForDienstplanWrite();
+  const callerIsAdmin = await isCallerDienstplanAdmin();
 
   const id = Number(formData.get("id"));
   if (!id) return;
@@ -708,9 +733,31 @@ export async function updateEmployeeAction(formData: FormData) {
     }
   }
 
+  if (callerIsAdmin) {
+    const rawUserId = formData.get("user_id");
+    if (typeof rawUserId === "string") {
+      const value = rawUserId.trim();
+      updates.user_id = value || null;
+    }
+  }
+
   if (Object.keys(updates).length === 0) return;
 
   const sb = createAdminClient();
+
+  if (typeof updates.user_id === "string" && updates.user_id) {
+    const { data: existing } = await sb
+      .from("dienstplan_employees")
+      .select("id")
+      .eq("user_id", updates.user_id)
+      .neq("id", id)
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      throw new Error("USER_ALREADY_ASSIGNED");
+    }
+  }
+
   await sb.from("dienstplan_employees").update(updates).eq("id", id);
 
   revalidatePath(SETTINGS_PATH);

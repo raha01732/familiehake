@@ -1,11 +1,13 @@
 "use client";
 
-import { useRef, useTransition, useState } from "react";
-import type { Employee } from "../utils";
+import { useRef, useTransition, useState, useMemo } from "react";
+import type { DirectoryUser, Employee } from "../utils";
 import { EMPLOYEE_COLORS, EMPLOYMENT_TYPES, POSITION_CATEGORIES } from "../utils";
 
 type Props = {
   employee?: Employee | null;
+  allEmployees?: Employee[];
+  directoryUsers?: DirectoryUser[];
   onClose: () => void;
   createAction: (_fd: FormData) => Promise<void>;
   updateAction: (_fd: FormData) => Promise<void>;
@@ -18,6 +20,8 @@ const inputCls =
 
 export default function EmployeeModal({
   employee,
+  allEmployees = [],
+  directoryUsers = [],
   onClose,
   createAction,
   updateAction,
@@ -28,14 +32,28 @@ export default function EmployeeModal({
   const [isPending, startTransition] = useTransition();
   const [isDeleting, startDelete] = useTransition();
   const [selectedColor, setSelectedColor] = useState(employee?.color ?? EMPLOYEE_COLORS[0]);
+  const [selectedUserId, setSelectedUserId] = useState<string>(employee?.user_id ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isEdit = Boolean(employee);
+
+  const userOptions = useMemo(() => {
+    const takenByOther = new Set(
+      allEmployees
+        .filter((e) => e.user_id && e.id !== employee?.id)
+        .map((e) => e.user_id as string)
+    );
+    return directoryUsers.map((u) => ({
+      ...u,
+      disabled: takenByOther.has(u.id),
+    }));
+  }, [allEmployees, directoryUsers, employee?.id]);
 
   function handleSubmit(e: { preventDefault: () => void }) {
     e.preventDefault();
     if (!formRef.current) return;
     const fd = new FormData(formRef.current);
     fd.set("color", selectedColor);
+    fd.set("user_id", selectedUserId);
     startTransition(async () => {
       if (isEdit && employee) {
         fd.set("id", String(employee.id));
@@ -184,6 +202,31 @@ export default function EmployeeModal({
               />
             </div>
           </div>
+
+          {/* User-Zuordnung (nur Admins) */}
+          {isAdmin && (
+            <div>
+              <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+                Verknüpfter Benutzer
+              </label>
+              <select
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">— keiner —</option>
+                {userOptions.map((u) => (
+                  <option key={u.id} value={u.id} disabled={u.disabled}>
+                    {u.displayName}
+                    {u.disabled ? " (bereits vergeben)" : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                Nach Verknüpfung sieht der Benutzer seine nächsten Schichten auf der Startseite.
+              </p>
+            </div>
+          )}
 
           {/* Active status (edit only) */}
           {isEdit && (

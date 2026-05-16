@@ -1,4 +1,5 @@
 import RoleGate from "@/components/RoleGate";
+import NextShiftsTile from "@/components/home/NextShiftsTile";
 import TaskSummaryTile from "@/components/home/TaskSummaryTile";
 import WelcomeTileCard, { WelcomeTile } from "@/components/dashboard/WelcomeTileCard";
 import { logAudit } from "@/lib/audit";
@@ -10,6 +11,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import {
   Activity,
+  Apple,
   BarChart2,
   BookOpen,
   Calendar,
@@ -18,11 +20,14 @@ import {
   Film,
   FolderOpen,
   HardDrive,
+  KeyRound,
+  ListChecks,
   MessageSquare,
   Monitor,
   Settings2,
   ShieldCheck,
   Users,
+  Wallet,
   AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
@@ -37,6 +42,10 @@ const TOOL_ICON_MAP: Record<string, LucideIcon> = {
   "tools/messages":    MessageSquare,
   "tools/storage":     HardDrive,
   "tools/system":      Monitor,
+  "tools/finance":     Wallet,
+  "tools/vault":       KeyRound,
+  "tools/tasks":       ListChecks,
+  "tools/nutrition":   Apple,
 };
 
 const ADMIN_ICON_MAP: Record<string, LucideIcon> = {
@@ -469,7 +478,10 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
           </div>
         </div>
 
-          {canSeeTasks && session.userId && <TaskSummaryTile userId={session.userId} />}
+          <div className="grid gap-5 lg:grid-cols-2">
+            <NextShiftsTile />
+            {canSeeTasks && session.userId && <TaskSummaryTile userId={session.userId} />}
+          </div>
         </div>
       </section>
     </RoleGate>
