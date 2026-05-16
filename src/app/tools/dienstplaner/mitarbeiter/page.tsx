@@ -20,15 +20,60 @@ export default async function MitarbeiterPage() {
   const isAdmin = role === "admin" || user?.id === env().PRIMARY_SUPERADMIN_ID;
 
   const sb = createAdminClient();
-  const { data } = await sb
-    .from("dienstplan_employees")
-    .select(
-      "id, name, position, department, monthly_hours, weekly_hours, color, is_active, employment_type, sort_order, position_category, allowed_positions, user_id"
-    )
-    .order("sort_order")
-    .order("id");
+  // Stufenweiser Fallback: neue Spalten (allowed_positions, user_id, position_category)
+  // sind in alten DBs evtl. noch nicht vorhanden — dann lädt der nächste Versuch ohne sie.
+  const baseColumns =
+    "id, name, position, department, monthly_hours, weekly_hours, color, is_active, employment_type, sort_order";
 
-  const employees = (data ?? []) as Employee[];
+  type EmployeeRow = Partial<Employee> & {
+    id: number;
+    name: string;
+    position: string | null;
+    department: string | null;
+    monthly_hours: number;
+    weekly_hours: number;
+    color: string;
+    is_active: boolean;
+    employment_type: string;
+    sort_order: number;
+  };
+
+  async function loadEmployees(extra: string): Promise<EmployeeRow[] | null> {
+    const cols = extra ? `${baseColumns}, ${extra}` : baseColumns;
+    const result = await sb
+      .from("dienstplan_employees")
+      .select(cols)
+      .order("sort_order")
+      .order("id");
+    if (result.error) {
+      console.warn("[dienstplaner/mitarbeiter] select failed for cols:", cols, result.error.message);
+      return null;
+    }
+    return (result.data ?? []) as unknown as EmployeeRow[];
+  }
+
+  let rows =
+    (await loadEmployees("position_category, allowed_positions, user_id")) ??
+    (await loadEmployees("position_category, user_id")) ??
+    (await loadEmployees("position_category")) ??
+    (await loadEmployees("")) ??
+    [];
+
+  const employees: Employee[] = rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    position: row.position,
+    department: row.department,
+    monthly_hours: row.monthly_hours,
+    weekly_hours: row.weekly_hours,
+    color: row.color,
+    is_active: row.is_active,
+    employment_type: row.employment_type,
+    sort_order: row.sort_order,
+    position_category: (row.position_category ?? null) as Employee["position_category"],
+    allowed_positions: row.allowed_positions ?? null,
+    user_id: row.user_id ?? null,
+  }));
 
   let directoryUsers: DirectoryUser[] = [];
   if (isAdmin) {

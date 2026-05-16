@@ -154,6 +154,7 @@ const KNOWN_CRON_JOBS = [
   "upstash-heartbeat",
   "audit-rollup",
   "force-logout",
+  "shift-reminder",
 ];
 
 async function fetchCronJobRuns(): Promise<CronJobRun[]> {

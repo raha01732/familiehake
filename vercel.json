@@ -23,6 +23,14 @@
     {
       "path": "/api/cron/notify-admins-cron-status",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/shift-reminder",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/shift-reminder",
+      "schedule": "0 6 * * *"
     }
   ]
 }
