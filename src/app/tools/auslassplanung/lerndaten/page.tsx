@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, Brain, Database, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import RoleGate from "@/components/RoleGate";
+import { ArchiveClearButton } from "./ArchiveClearButton";
 
 export const metadata = { title: "Lerndaten — Auslassplanung" };
 export const dynamic = "force-dynamic";
@@ -401,6 +402,35 @@ export default async function LerndatenPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </section>
+
+        {/* Archiv verwalten */}
+        <section className="feature-card p-5 flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <TrendingDown size={14} style={{ color: "hsl(var(--destructive))" }} />
+            <h2 className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+              Archiv verwalten
+            </h2>
+            <span className="text-xs ml-auto" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Nur hier können Lerndaten dauerhaft entfernt werden
+            </span>
+          </div>
+          <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Das Archiv enthält aktuell{" "}
+            <strong style={{ color: "hsl(var(--foreground))" }}>
+              {(archiveRows ?? []).length}{" "}
+              {(archiveRows ?? []).length === 1 ? "Eintrag" : "Einträge"}
+            </strong>
+            . Beim Löschen von Vorstellungen werden Feedback-Daten automatisch hier abgelegt
+            — der Bestand wächst also stetig. Wenn du Lerndaten gezielt entfernen willst
+            (z. B. veraltete Konstellationen), nutze den Button unten und wähle einen
+            Zeitraum oder lösche alle Einträge.
+          </p>
+          <div>
+            <ArchiveClearButton
+              archiveDates={(archiveRows ?? []).map((r) => ({ show_date: r.show_date as string }))}
+            />
           </div>
         </section>
 

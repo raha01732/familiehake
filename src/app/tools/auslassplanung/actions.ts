@@ -1123,6 +1123,50 @@ export async function removeAssignmentAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
+// Löscht Einträge aus dem Lerndaten-Archiv. Standardmäßig nur mit Datumsfilter
+// erlaubt — für "alle löschen" muss explicit scope=all gesetzt sein. Erfordert
+// immer die exakte Bestätigungs-Phrase "ARCHIV LEEREN".
+export async function clearArchiveAction(
+  formData: FormData,
+): Promise<{ deleted: number; error?: string }> {
+  await assertCallerHasCinemaAccess();
+  const phrase = String(formData.get("confirm") || "").trim();
+  if (phrase !== "ARCHIV LEEREN") {
+    return { deleted: 0, error: "Bestätigungs-Phrase fehlt oder falsch." };
+  }
+  const dateFrom = String(formData.get("date_from") || "").trim();
+  const dateTo = String(formData.get("date_to") || "").trim();
+  const scope = String(formData.get("scope") || "").trim();
+  const validFrom = /^\d{4}-\d{2}-\d{2}$/.test(dateFrom);
+  const validTo = /^\d{4}-\d{2}-\d{2}$/.test(dateTo);
+
+  // Sicherheit: entweder Datumsfilter ODER explicit scope=all
+  if (!validFrom && !validTo && scope !== "all") {
+    return { deleted: 0, error: "Bitte Zeitraum wählen oder 'Alle Einträge' markieren." };
+  }
+
+  const sb = createAdminClient();
+
+  // Treffer-Anzahl ermitteln (für die Rückgabe)
+  let countQ = sb
+    .from("cinema_cleaning_learning_archive")
+    .select("*", { count: "exact", head: true });
+  if (validFrom) countQ = countQ.gte("show_date", dateFrom);
+  if (validTo) countQ = countQ.lte("show_date", dateTo);
+  const { count } = await countQ;
+
+  // Eigentlicher Delete
+  let delQ = sb.from("cinema_cleaning_learning_archive").delete();
+  if (validFrom) delQ = delQ.gte("show_date", dateFrom);
+  if (validTo) delQ = delQ.lte("show_date", dateTo);
+  if (!validFrom && !validTo) delQ = delQ.gt("id", 0); // scope=all
+  await delQ;
+
+  revalidatePath("/tools/auslassplanung/lerndaten");
+  revalidatePath(PLAN_PATH);
+  return { deleted: count ?? 0 };
+}
+
 // Entfernt alle Zuweisungen (manuell + KI) für eine Vorstellung.
 export async function clearAssignmentsAction(formData: FormData) {
   await assertCallerHasCinemaAccess();

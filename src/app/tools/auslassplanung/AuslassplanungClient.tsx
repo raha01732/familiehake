@@ -2643,12 +2643,27 @@ function ConfirmDeleteAllModal({
     <ModalShell title="Alle Vorstellungen löschen?" onClose={onCancel}>
       <div className="p-5 space-y-4">
         <p className="text-sm" style={{ color: "hsl(var(--foreground))" }}>
-          Sollen wirklich <strong>alle {showCount} Vorstellungen</strong> inklusive aller
-          Zuweisungen und Feedback-Einträge unwiderruflich gelöscht werden?
+          Sollen wirklich <strong>alle {showCount} Vorstellungen</strong> inklusive ihrer
+          Zuweisungen gelöscht werden?
         </p>
+        <div
+          className="rounded-xl p-3 text-xs flex items-start gap-2"
+          style={{
+            background: "hsl(var(--primary) / 0.08)",
+            border: "1px solid hsl(var(--primary) / 0.25)",
+            color: "hsl(var(--foreground))",
+          }}
+        >
+          <Brain size={14} className="shrink-0 mt-0.5" style={{ color: "hsl(var(--primary))" }} />
+          <span>
+            <strong>Feedback-Daten bleiben erhalten:</strong> alle Vorstellungen mit erfasstem
+            Feedback werden vorher ins Lern-Archiv übernommen und stehen der KI weiterhin als
+            Trainingsdaten zur Verfügung. Das Archiv selbst kann nur im Lerndaten-Dashboard
+            geleert werden.
+          </span>
+        </div>
         <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-          Diese Aktion kann nicht rückgängig gemacht werden. Zur Bestätigung tippe bitte
-          „löschen" in das Feld:
+          Zur Bestätigung tippe „löschen" in das Feld:
         </p>
         <input
           value={text}
