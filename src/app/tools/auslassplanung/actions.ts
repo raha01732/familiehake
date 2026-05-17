@@ -394,10 +394,14 @@ type LearningEntry = {
   notes: string | null;
 };
 
+const LEARNING_LIMIT = 100;
+
 async function loadLearningData(
   sb: SupabaseAdmin,
   excludeShowIds: ReadonlySet<number>,
 ): Promise<LearningEntry[]> {
+  // Wir laden mit Puffer, da nicht jede Vorstellung Feedback hat. 4x Limit
+  // sollte selbst bei 25% Feedback-Quote noch 100 Treffer liefern.
   const { data: pastRows } = await sb
     .from("cinema_cleaning_shows")
     .select(`
@@ -405,7 +409,7 @@ async function loadLearningData(
       cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes )
     `)
     .order("show_date", { ascending: false })
-    .limit(60);
+    .limit(LEARNING_LIMIT * 4);
   const out: LearningEntry[] = [];
   for (const row of (pastRows ?? []) as any[]) {
     if (excludeShowIds.has(row.id as number)) continue;
@@ -424,7 +428,7 @@ async function loadLearningData(
       rating: (fb.rating as number | null) ?? null,
       notes: (fb.notes as string | null) ?? null,
     });
-    if (out.length >= 20) break;
+    if (out.length >= LEARNING_LIMIT) break;
   }
   return out;
 }
@@ -1154,7 +1158,7 @@ export async function estimateAttendeesAction(
     .gt("attendees", 0)
     .not("id", "in", `(${ids.join(",")})`)
     .order("show_date", { ascending: false })
-    .limit(60);
+    .limit(LEARNING_LIMIT);
   const learning = (pastShows ?? []).map((r) => ({
     hall_number: r.hall_number as number,
     end_time: r.end_time as string,

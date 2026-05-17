@@ -107,7 +107,7 @@ export async function generateCleaningPlanWithAi(params: {
   const userPayload = {
     SHOW: params.show,
     STAFF: params.staff,
-    LEARNING: params.learning.slice(0, 20),
+    LEARNING: params.learning.slice(0, 100),
   };
 
   const body = {

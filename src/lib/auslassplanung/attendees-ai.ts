@@ -43,7 +43,7 @@ const SYSTEM_PROMPT = `Du bist ein erfahrener Kino-Disponent und schätzt für e
 von Vorstellungen ("Rutsche") die plausible Besucherzahl pro Saal. Du erhältst:
 
 - SHOWS: die Vorstellungen der aktuellen Rutsche (Saal, Endzeit, Filmtitel, Intensität).
-- LEARNING: bis zu 30 vergangene Vorstellungen mit tatsächlich gezählten Besucherzahlen.
+- LEARNING: bis zu 100 vergangene Vorstellungen mit tatsächlich gezählten Besucherzahlen.
 
 Heuristiken:
 - Familienfilme (Animation, Conni, Mario, Glennkill, etc.) am Nachmittag → hohe Besucher.
@@ -81,7 +81,7 @@ export async function estimateAttendeesWithAi(params: {
   const model = params.model ?? DEFAULT_MODEL;
   const userPayload = {
     SHOWS: params.shows,
-    LEARNING: params.learning.slice(0, 30),
+    LEARNING: params.learning.slice(0, 100),
   };
 
   const body = {
