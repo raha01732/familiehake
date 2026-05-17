@@ -219,12 +219,79 @@ type PlanResult = {
   unmet?: string;
 };
 
-export async function planShowAction(formData: FormData): Promise<PlanResult | null> {
-  await assertCallerHasCinemaAccess();
-  const showId = Number(formData.get("show_id"));
-  if (!showId) return null;
+type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
-  const sb = createAdminClient();
+type ShowWindowInput = {
+  show_date: string;
+  end_time: string;
+  cleanup_minutes: number;
+};
+
+function showWindowMs(s: ShowWindowInput): { startMs: number; endMs: number } {
+  const time = s.end_time.length >= 5 ? s.end_time.slice(0, 5) : s.end_time;
+  const startMs = Date.parse(`${s.show_date}T${time}:00Z`);
+  const endMs = startMs + Math.max(0, s.cleanup_minutes) * 60_000;
+  return { startMs, endMs };
+}
+
+function shiftDate(isoDate: string, days: number): string {
+  const ms = Date.parse(`${isoDate}T00:00:00Z`) + days * 24 * 60 * 60 * 1000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+// Welche MA sind in einem zur Vorstellung überlappenden Reinigungsfenster
+// (anderer Saal, gleiche Zeit) bereits eingeteilt? Diese werden vor der
+// Planung aus dem Pool entfernt, damit niemand zwei Säle gleichzeitig macht.
+async function getBusyStaffIds(
+  sb: SupabaseAdmin,
+  show: { id: number } & ShowWindowInput
+): Promise<{ busy: Set<number>; conflictHallNumbers: Set<number> }> {
+  const { startMs, endMs } = showWindowMs(show);
+  const dateMin = shiftDate(show.show_date, -1);
+  const dateMax = shiftDate(show.show_date, 1);
+
+  const { data: nearby } = await sb
+    .from("cinema_cleaning_shows")
+    .select("id, hall_number, show_date, end_time, cleanup_minutes")
+    .gte("show_date", dateMin)
+    .lte("show_date", dateMax)
+    .neq("id", show.id);
+
+  const overlappingShows = (nearby ?? []).filter((row) => {
+    const w = showWindowMs(row as ShowWindowInput);
+    return w.startMs < endMs && startMs < w.endMs;
+  });
+  if (overlappingShows.length === 0) {
+    return { busy: new Set(), conflictHallNumbers: new Set() };
+  }
+  const overlappingIds = overlappingShows.map((r) => r.id as number);
+
+  const { data: assignments } = await sb
+    .from("cinema_cleaning_assignments")
+    .select("staff_id, show_id")
+    .in("show_id", overlappingIds);
+
+  const busy = new Set<number>();
+  const showsWithAssignments = new Set<number>();
+  for (const a of assignments ?? []) {
+    const sid = (a as { staff_id: number }).staff_id;
+    const showRef = (a as { show_id: number }).show_id;
+    if (typeof sid === "number") busy.add(sid);
+    if (typeof showRef === "number") showsWithAssignments.add(showRef);
+  }
+  const conflictHallNumbers = new Set<number>();
+  for (const r of overlappingShows) {
+    if (showsWithAssignments.has(r.id as number)) {
+      conflictHallNumbers.add((r as { hall_number: number }).hall_number);
+    }
+  }
+  return { busy, conflictHallNumbers };
+}
+
+async function performPlanForShow(
+  sb: SupabaseAdmin,
+  showId: number
+): Promise<PlanResult | null> {
   const { data: showRow } = await sb
     .from("cinema_cleaning_shows")
     .select("id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes, intensity, movie_title, notes")
@@ -238,8 +305,8 @@ export async function planShowAction(formData: FormData): Promise<PlanResult | n
     .select("id, name, preference, color, is_active, user_id, notes, sort_order")
     .eq("is_active", true)
     .order("sort_order");
-  const staffList = (staffRows ?? []) as CleaningStaff[];
-  if (staffList.length === 0) {
+  const allActiveStaff = (staffRows ?? []) as CleaningStaff[];
+  if (allActiveStaff.length === 0) {
     return {
       showId,
       recommendedCount: 0,
@@ -247,6 +314,36 @@ export async function planShowAction(formData: FormData): Promise<PlanResult | n
       source: "heuristic",
       aiNote: null,
       unmet: "Es sind keine aktiven Reinigungs-Mitarbeiter angelegt.",
+    };
+  }
+
+  // Konflikt-Erkennung: MA, die zur selben Zeit in einem anderen Saal eingeteilt sind
+  const { busy: busyStaffIds, conflictHallNumbers } = await getBusyStaffIds(sb, show);
+  const availableStaff = allActiveStaff.filter((s) => !busyStaffIds.has(s.id));
+  const conflictNote =
+    conflictHallNumbers.size > 0
+      ? `Belegt in Saal ${Array.from(conflictHallNumbers).sort((a, b) => a - b).join(", ")}: ${busyStaffIds.size} MA`
+      : null;
+
+  if (availableStaff.length === 0) {
+    // Konsistenz: alte Zuweisungen entfernen, Status zurück auf "open"
+    await sb.from("cinema_cleaning_assignments").delete().eq("show_id", showId);
+    await sb
+      .from("cinema_cleaning_shows")
+      .update({
+        ai_recommended_staff_count: recommendStaffCount(show.attendees, show.intensity),
+        ai_notes: conflictNote,
+        plan_status: "open",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", showId);
+    return {
+      showId,
+      recommendedCount: recommendStaffCount(show.attendees, show.intensity),
+      assignments: [],
+      source: "heuristic",
+      aiNote: conflictNote,
+      unmet: "Keine MA verfügbar — alle aktiven MA sind in einem anderen Saal zur gleichen Zeit eingeteilt.",
     };
   }
 
@@ -281,7 +378,6 @@ export async function planShowAction(formData: FormData): Promise<PlanResult | n
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
 
-  let result: PlanResult | null = null;
   let source: "ai" | "heuristic" = "heuristic";
   let aiNote: string | null = null;
   let recommendedCount = recommendStaffCount(show.attendees, show.intensity);
@@ -302,7 +398,7 @@ export async function planShowAction(formData: FormData): Promise<PlanResult | n
           movie_title: show.movie_title,
           notes: show.notes,
         },
-        staff: staffList.map((s) => ({
+        staff: availableStaff.map((s) => ({
           id: s.id,
           name: s.name,
           preference: s.preference,
@@ -314,7 +410,7 @@ export async function planShowAction(formData: FormData): Promise<PlanResult | n
         recommendedCount = aiResult.recommended_staff_count;
         chosen = aiResult.assignments
           .map((a) => ({ staff_id: a.staff_id, reason: a.reason ?? null }))
-          .filter((a) => staffList.some((s) => s.id === a.staff_id));
+          .filter((a) => availableStaff.some((s) => s.id === a.staff_id));
         aiNote = aiResult.notes ?? null;
         source = "ai";
       }
@@ -325,7 +421,7 @@ export async function planShowAction(formData: FormData): Promise<PlanResult | n
 
   if (source === "heuristic") {
     // Heuristik: erst preferred, dann backup, sortiert nach sort_order
-    const sorted = [...staffList].sort((a, b) => {
+    const sorted = [...availableStaff].sort((a, b) => {
       if (a.preference !== b.preference) return a.preference === "preferred" ? -1 : 1;
       return a.sort_order - b.sort_order;
     });
@@ -334,6 +430,12 @@ export async function planShowAction(formData: FormData): Promise<PlanResult | n
       reason: s.preference === "preferred" ? "Heuristik: bevorzugt" : "Heuristik: Zweifelsfall",
     }));
   }
+
+  // Konflikt-Hinweis an die Notiz anhängen, damit er in der Karte sichtbar wird
+  const finalNote =
+    conflictNote && aiNote
+      ? `${aiNote} · ${conflictNote}`
+      : aiNote ?? conflictNote;
 
   // Alte Zuweisungen löschen, neue setzen
   await sb.from("cinema_cleaning_assignments").delete().eq("show_id", showId);
@@ -351,26 +453,143 @@ export async function planShowAction(formData: FormData): Promise<PlanResult | n
     .from("cinema_cleaning_shows")
     .update({
       ai_recommended_staff_count: recommendedCount,
-      ai_notes: aiNote,
+      ai_notes: finalNote,
       plan_status: chosen.length > 0 ? "planned" : "open",
       updated_at: new Date().toISOString(),
     })
     .eq("id", showId);
 
-  result = {
+  const unmetParts: string[] = [];
+  if (chosen.length < recommendedCount) {
+    unmetParts.push(`Nur ${chosen.length} von ${recommendedCount} empfohlenen Plätzen besetzt.`);
+  }
+  if (busyStaffIds.size > 0) {
+    unmetParts.push(`${busyStaffIds.size} MA sind in einem anderen Saal zur gleichen Zeit eingeteilt.`);
+  }
+
+  return {
     showId,
     recommendedCount,
     assignments: chosen,
     source,
-    aiNote,
-    unmet:
-      chosen.length < recommendedCount
-        ? `Nur ${chosen.length} von ${recommendedCount} empfohlenen Plätzen besetzt.`
-        : undefined,
+    aiNote: finalNote,
+    unmet: unmetParts.length > 0 ? unmetParts.join(" ") : undefined,
   };
+}
 
+export async function planShowAction(formData: FormData): Promise<PlanResult | null> {
+  await assertCallerHasCinemaAccess();
+  const showId = Number(formData.get("show_id"));
+  if (!showId) return null;
+  const sb = createAdminClient();
+  const result = await performPlanForShow(sb, showId);
   revalidatePath(PLAN_PATH);
   return result;
+}
+
+export type BulkPlanSummary = {
+  total: number;
+  planned: number;
+  empty: number;
+  failed: number;
+  bySource: { ai: number; heuristic: number };
+  results: Array<{
+    showId: number;
+    hallNumber: number | null;
+    showDate: string | null;
+    endTime: string | null;
+    ok: boolean;
+    source: "ai" | "heuristic" | null;
+    assignedCount: number;
+    recommendedCount: number;
+    unmet?: string;
+    error?: string;
+  }>;
+};
+
+export async function planManyShowsAction(formData: FormData): Promise<BulkPlanSummary> {
+  await assertCallerHasCinemaAccess();
+  const rawIds = formData.getAll("show_id").map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0);
+  const showIds = Array.from(new Set(rawIds));
+  if (showIds.length === 0) {
+    return { total: 0, planned: 0, empty: 0, failed: 0, bySource: { ai: 0, heuristic: 0 }, results: [] };
+  }
+
+  const sb = createAdminClient();
+
+  // Reihenfolge: chronologisch (älteste zuerst), damit aufeinander folgende Vorstellungen
+  // korrekt die bereits gemachten Zuweisungen sehen.
+  const { data: orderedShows } = await sb
+    .from("cinema_cleaning_shows")
+    .select("id, hall_number, show_date, end_time")
+    .in("id", showIds)
+    .order("show_date", { ascending: true })
+    .order("end_time", { ascending: true });
+
+  const summary: BulkPlanSummary = {
+    total: orderedShows?.length ?? 0,
+    planned: 0,
+    empty: 0,
+    failed: 0,
+    bySource: { ai: 0, heuristic: 0 },
+    results: [],
+  };
+
+  for (const row of orderedShows ?? []) {
+    const meta = row as { id: number; hall_number: number; show_date: string; end_time: string };
+    try {
+      const r = await performPlanForShow(sb, meta.id);
+      if (!r) {
+        summary.failed++;
+        summary.results.push({
+          showId: meta.id,
+          hallNumber: meta.hall_number,
+          showDate: meta.show_date,
+          endTime: meta.end_time,
+          ok: false,
+          source: null,
+          assignedCount: 0,
+          recommendedCount: 0,
+          error: "Vorstellung nicht gefunden.",
+        });
+        continue;
+      }
+      if (r.assignments.length === 0) {
+        summary.empty++;
+      } else {
+        summary.planned++;
+      }
+      summary.bySource[r.source]++;
+      summary.results.push({
+        showId: meta.id,
+        hallNumber: meta.hall_number,
+        showDate: meta.show_date,
+        endTime: meta.end_time,
+        ok: r.assignments.length > 0,
+        source: r.source,
+        assignedCount: r.assignments.length,
+        recommendedCount: r.recommendedCount,
+        unmet: r.unmet,
+      });
+    } catch (e) {
+      console.error("[auslassplanung] bulk plan failed for show", meta.id, e);
+      summary.failed++;
+      summary.results.push({
+        showId: meta.id,
+        hallNumber: meta.hall_number,
+        showDate: meta.show_date,
+        endTime: meta.end_time,
+        ok: false,
+        source: null,
+        assignedCount: 0,
+        recommendedCount: 0,
+        error: e instanceof Error ? e.message : "Unbekannter Fehler",
+      });
+    }
+  }
+
+  revalidatePath(PLAN_PATH);
+  return summary;
 }
 
 export async function manualOverrideAssignmentAction(formData: FormData) {

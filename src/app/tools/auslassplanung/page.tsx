@@ -13,6 +13,7 @@ import {
   updateStaffAction,
   deleteStaffAction,
   planShowAction,
+  planManyShowsAction,
   manualOverrideAssignmentAction,
   saveFeedbackAction,
 } from "./actions";
@@ -77,6 +78,7 @@ export default async function AuslassplanungPage() {
         updateShowAction={updateShowAction}
         deleteShowAction={deleteShowAction}
         planShowAction={planShowAction}
+        planManyShowsAction={planManyShowsAction}
         overrideAction={manualOverrideAssignmentAction}
         saveFeedbackAction={saveFeedbackAction}
       />

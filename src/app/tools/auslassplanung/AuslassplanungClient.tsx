@@ -5,12 +5,15 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarRange,
+  CheckCircle2,
   Clapperboard,
+  ListChecks,
   Pencil,
   Plus,
   Sparkles,
   Trash2,
   Users,
+  XCircle,
 } from "lucide-react";
 import {
   INTENSITY_OPTIONS,
@@ -38,6 +41,28 @@ type PlanFn = (_fd: FormData) => Promise<{
   unmet?: string;
 } | null>;
 
+type BulkPlanSummary = {
+  total: number;
+  planned: number;
+  empty: number;
+  failed: number;
+  bySource: { ai: number; heuristic: number };
+  results: Array<{
+    showId: number;
+    hallNumber: number | null;
+    showDate: string | null;
+    endTime: string | null;
+    ok: boolean;
+    source: "ai" | "heuristic" | null;
+    assignedCount: number;
+    recommendedCount: number;
+    unmet?: string;
+    error?: string;
+  }>;
+};
+
+type PlanManyFn = (_fd: FormData) => Promise<BulkPlanSummary>;
+
 type Props = {
   initialStaff: CleaningStaff[];
   initialShows: CleaningShow[];
@@ -52,6 +77,7 @@ type Props = {
   updateShowAction: ActionFn;
   deleteShowAction: ActionFn;
   planShowAction: PlanFn;
+  planManyShowsAction: PlanManyFn;
   overrideAction: ActionFn;
   saveFeedbackAction: ActionFn;
 };
@@ -88,6 +114,7 @@ export default function AuslassplanungClient({
   updateShowAction,
   deleteShowAction,
   planShowAction,
+  planManyShowsAction,
   overrideAction: _overrideAction,
   saveFeedbackAction,
 }: Props) {
@@ -107,6 +134,9 @@ export default function AuslassplanungClient({
   } | null>(null);
   const [planningShowId, setPlanningShowId] = useState<number | null>(null);
   const [isPlanning, startPlanning] = useTransition();
+  const [bulkPickerOpen, setBulkPickerOpen] = useState(false);
+  const [bulkSummary, setBulkSummary] = useState<BulkPlanSummary | null>(null);
+  const [isBulkPlanning, startBulkPlanning] = useTransition();
 
   const staffById = useMemo(() => {
     const m = new Map<number, CleaningStaff>();
@@ -156,6 +186,18 @@ export default function AuslassplanungClient({
     });
   }
 
+  function handleBulkPlan(showIds: number[]) {
+    if (showIds.length === 0) return;
+    startBulkPlanning(async () => {
+      const fd = new FormData();
+      for (const id of showIds) fd.append("show_id", String(id));
+      const summary = await planManyShowsAction(fd);
+      setBulkPickerOpen(false);
+      setBulkSummary(summary);
+      router.refresh();
+    });
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col gap-6 animate-fade-up">
       {/* Header */}
@@ -202,9 +244,11 @@ export default function AuslassplanungClient({
           aiEnabled={aiEnabled}
           isPlanning={isPlanning}
           planningShowId={planningShowId}
+          isBulkPlanning={isBulkPlanning}
           onAdd={() => setShowModal(null)}
           onEdit={(s) => setShowModal(s)}
           onPlan={handlePlan}
+          onBulkPlanOpen={() => setBulkPickerOpen(true)}
           onFeedback={(s) => setFeedbackShow(s)}
         />
       ) : (
@@ -252,6 +296,20 @@ export default function AuslassplanungClient({
         <PlanResultModal notice={planNotice} staffById={staffById} onClose={() => setPlanNotice(null)} />
       )}
 
+      {bulkPickerOpen && (
+        <BulkPlanPickerModal
+          shows={initialShows}
+          isPlanning={isBulkPlanning}
+          aiEnabled={aiEnabled}
+          onClose={() => setBulkPickerOpen(false)}
+          onPlan={handleBulkPlan}
+        />
+      )}
+
+      {bulkSummary && (
+        <BulkPlanResultModal summary={bulkSummary} onClose={() => setBulkSummary(null)} />
+      )}
+
       {/* overrideAction ist als Prop verfügbar — reserviert für ein
           späteres manuelles Override-UI. Aktuell nicht in der UI angeboten. */}
     </div>
@@ -295,9 +353,11 @@ function ShowsTab({
   aiEnabled,
   isPlanning,
   planningShowId,
+  isBulkPlanning,
   onAdd,
   onEdit,
   onPlan,
+  onBulkPlanOpen,
   onFeedback,
 }: {
   shows: CleaningShow[];
@@ -310,11 +370,16 @@ function ShowsTab({
   aiEnabled: boolean;
   isPlanning: boolean;
   planningShowId: number | null;
+  isBulkPlanning: boolean;
   onAdd: () => void;
   onEdit: (show: CleaningShow) => void;
   onPlan: (show: CleaningShow) => void;
+  onBulkPlanOpen: () => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
+  const hasBulkable = shows.some(
+    (s) => s.plan_status === "open" || s.plan_status === "planned",
+  );
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -323,14 +388,27 @@ function ShowsTab({
           {activeStaffCount - preferredCount} im Zweifelsfall).
           {aiEnabled ? " KI-Plan steht zur Verfügung." : " Heuristik wird verwendet (kein GEMINI_API_KEY)."}
         </p>
-        {canEdit && (
-          <button
-            onClick={onAdd}
-            className="brand-button inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold"
-          >
-            <Plus size={14} /> Neue Vorstellung
-          </button>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {canEdit && hasBulkable && (
+            <button
+              onClick={onBulkPlanOpen}
+              disabled={isBulkPlanning}
+              className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold border border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.18)] disabled:opacity-50"
+              title="Mehrere Vorstellungen gleichzeitig planen — berücksichtigt MA, die parallel in einem anderen Saal eingeteilt sind."
+            >
+              <ListChecks size={14} />
+              {isBulkPlanning ? "Plane…" : aiEnabled ? "KI-Plan für mehrere…" : "Plan für mehrere…"}
+            </button>
+          )}
+          {canEdit && (
+            <button
+              onClick={onAdd}
+              className="brand-button inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold"
+            >
+              <Plus size={14} /> Neue Vorstellung
+            </button>
+          )}
+        </div>
       </div>
 
       {shows.length === 0 ? (
@@ -1031,6 +1109,265 @@ function PlanResultModal({
         </div>
       </div>
     </ModalShell>
+  );
+}
+
+// ── Bulk-Plan-Picker ─────────────────────────────────────────────────
+
+function formatShowDate(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("de-DE", {
+    timeZone: "Europe/Berlin",
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function BulkPlanPickerModal({
+  shows,
+  isPlanning,
+  aiEnabled,
+  onClose,
+  onPlan,
+}: {
+  shows: CleaningShow[];
+  isPlanning: boolean;
+  aiEnabled: boolean;
+  onClose: () => void;
+  onPlan: (showIds: number[]) => void;
+}) {
+  // Erledigte/abgesagte Vorstellungen sind nicht sinnvoll auswählbar
+  const eligible = useMemo(
+    () => shows.filter((s) => s.plan_status === "open" || s.plan_status === "planned"),
+    [shows],
+  );
+
+  // Chronologisch sortiert (älteste zuerst), damit die Bulk-Verarbeitung später passend funktioniert
+  const sorted = useMemo(
+    () =>
+      [...eligible].sort((a, b) => {
+        if (a.show_date !== b.show_date) return a.show_date.localeCompare(b.show_date);
+        return a.end_time.localeCompare(b.end_time);
+      }),
+    [eligible],
+  );
+
+  // Default: alle "offenen" angehakt
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set(sorted.filter((s) => s.plan_status === "open").map((s) => s.id)),
+  );
+
+  function toggle(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelected(new Set(sorted.map((s) => s.id)));
+  }
+  function selectOpen() {
+    setSelected(new Set(sorted.filter((s) => s.plan_status === "open").map((s) => s.id)));
+  }
+  function selectNone() {
+    setSelected(new Set());
+  }
+
+  const count = selected.size;
+  const allCount = sorted.length;
+  const openCount = sorted.filter((s) => s.plan_status === "open").length;
+
+  return (
+    <ModalShell title={aiEnabled ? "KI-Plan für mehrere Vorstellungen" : "Plan für mehrere Vorstellungen"} onClose={onClose}>
+      <div className="p-5 space-y-4">
+        <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          Wähle die Vorstellungen aus, die geplant werden sollen. Es werden chronologisch
+          nacheinander geplant — Mitarbeiter, die zur gleichen Zeit in einem anderen Saal
+          eingeteilt sind, werden automatisch übersprungen.
+        </p>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={selectOpen}
+            className="text-xs px-2.5 py-1 rounded-lg bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))]"
+          >
+            Nur offene ({openCount})
+          </button>
+          <button
+            type="button"
+            onClick={selectAll}
+            className="text-xs px-2.5 py-1 rounded-lg bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))]"
+          >
+            Alle ({allCount})
+          </button>
+          <button
+            type="button"
+            onClick={selectNone}
+            className="text-xs px-2.5 py-1 rounded-lg bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))]"
+          >
+            Keine
+          </button>
+          <span className="ml-auto text-xs font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+            {count} ausgewählt
+          </span>
+        </div>
+
+        {sorted.length === 0 ? (
+          <p className="text-sm italic" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Keine offenen oder bereits geplanten Vorstellungen vorhanden.
+          </p>
+        ) : (
+          <div className="border border-[hsl(var(--border))] rounded-xl max-h-[50vh] overflow-y-auto divide-y divide-[hsl(var(--border))]">
+            {sorted.map((s) => {
+              const status = STATUS_LABELS[s.plan_status];
+              const checked = selected.has(s.id);
+              return (
+                <label
+                  key={s.id}
+                  className="flex items-start gap-3 p-3 cursor-pointer hover:bg-[hsl(var(--secondary)/0.4)]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(s.id)}
+                    className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                      <span className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+                        Saal {s.hall_number}
+                        {s.hall_label ? ` – ${s.hall_label}` : ""}
+                      </span>
+                      <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${status.cls}`}>
+                        {status.label}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border border-[hsl(var(--border))]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                        {INTENSITY_LABEL[s.intensity]}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      {formatShowDate(s.show_date)} · {formatTimeRange(s.end_time, s.cleanup_minutes)}
+                    </div>
+                    {s.movie_title && (
+                      <div className="text-[11px] italic truncate" style={{ color: "hsl(var(--muted-foreground))" }}>
+                        „{s.movie_title}"
+                      </div>
+                    )}
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
+            disabled={isPlanning}
+          >
+            Abbrechen
+          </button>
+          <button
+            type="button"
+            onClick={() => onPlan(Array.from(selected))}
+            disabled={isPlanning || count === 0}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg disabled:opacity-50"
+          >
+            <Sparkles size={14} />
+            {isPlanning ? `Plane ${count}…` : `${count} planen`}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function BulkPlanResultModal({
+  summary,
+  onClose,
+}: {
+  summary: BulkPlanSummary;
+  onClose: () => void;
+}) {
+  return (
+    <ModalShell title="Bulk-Plan-Ergebnis" onClose={onClose}>
+      <div className="p-5 space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <Stat label="Geplant" value={summary.planned} tone="ok" />
+          <Stat label="Leer" value={summary.empty} tone="warn" />
+          <Stat label="Fehler" value={summary.failed} tone="err" />
+          <Stat label="Gesamt" value={summary.total} tone="neutral" />
+        </div>
+        <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          Quellen: {summary.bySource.ai} per KI · {summary.bySource.heuristic} per Heuristik.
+        </p>
+        <div className="border border-[hsl(var(--border))] rounded-xl max-h-[50vh] overflow-y-auto divide-y divide-[hsl(var(--border))]">
+          {summary.results.map((r) => (
+            <div key={r.showId} className="flex items-start gap-2 p-3 text-xs">
+              {r.ok ? (
+                <CheckCircle2 size={14} className="mt-0.5 flex-shrink-0" style={{ color: "hsl(142 70% 45%)" }} />
+              ) : (
+                <XCircle size={14} className="mt-0.5 flex-shrink-0" style={{ color: "hsl(32 95% 55%)" }} />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+                  Saal {r.hallNumber ?? "?"} · {r.showDate ? formatShowDate(r.showDate) : ""}
+                  {r.endTime ? ` · ${r.endTime.slice(0, 5)}` : ""}
+                </div>
+                <div style={{ color: "hsl(var(--muted-foreground))" }}>
+                  {r.ok
+                    ? `${r.assignedCount}/${r.recommendedCount} MA eingeteilt${r.source ? ` (${r.source === "ai" ? "KI" : "Heuristik"})` : ""}.`
+                    : r.error
+                    ? r.error
+                    : "Keine Zuweisung möglich."}
+                  {r.unmet && <span> {r.unmet}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end pt-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg"
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "ok" | "warn" | "err" | "neutral";
+}) {
+  const cls =
+    tone === "ok"
+      ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30"
+      : tone === "warn"
+      ? "bg-amber-500/15 text-amber-600 border-amber-500/30"
+      : tone === "err"
+      ? "bg-rose-500/15 text-rose-600 border-rose-500/30"
+      : "bg-[hsl(var(--secondary))] text-[hsl(var(--foreground))] border-[hsl(var(--border))]";
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${cls}`}>
+      <div className="text-[10px] uppercase tracking-wide opacity-80">{label}</div>
+      <div className="text-lg font-bold leading-tight">{value}</div>
+    </div>
   );
 }
 
