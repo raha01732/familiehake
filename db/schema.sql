@@ -1198,12 +1198,38 @@ create table if not exists cinema_cleaning_staff (
   user_id text,
   notes text,
   sort_order integer not null default 0,
+  -- Arbeitszeit-Fenster (optional). Wenn beide null sind, gilt der MA als
+  -- jederzeit verfügbar. work_end < work_start bedeutet ein Fenster, das
+  -- über Mitternacht hinausgeht (z.B. 18:00 → 02:00).
+  work_start time,
+  work_end time,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 create index if not exists cinema_cleaning_staff_active_idx
   on cinema_cleaning_staff(is_active, sort_order);
+
+-- Backfill für existierende DBs: Arbeitszeit-Spalten nachträglich
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'cinema_cleaning_staff'
+      and column_name = 'work_start'
+  ) then
+    alter table cinema_cleaning_staff add column work_start time;
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'cinema_cleaning_staff'
+      and column_name = 'work_end'
+  ) then
+    alter table cinema_cleaning_staff add column work_end time;
+  end if;
+end $$;
 
 -- Einzelne Vorstellungen, die gereinigt werden sollen
 create table if not exists cinema_cleaning_shows (

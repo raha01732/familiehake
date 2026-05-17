@@ -10,6 +10,7 @@ import {
   createShowAction,
   updateShowAction,
   deleteShowAction,
+  deleteAllShowsAction,
   createStaffAction,
   updateStaffAction,
   deleteStaffAction,
@@ -21,11 +22,12 @@ import {
   createShowsFromFupAction,
   saveFeedbackAction,
 } from "./actions";
-import type {
-  CleaningAssignment,
-  CleaningFeedback,
-  CleaningShow,
-  CleaningStaff,
+import {
+  type CleaningAssignment,
+  type CleaningFeedback,
+  type CleaningShow,
+  type CleaningStaff,
+  compareShowsByCinemaDay,
 } from "./utils";
 
 export const metadata = { title: "Auslassplanung" };
@@ -43,16 +45,14 @@ export default async function AuslassplanungPage() {
   const [staffResult, showsResult, assignmentsResult, feedbackResult] = await Promise.all([
     sb
       .from("cinema_cleaning_staff")
-      .select("id, name, preference, color, is_active, user_id, notes, sort_order")
+      .select("id, name, preference, color, is_active, user_id, notes, sort_order, work_start, work_end")
       .order("sort_order")
       .order("id"),
     sb
       .from("cinema_cleaning_shows")
       .select(
         "id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes, intensity, movie_title, notes, plan_status, ai_recommended_staff_count, ai_notes"
-      )
-      .order("show_date", { ascending: false })
-      .order("end_time"),
+      ),
     sb
       .from("cinema_cleaning_assignments")
       .select("id, show_id, staff_id, assigned_by, reason, created_at"),
@@ -62,7 +62,12 @@ export default async function AuslassplanungPage() {
   ]);
 
   const staff = (staffResult.data ?? []) as CleaningStaff[];
-  const shows = (showsResult.data ?? []) as CleaningShow[];
+  // Kino-chronologisch sortieren: neueste Tage zuerst; innerhalb eines Tages
+  // chronologisch, wobei Zeiten vor 06:00 als Folgetags-Morgen ans Ende rutschen.
+  const shows = ((showsResult.data ?? []) as CleaningShow[]).slice().sort((a, b) => {
+    if (a.show_date !== b.show_date) return b.show_date.localeCompare(a.show_date);
+    return compareShowsByCinemaDay(a, b);
+  });
   const assignments = (assignmentsResult.data ?? []) as CleaningAssignment[];
   const feedback = (feedbackResult.data ?? []) as CleaningFeedback[];
 
@@ -82,6 +87,7 @@ export default async function AuslassplanungPage() {
         createShowAction={createShowAction}
         updateShowAction={updateShowAction}
         deleteShowAction={deleteShowAction}
+        deleteAllShowsAction={deleteAllShowsAction}
         planShowAction={planShowAction}
         planManyShowsAction={planManyShowsAction}
         setManualAssignmentsAction={setManualAssignmentsAction}

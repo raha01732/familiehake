@@ -13,6 +13,10 @@ export type CleaningStaff = {
   user_id: string | null;
   notes: string | null;
   sort_order: number;
+  /** HH:MM:SS oder null = keine Begrenzung */
+  work_start: string | null;
+  /** HH:MM:SS oder null = keine Begrenzung */
+  work_end: string | null;
 };
 
 export type CleaningShow = {
@@ -123,4 +127,63 @@ export function recommendStaffCount(attendees: number, intensity: ShowIntensity)
   const factor = intensity === "intense" ? 1.5 : intensity === "light" ? 0.7 : 1;
   const base = attendees <= 50 ? 1 : attendees <= 150 ? 2 : 3;
   return Math.max(1, Math.round(base * factor));
+}
+
+/**
+ * Kino-Tag-Sortierschlüssel für eine Vorstellung. Zeiten vor 06:00 gelten
+ * als Spätabend/Folgetag-Morgen und werden ans Ende des Vortags einsortiert.
+ * Rückgabe: Minuten seit Mitternacht des show_date, ggf. +24h für die
+ * Frühstunden — sodass eine reine numerische Sortierung "Kino-chronologisch"
+ * funktioniert.
+ */
+const CINEMA_DAY_CUTOFF_MIN = 6 * 60; // 06:00
+function timeToMinutes(value: string): number {
+  const m = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return 0;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+export function cinemaDayMinutes(endTime: string): number {
+  const mins = timeToMinutes(endTime);
+  return mins < CINEMA_DAY_CUTOFF_MIN ? mins + 24 * 60 : mins;
+}
+export function compareShowsByCinemaDay(
+  a: { show_date: string; end_time: string },
+  b: { show_date: string; end_time: string },
+): number {
+  if (a.show_date !== b.show_date) return a.show_date.localeCompare(b.show_date);
+  return cinemaDayMinutes(a.end_time) - cinemaDayMinutes(b.end_time);
+}
+
+/**
+ * Prüft, ob das gesamte Reinigungsfenster innerhalb der Arbeitszeit
+ * des MAs liegt. Wenn work_start/work_end null sind, ist der MA
+ * jederzeit verfügbar. work_end vor work_start bedeutet eine Schicht,
+ * die über Mitternacht geht.
+ */
+export function isCleanupWithinShift(
+  cleanupStartTime: string,
+  cleanupMinutes: number,
+  workStart: string | null,
+  workEnd: string | null,
+): boolean {
+  if (!workStart || !workEnd) return true;
+  const startM = timeToMinutes(cleanupStartTime);
+  const endM = startM + Math.max(0, cleanupMinutes);
+  const wStart = timeToMinutes(workStart);
+  let wEnd = timeToMinutes(workEnd);
+
+  // Wenn Schicht über Mitternacht geht: wEnd > wStart auf 48h-Skala
+  const crossesMidnight = wEnd <= wStart;
+  if (crossesMidnight) wEnd += 24 * 60;
+
+  // Cleanup-Fenster auf passende Achse legen: wenn cleanup vor wStart
+  // beginnt und Schicht über Mitternacht geht, ist es ein Folgetags-Slot
+  let cStart = startM;
+  let cEnd = endM;
+  if (crossesMidnight && cStart < wStart) {
+    cStart += 24 * 60;
+    cEnd += 24 * 60;
+  }
+
+  return cStart >= wStart && cEnd <= wEnd;
 }

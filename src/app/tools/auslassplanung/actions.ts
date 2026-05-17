@@ -10,6 +10,7 @@ import {
   type CleaningShow,
   type CleaningStaff,
   recommendStaffCount,
+  isCleanupWithinShift,
 } from "./utils";
 import {
   generateCleaningPlanWithAi,
@@ -56,6 +57,8 @@ export async function createStaffAction(formData: FormData) {
   const color = String(formData.get("color") || "#06b6d4").trim();
   const userId = String(formData.get("user_id") || "").trim() || null;
   const notes = String(formData.get("notes") || "").trim() || null;
+  const workStart = normalizeTimeInput(String(formData.get("work_start") || ""));
+  const workEnd = normalizeTimeInput(String(formData.get("work_end") || ""));
 
   const sb = createAdminClient();
   const { data: last } = await sb
@@ -74,6 +77,8 @@ export async function createStaffAction(formData: FormData) {
     user_id: userId,
     notes,
     sort_order: nextSortOrder,
+    work_start: workStart,
+    work_end: workEnd,
   });
   revalidatePath(PLAN_PATH);
 }
@@ -101,6 +106,14 @@ export async function updateStaffAction(formData: FormData) {
   if (typeof notes === "string") updates.notes = notes.trim() || null;
   const isActive = formData.get("is_active");
   if (isActive !== null) updates.is_active = isActive === "true";
+  const workStart = formData.get("work_start");
+  if (typeof workStart === "string") {
+    updates.work_start = workStart.trim() === "" ? null : normalizeTimeInput(workStart);
+  }
+  const workEnd = formData.get("work_end");
+  if (typeof workEnd === "string") {
+    updates.work_end = workEnd.trim() === "" ? null : normalizeTimeInput(workEnd);
+  }
 
   if (Object.keys(updates).length === 0) return;
   const sb = createAdminClient();
@@ -213,6 +226,21 @@ export async function deleteShowAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
+// Löscht ALLE Vorstellungen (Assignments laufen per FK-Cascade mit). Erfordert
+// einen "confirm"-Parameter im FormData als Schutz vor versehentlichem Aufruf.
+export async function deleteAllShowsAction(formData: FormData): Promise<{ deleted: number }> {
+  await assertCallerHasCinemaAccess();
+  if (String(formData.get("confirm") || "") !== "yes") return { deleted: 0 };
+  const sb = createAdminClient();
+  const { count: before } = await sb
+    .from("cinema_cleaning_shows")
+    .select("*", { count: "exact", head: true });
+  // Postgrest verlangt eine WHERE-Klausel — id > 0 trifft alle echten Rows.
+  await sb.from("cinema_cleaning_shows").delete().gt("id", 0);
+  revalidatePath(PLAN_PATH);
+  return { deleted: before ?? 0 };
+}
+
 // ── Planung ───────────────────────────────────────────────────────────
 
 type PlanResult = {
@@ -308,13 +336,17 @@ async function getExternalBusy(
 //   3. Tiebreak: sort_order.
 // Wenn ALLE Kandidaten bereits in einem überlappenden Auslass eingeplant sind,
 // wird trotzdem einer zurückgegeben — mit Flag `overlap=true`.
+// availabilityFilter: harter Filter (z.B. Arbeitszeit) — MA, die nicht erfüllen,
+// werden komplett ausgeschlossen.
 function pickFromPool(
   pool: CleaningStaff[],
   excludeIds: ReadonlySet<number>,
   softBusy: ReadonlySet<number>,
-  usageCount: ReadonlyMap<number, number>
+  usageCount: ReadonlyMap<number, number>,
+  availabilityFilter?: (s: CleaningStaff) => boolean,
 ): { staff: CleaningStaff; overlap: boolean } | null {
-  const candidates = pool.filter((s) => !excludeIds.has(s.id));
+  let candidates = pool.filter((s) => !excludeIds.has(s.id));
+  if (availabilityFilter) candidates = candidates.filter(availabilityFilter);
   if (candidates.length === 0) return null;
   const nonOverlapping = candidates.filter((s) => !softBusy.has(s.id));
   const pickFrom = nonOverlapping.length > 0 ? nonOverlapping : candidates;
@@ -325,6 +357,15 @@ function pickFromPool(
     return c.sort_order < acc.sort_order ? c : acc;
   });
   return { staff: best, overlap: nonOverlapping.length === 0 };
+}
+
+// Liefert eine Verfügbarkeits-Funktion für eine bestimmte Vorstellung.
+// Berücksichtigt die Arbeitszeit-Fenster pro MA.
+function makeAvailabilityFilter(
+  show: { end_time: string; cleanup_minutes: number },
+): (s: CleaningStaff) => boolean {
+  return (s) =>
+    isCleanupWithinShift(show.end_time, show.cleanup_minutes, s.work_start, s.work_end);
 }
 
 type ExistingAssignment = {
@@ -463,7 +504,7 @@ async function performPlanForShow(
 
   const { data: staffRows } = await sb
     .from("cinema_cleaning_staff")
-    .select("id, name, preference, color, is_active, user_id, notes, sort_order")
+    .select("id, name, preference, color, is_active, user_id, notes, sort_order, work_start, work_end")
     .eq("is_active", true)
     .order("sort_order");
   const allActive = (staffRows ?? []) as CleaningStaff[];
@@ -476,9 +517,11 @@ async function performPlanForShow(
       assignments: [],
       source: "heuristic",
       aiNote: null,
-      unmet: "Es sind keine aktiven Reinigungs-Mitarbeiter angelegt.",
+      unmet: "Es sind keine aktiven Mitarbeiter angelegt.",
     };
   }
+
+  const availabilityFilter = makeAvailabilityFilter(show);
 
   // Existierende Zuweisungen laden — manuelle bleiben unangetastet
   const { data: existing } = await sb
@@ -524,10 +567,10 @@ async function performPlanForShow(
 
   for (let i = 0; i < additionalNeeded; i++) {
     // Slot 1: bevorzuge preferred, damit Regel "1× bevorzugt pro Vorstellung" erfüllt wird
-    let picked = pickFromPool(preferredPool, exclude, externalBusy, usageCount);
+    let picked = pickFromPool(preferredPool, exclude, externalBusy, usageCount, availabilityFilter);
     let isPreferred = true;
     if (!picked) {
-      picked = pickFromPool(backupPool, exclude, externalBusy, usageCount);
+      picked = pickFromPool(backupPool, exclude, externalBusy, usageCount, availabilityFilter);
       isPreferred = false;
     }
     if (!picked) break;
@@ -653,7 +696,7 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
   // Aktive MA
   const { data: staffRows } = await sb
     .from("cinema_cleaning_staff")
-    .select("id, name, preference, color, is_active, user_id, notes, sort_order")
+    .select("id, name, preference, color, is_active, user_id, notes, sort_order, work_start, work_end")
     .eq("is_active", true)
     .order("sort_order");
   const allActive = (staffRows ?? []) as CleaningStaff[];
@@ -673,7 +716,7 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
         source: null,
         assignedCount: 0,
         recommendedCount: 0,
-        error: "Keine aktiven Reinigungsmitarbeiter angelegt.",
+        error: "Keine aktiven Mitarbeiter angelegt.",
       })),
     };
   }
@@ -777,7 +820,8 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
     if (it.currentPreferredCount > 0) continue;
     if (it.currentStaffIds.size >= it.recommendedCount) continue;
     const softBusy = softBusyForItem(it);
-    const picked = pickFromPool(preferredPool, it.currentStaffIds, softBusy, usageCount);
+    const availability = makeAvailabilityFilter(it.show);
+    const picked = pickFromPool(preferredPool, it.currentStaffIds, softBusy, usageCount, availability);
     if (!picked) continue;
     const reason = reasonForPickedSlot(true, true, picked.overlap, overlapHallsForItem(it));
     it.newAssignments.push({ staff_id: picked.staff.id, reason });
@@ -788,12 +832,13 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
 
   // Phase 2: restliche Slots auffüllen (preferred first, dann backup)
   for (const it of items) {
+    const availability = makeAvailabilityFilter(it.show);
     while (it.currentStaffIds.size < it.recommendedCount) {
       const softBusy = softBusyForItem(it);
-      let picked = pickFromPool(preferredPool, it.currentStaffIds, softBusy, usageCount);
+      let picked = pickFromPool(preferredPool, it.currentStaffIds, softBusy, usageCount, availability);
       let isPreferred = true;
       if (!picked) {
-        picked = pickFromPool(backupPool, it.currentStaffIds, softBusy, usageCount);
+        picked = pickFromPool(backupPool, it.currentStaffIds, softBusy, usageCount, availability);
         isPreferred = false;
       }
       if (!picked) break;

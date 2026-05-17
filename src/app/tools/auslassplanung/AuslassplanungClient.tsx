@@ -30,6 +30,7 @@ import {
   getInitials,
   formatTimeRange,
   recommendStaffCount,
+  compareShowsByCinemaDay,
   type CleaningAssignment,
   type CleaningFeedback,
   type CleaningPreference,
@@ -105,6 +106,7 @@ type Props = {
   createShowAction: ActionFn;
   updateShowAction: ActionFn;
   deleteShowAction: ActionFn;
+  deleteAllShowsAction: (_fd: FormData) => Promise<{ deleted: number }>;
   planShowAction: PlanFn;
   planManyShowsAction: PlanManyFn;
   setManualAssignmentsAction: ActionFn;
@@ -146,6 +148,7 @@ export default function AuslassplanungClient({
   createShowAction,
   updateShowAction,
   deleteShowAction,
+  deleteAllShowsAction,
   planShowAction,
   planManyShowsAction,
   setManualAssignmentsAction,
@@ -175,6 +178,8 @@ export default function AuslassplanungClient({
   const [confirmClearShow, setConfirmClearShow] = useState<CleaningShow | null>(null);
   const [isClearing, startClearing] = useTransition();
   const [fupModalOpen, setFupModalOpen] = useState(false);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [isDeletingAll, startDeletingAll] = useTransition();
 
   const staffById = useMemo(() => {
     const m = new Map<number, CleaningStaff>();
@@ -246,6 +251,25 @@ export default function AuslassplanungClient({
     });
   }
 
+  function handleDeleteAll() {
+    startDeletingAll(async () => {
+      const fd = new FormData();
+      fd.set("confirm", "yes");
+      await deleteAllShowsAction(fd);
+      setConfirmDeleteAll(false);
+      router.refresh();
+    });
+  }
+
+  const sortedShows = useMemo(
+    () =>
+      initialShows.slice().sort((a, b) => {
+        if (a.show_date !== b.show_date) return b.show_date.localeCompare(a.show_date);
+        return compareShowsByCinemaDay(a, b);
+      }),
+    [initialShows],
+  );
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col gap-6 animate-fade-up">
       {/* Header */}
@@ -274,7 +298,7 @@ export default function AuslassplanungClient({
             <span className="ml-1 text-[10px] opacity-70">{initialShows.length}</span>
           </TabButton>
           <TabButton active={tab === "staff"} onClick={() => setTab("staff")}>
-            <Users size={14} aria-hidden /> Reinigungskräfte
+            <Users size={14} aria-hidden /> Mitarbeiter
             <span className="ml-1 text-[10px] opacity-70">{activeStaffCount}</span>
           </TabButton>
         </div>
@@ -282,7 +306,7 @@ export default function AuslassplanungClient({
 
       {tab === "shows" ? (
         <ShowsTab
-          shows={initialShows}
+          shows={sortedShows}
           staffById={staffById}
           assignmentsByShow={assignmentsByShow}
           feedbackByShow={feedbackByShow}
@@ -302,6 +326,7 @@ export default function AuslassplanungClient({
           onClear={(s) => setConfirmClearShow(s)}
           onBulkPlanOpen={() => setBulkPickerOpen(true)}
           onFupOpen={() => setFupModalOpen(true)}
+          onDeleteAllOpen={() => setConfirmDeleteAll(true)}
           onFeedback={(s) => setFeedbackShow(s)}
         />
       ) : (
@@ -392,6 +417,15 @@ export default function AuslassplanungClient({
         />
       )}
 
+      {confirmDeleteAll && (
+        <ConfirmDeleteAllModal
+          showCount={initialShows.length}
+          isDeleting={isDeletingAll}
+          onCancel={() => setConfirmDeleteAll(false)}
+          onConfirm={handleDeleteAll}
+        />
+      )}
+
       {/* overrideAction ist als Prop verfügbar — reserviert für ein
           späteres manuelles Override-UI. Aktuell nicht in der UI angeboten. */}
     </div>
@@ -445,6 +479,7 @@ function ShowsTab({
   onClear,
   onBulkPlanOpen,
   onFupOpen,
+  onDeleteAllOpen,
   onFeedback,
 }: {
   shows: CleaningShow[];
@@ -467,6 +502,7 @@ function ShowsTab({
   onClear: (show: CleaningShow) => void;
   onBulkPlanOpen: () => void;
   onFupOpen: () => void;
+  onDeleteAllOpen: () => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
   void isClearing;
@@ -477,7 +513,7 @@ function ShowsTab({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-          {activeStaffCount} aktive Reinigungskräfte ({preferredCount} bevorzugt,{" "}
+          {activeStaffCount} aktive Mitarbeiter ({preferredCount} bevorzugt,{" "}
           {activeStaffCount - preferredCount} im Zweifelsfall).
           {aiEnabled ? " KI-Plan steht zur Verfügung." : " Heuristik wird verwendet (kein GEMINI_API_KEY)."}
         </p>
@@ -500,6 +536,15 @@ function ShowsTab({
             >
               <ListChecks size={14} />
               {isBulkPlanning ? "Plane…" : aiEnabled ? "KI-Plan für mehrere…" : "Plan für mehrere…"}
+            </button>
+          )}
+          {canEdit && shows.length > 0 && (
+            <button
+              onClick={onDeleteAllOpen}
+              className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold border border-[hsl(var(--destructive)/0.4)] bg-[hsl(var(--destructive)/0.1)] text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)/0.18)]"
+              title="Alle Vorstellungen unwiderruflich löschen"
+            >
+              <Trash2 size={14} /> Alle löschen
             </button>
           )}
           {canEdit && (
@@ -683,7 +728,7 @@ function ShowsTab({
   );
 }
 
-// ── Tab: Reinigungskräfte ─────────────────────────────────────────────
+// ── Tab: Mitarbeiter ─────────────────────────────────────────────────
 
 function StaffTab({
   staff,
@@ -755,6 +800,11 @@ function StaffGroup({
               <div className="text-sm font-semibold truncate" style={{ color: "hsl(var(--foreground))" }}>
                 {s.name}
               </div>
+              {(s.work_start && s.work_end) && (
+                <div className="text-[11px] truncate" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  Arbeitszeit: {s.work_start.slice(0, 5)} – {s.work_end.slice(0, 5)}
+                </div>
+              )}
               {s.notes && (
                 <div className="text-[11px] truncate" style={{ color: "hsl(var(--muted-foreground))" }}>
                   {s.notes}
@@ -859,6 +909,39 @@ function StaffModal({
               </button>
             ))}
           </div>
+        </div>
+
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+            Arbeitszeit (optional)
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="time"
+              name="work_start"
+              defaultValue={staff?.work_start?.slice(0, 5) ?? ""}
+              className={inputCls}
+              style={{ width: "auto" }}
+              disabled={!canEdit}
+              placeholder="--:--"
+            />
+            <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+              bis
+            </span>
+            <input
+              type="time"
+              name="work_end"
+              defaultValue={staff?.work_end?.slice(0, 5) ?? ""}
+              className={inputCls}
+              style={{ width: "auto" }}
+              disabled={!canEdit}
+              placeholder="--:--"
+            />
+          </div>
+          <p className="text-[11px] mt-1" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Leer = jederzeit verfügbar. Endzeit kleiner als Startzeit bedeutet eine Schicht,
+            die über Mitternacht geht (z.B. 18:00 → 02:00).
+          </p>
         </div>
 
         <div>
@@ -1744,6 +1827,63 @@ function ConfirmClearModal({
           >
             <Eraser size={14} />
             {isClearing ? "Leere…" : "Ja, leeren"}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ── Alle-Löschen-Modal ───────────────────────────────────────────────
+
+function ConfirmDeleteAllModal({
+  showCount,
+  isDeleting,
+  onCancel,
+  onConfirm,
+}: {
+  showCount: number;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const [text, setText] = useState("");
+  const confirmed = text.trim().toLowerCase() === "löschen";
+  return (
+    <ModalShell title="Alle Vorstellungen löschen?" onClose={onCancel}>
+      <div className="p-5 space-y-4">
+        <p className="text-sm" style={{ color: "hsl(var(--foreground))" }}>
+          Sollen wirklich <strong>alle {showCount} Vorstellungen</strong> inklusive aller
+          Zuweisungen und Feedback-Einträge unwiderruflich gelöscht werden?
+        </p>
+        <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          Diese Aktion kann nicht rückgängig gemacht werden. Zur Bestätigung tippe bitte
+          „löschen" in das Feld:
+        </p>
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="löschen"
+          className={inputCls}
+          autoFocus
+        />
+        <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isDeleting}
+            className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
+          >
+            Abbrechen
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={!confirmed || isDeleting}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-[hsl(var(--destructive))] hover:opacity-90 text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Trash2 size={14} />
+            {isDeleting ? "Lösche…" : "Ja, alle löschen"}
           </button>
         </div>
       </div>
