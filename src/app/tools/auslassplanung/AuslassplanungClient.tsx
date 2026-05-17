@@ -9,12 +9,15 @@ import {
   CheckCircle2,
   Clapperboard,
   Eraser,
+  FileImage,
   ListChecks,
   Lock,
   Pencil,
   Plus,
+  ScanLine,
   Sparkles,
   Trash2,
+  Upload,
   UserPlus,
   Users,
   XCircle,
@@ -67,6 +70,26 @@ type BulkPlanSummary = {
 
 type PlanManyFn = (_fd: FormData) => Promise<BulkPlanSummary>;
 
+type ParsedFupShow = {
+  hall_number: number;
+  credit_offset: string;
+  cleanup_minutes: number;
+  movie_title: string | null;
+  intensity_hint: "light" | "standard" | "intense";
+  fsk: number | null;
+};
+type FupParseResult = {
+  date: string | null;
+  shows: ParsedFupShow[];
+  warning?: string;
+};
+type FupParseActionResult =
+  | { ok: true; result: FupParseResult }
+  | { ok: false; error: string };
+
+type ParseFupFn = (_fd: FormData) => Promise<FupParseActionResult>;
+type CreateFromFupFn = (_fd: FormData) => Promise<{ created: number }>;
+
 type Props = {
   initialStaff: CleaningStaff[];
   initialShows: CleaningShow[];
@@ -74,6 +97,7 @@ type Props = {
   initialFeedback: CleaningFeedback[];
   canEdit: boolean;
   aiEnabled: boolean;
+  fupImportEnabled: boolean;
   createStaffAction: ActionFn;
   updateStaffAction: ActionFn;
   deleteStaffAction: ActionFn;
@@ -84,6 +108,8 @@ type Props = {
   planManyShowsAction: PlanManyFn;
   setManualAssignmentsAction: ActionFn;
   clearAssignmentsAction: ActionFn;
+  parseFupAction: ParseFupFn;
+  createShowsFromFupAction: CreateFromFupFn;
   saveFeedbackAction: ActionFn;
 };
 
@@ -112,6 +138,7 @@ export default function AuslassplanungClient({
   initialFeedback,
   canEdit,
   aiEnabled,
+  fupImportEnabled,
   createStaffAction,
   updateStaffAction,
   deleteStaffAction,
@@ -122,6 +149,8 @@ export default function AuslassplanungClient({
   planManyShowsAction,
   setManualAssignmentsAction,
   clearAssignmentsAction,
+  parseFupAction,
+  createShowsFromFupAction,
   saveFeedbackAction,
 }: Props) {
   const router = useRouter();
@@ -144,6 +173,7 @@ export default function AuslassplanungClient({
   const [assignmentsModal, setAssignmentsModal] = useState<CleaningShow | null>(null);
   const [confirmClearShow, setConfirmClearShow] = useState<CleaningShow | null>(null);
   const [isClearing, startClearing] = useTransition();
+  const [fupModalOpen, setFupModalOpen] = useState(false);
 
   const staffById = useMemo(() => {
     const m = new Map<number, CleaningStaff>();
@@ -263,12 +293,14 @@ export default function AuslassplanungClient({
           planningShowId={planningShowId}
           isBulkPlanning={isBulkPlanning}
           isClearing={isClearing}
+          fupImportEnabled={fupImportEnabled}
           onAdd={() => setShowModal(null)}
           onEdit={(s) => setShowModal(s)}
           onPlan={handlePlan}
           onAssign={(s) => setAssignmentsModal(s)}
           onClear={(s) => setConfirmClearShow(s)}
           onBulkPlanOpen={() => setBulkPickerOpen(true)}
+          onFupOpen={() => setFupModalOpen(true)}
           onFeedback={(s) => setFeedbackShow(s)}
         />
       ) : (
@@ -350,6 +382,15 @@ export default function AuslassplanungClient({
         />
       )}
 
+      {fupModalOpen && (
+        <FupUploadModal
+          onClose={() => setFupModalOpen(false)}
+          parseAction={parseFupAction}
+          createAction={createShowsFromFupAction}
+          onCreated={() => router.refresh()}
+        />
+      )}
+
       {/* overrideAction ist als Prop verfügbar — reserviert für ein
           späteres manuelles Override-UI. Aktuell nicht in der UI angeboten. */}
     </div>
@@ -395,12 +436,14 @@ function ShowsTab({
   planningShowId,
   isBulkPlanning,
   isClearing,
+  fupImportEnabled,
   onAdd,
   onEdit,
   onPlan,
   onAssign,
   onClear,
   onBulkPlanOpen,
+  onFupOpen,
   onFeedback,
 }: {
   shows: CleaningShow[];
@@ -415,12 +458,14 @@ function ShowsTab({
   planningShowId: number | null;
   isBulkPlanning: boolean;
   isClearing: boolean;
+  fupImportEnabled: boolean;
   onAdd: () => void;
   onEdit: (show: CleaningShow) => void;
   onPlan: (show: CleaningShow) => void;
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
   onBulkPlanOpen: () => void;
+  onFupOpen: () => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
   void isClearing;
@@ -436,6 +481,15 @@ function ShowsTab({
           {aiEnabled ? " KI-Plan steht zur Verfügung." : " Heuristik wird verwendet (kein GEMINI_API_KEY)."}
         </p>
         <div className="flex items-center gap-2 flex-wrap">
+          {canEdit && fupImportEnabled && (
+            <button
+              onClick={onFupOpen}
+              className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
+              title="Foto eines Filmübersichtsplans hochladen — Vorstellungen werden automatisch ausgelesen."
+            >
+              <ScanLine size={14} /> FÜP einlesen…
+            </button>
+          )}
           {canEdit && hasBulkable && (
             <button
               onClick={onBulkPlanOpen}
@@ -1691,6 +1745,416 @@ function ConfirmClearModal({
             {isClearing ? "Leere…" : "Ja, leeren"}
           </button>
         </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ── FÜP-Upload-Modal ─────────────────────────────────────────────────
+
+type FupEditableRow = {
+  selected: boolean;
+  hall_number: number;
+  end_time: string;
+  cleanup_minutes: number;
+  movie_title: string;
+  intensity: "light" | "standard" | "intense";
+  attendees: number;
+  fsk: number | null;
+};
+
+async function compressImageForUpload(file: File): Promise<File> {
+  const MAX_DIM = 1800;
+  const QUALITY = 0.85;
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const longest = Math.max(img.width, img.height);
+      const scale = longest > MAX_DIM ? MAX_DIM / longest : 1;
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        reject(new Error("Canvas-Context nicht verfügbar"));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) => {
+          URL.revokeObjectURL(url);
+          if (!blob) {
+            reject(new Error("Komprimierung fehlgeschlagen"));
+            return;
+          }
+          resolve(new File([blob], "fup.jpg", { type: "image/jpeg" }));
+        },
+        "image/jpeg",
+        QUALITY,
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Bild konnte nicht gelesen werden"));
+    };
+    img.src = url;
+  });
+}
+
+function FupUploadModal({
+  onClose,
+  parseAction,
+  createAction,
+  onCreated,
+}: {
+  onClose: () => void;
+  parseAction: ParseFupFn;
+  createAction: CreateFromFupFn;
+  onCreated: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [stage, setStage] = useState<"pick" | "parsing" | "review">("pick");
+  const [error, setError] = useState<string | null>(null);
+  const [showDate, setShowDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [rows, setRows] = useState<FupEditableRow[]>([]);
+  const [isCreating, startCreating] = useTransition();
+  const [created, setCreated] = useState<number | null>(null);
+
+  function onFileChange(ev: React.ChangeEvent<HTMLInputElement>) {
+    const f = ev.target.files?.[0] ?? null;
+    setFile(f);
+    setError(null);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(f ? URL.createObjectURL(f) : null);
+  }
+
+  async function onParse() {
+    if (!file) {
+      setError("Bitte ein Bild auswählen.");
+      return;
+    }
+    setError(null);
+    setStage("parsing");
+    try {
+      const compressed = await compressImageForUpload(file);
+      const fd = new FormData();
+      fd.set("image", compressed);
+      const result = await parseAction(fd);
+      if (!result.ok) {
+        setError(result.error);
+        setStage("pick");
+        return;
+      }
+      if (result.result.date) setShowDate(result.result.date);
+      const editable: FupEditableRow[] = result.result.shows.map((s) => ({
+        selected: true,
+        hall_number: s.hall_number,
+        end_time: s.credit_offset,
+        cleanup_minutes: s.cleanup_minutes,
+        movie_title: s.movie_title ?? "",
+        intensity: s.intensity_hint,
+        attendees: 0,
+        fsk: s.fsk,
+      }));
+      // Chronologisch sortieren
+      editable.sort((a, b) => {
+        if (a.end_time !== b.end_time) return a.end_time.localeCompare(b.end_time);
+        return a.hall_number - b.hall_number;
+      });
+      setRows(editable);
+      setStage("review");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Bild konnte nicht ausgewertet werden.");
+      setStage("pick");
+    }
+  }
+
+  function updateRow(index: number, patch: Partial<FupEditableRow>) {
+    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  }
+
+  function onSubmit() {
+    const toCreate = rows.filter((r) => r.selected);
+    if (toCreate.length === 0 || !/^\d{4}-\d{2}-\d{2}$/.test(showDate)) return;
+    startCreating(async () => {
+      const fd = new FormData();
+      fd.set("show_date", showDate);
+      fd.set(
+        "shows",
+        JSON.stringify(
+          toCreate.map((r) => ({
+            hall_number: r.hall_number,
+            end_time: r.end_time,
+            cleanup_minutes: r.cleanup_minutes,
+            movie_title: r.movie_title || null,
+            intensity: r.intensity,
+            attendees: r.attendees,
+          })),
+        ),
+      );
+      const res = await createAction(fd);
+      setCreated(res.created);
+      onCreated();
+    });
+  }
+
+  const selectedCount = rows.filter((r) => r.selected).length;
+
+  return (
+    <ModalShell title="FÜP einlesen" onClose={onClose}>
+      <div className="p-5 space-y-4">
+        {stage === "pick" && (
+          <>
+            <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Lade ein Foto des Filmübersichtsplans hoch. Die KI liest Saal, Credit-Offset (Beginn
+              Auslass), Aufräumzeit und Filmtitel pro Zeile aus. Du kannst alles vor dem Anlegen
+              prüfen und anpassen.
+            </p>
+            <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-[hsl(var(--border))] rounded-xl p-6 cursor-pointer hover:bg-[hsl(var(--secondary)/0.4)] transition-colors">
+              <Upload size={28} className="text-[hsl(var(--muted-foreground))]" />
+              <span className="text-sm font-medium" style={{ color: "hsl(var(--foreground))" }}>
+                {file ? file.name : "Bild auswählen (oder hier ablegen)"}
+              </span>
+              {file && (
+                <span className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  {(file.size / 1024 / 1024).toFixed(1)} MB
+                </span>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={onFileChange}
+                className="hidden"
+              />
+            </label>
+            {previewUrl && (
+              <div className="rounded-lg overflow-hidden border border-[hsl(var(--border))] max-h-60 flex items-center justify-center bg-[hsl(var(--background))]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={previewUrl} alt="Vorschau" className="max-h-60 object-contain" />
+              </div>
+            )}
+            {error && (
+              <p className="text-xs" style={{ color: "hsl(var(--destructive))" }}>
+                {error}
+              </p>
+            )}
+            <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+              <button
+                type="button"
+                onClick={onClose}
+                className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={onParse}
+                disabled={!file}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg disabled:opacity-50"
+              >
+                <FileImage size={14} />
+                Auswerten
+              </button>
+            </div>
+          </>
+        )}
+
+        {stage === "parsing" && (
+          <div className="flex flex-col items-center gap-3 py-10">
+            <div className="w-10 h-10 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm font-medium" style={{ color: "hsl(var(--foreground))" }}>
+              KI liest den FÜP aus…
+            </p>
+            <p className="text-xs text-center max-w-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Das kann je nach Größe und Detailgrad 5–20 Sekunden dauern.
+            </p>
+          </div>
+        )}
+
+        {stage === "review" && created === null && (
+          <>
+            <div className="flex items-end gap-3 flex-wrap">
+              <div>
+                <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+                  Datum für alle Vorstellungen
+                </label>
+                <input
+                  type="date"
+                  value={showDate}
+                  onChange={(e) => setShowDate(e.target.value)}
+                  className={inputCls}
+                  style={{ width: "auto" }}
+                />
+              </div>
+              <p className="text-xs ml-auto" style={{ color: "hsl(var(--muted-foreground))" }}>
+                {rows.length} erkannt · {selectedCount} ausgewählt
+              </p>
+            </div>
+
+            {rows.length === 0 ? (
+              <p className="text-sm italic" style={{ color: "hsl(var(--muted-foreground))" }}>
+                Keine Vorstellungen erkannt. Möglicherweise war das Bild zu unscharf — versuche
+                ein klareres Foto.
+              </p>
+            ) : (
+              <div className="border border-[hsl(var(--border))] rounded-xl overflow-auto max-h-[55vh]">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-[hsl(var(--card))] border-b border-[hsl(var(--border))]">
+                    <tr className="text-left" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      <th className="p-2 w-8"></th>
+                      <th className="p-2">Saal</th>
+                      <th className="p-2">Auslass-Start</th>
+                      <th className="p-2">Reinigung (min)</th>
+                      <th className="p-2">Titel</th>
+                      <th className="p-2">Intensität</th>
+                      <th className="p-2">Besucher</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr
+                        key={i}
+                        className="border-t border-[hsl(var(--border))]"
+                        style={{ opacity: r.selected ? 1 : 0.5 }}
+                      >
+                        <td className="p-2">
+                          <input
+                            type="checkbox"
+                            checked={r.selected}
+                            onChange={(e) => updateRow(i, { selected: e.target.checked })}
+                            className="h-4 w-4 accent-[hsl(var(--primary))]"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="number"
+                            min={1}
+                            value={r.hall_number}
+                            onChange={(e) =>
+                              updateRow(i, { hall_number: Math.max(1, Number(e.target.value) || 1) })
+                            }
+                            className={`${inputCls} !w-16 !py-1`}
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="time"
+                            value={r.end_time}
+                            onChange={(e) => updateRow(i, { end_time: e.target.value })}
+                            className={`${inputCls} !w-24 !py-1`}
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="number"
+                            min={1}
+                            value={r.cleanup_minutes}
+                            onChange={(e) =>
+                              updateRow(i, {
+                                cleanup_minutes: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                            className={`${inputCls} !w-20 !py-1`}
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            value={r.movie_title}
+                            onChange={(e) => updateRow(i, { movie_title: e.target.value })}
+                            className={`${inputCls} !py-1 min-w-[180px]`}
+                          />
+                          {r.fsk !== null && (
+                            <span className="ml-1 inline-block text-[9px] px-1 py-0.5 rounded bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]">
+                              FSK {r.fsk}
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-2">
+                          <select
+                            value={r.intensity}
+                            onChange={(e) =>
+                              updateRow(i, {
+                                intensity: e.target.value as "light" | "standard" | "intense",
+                              })
+                            }
+                            className={`${inputCls} !py-1`}
+                          >
+                            <option value="light">Leicht</option>
+                            <option value="standard">Standard</option>
+                            <option value="intense">Intensiv</option>
+                          </select>
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="number"
+                            min={0}
+                            value={r.attendees}
+                            onChange={(e) =>
+                              updateRow(i, { attendees: Math.max(0, Number(e.target.value) || 0) })
+                            }
+                            className={`${inputCls} !w-20 !py-1`}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+              <button
+                type="button"
+                onClick={() => {
+                  setStage("pick");
+                  setRows([]);
+                }}
+                disabled={isCreating}
+                className="px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
+              >
+                Zurück
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isCreating}
+                className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={onSubmit}
+                disabled={isCreating || selectedCount === 0}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg disabled:opacity-50"
+              >
+                <Plus size={14} />
+                {isCreating ? "Lege an…" : `${selectedCount} Vorstellungen anlegen`}
+              </button>
+            </div>
+          </>
+        )}
+
+        {stage === "review" && created !== null && (
+          <div className="flex flex-col items-center gap-3 py-8">
+            <CheckCircle2 size={36} style={{ color: "hsl(142 70% 45%)" }} />
+            <p className="text-sm font-medium" style={{ color: "hsl(var(--foreground))" }}>
+              {created} {created === 1 ? "Vorstellung" : "Vorstellungen"} angelegt.
+            </p>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg"
+            >
+              Fertig
+            </button>
+          </div>
+        )}
       </div>
     </ModalShell>
   );

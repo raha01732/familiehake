@@ -15,6 +15,11 @@ import {
   generateCleaningPlanWithAi,
   auslassplanungAiEnabled,
 } from "@/lib/auslassplanung/ai";
+import {
+  analyzeFupImage,
+  fupImportEnabled,
+  type FupParseResult,
+} from "@/lib/auslassplanung/fup";
 
 const PLAN_PATH = "/tools/auslassplanung";
 
@@ -921,6 +926,116 @@ export async function clearAssignmentsAction(formData: FormData) {
     })
     .eq("id", showId);
   revalidatePath(PLAN_PATH);
+}
+
+// ── FÜP-Import ────────────────────────────────────────────────────────
+
+export type FupParseActionResult =
+  | { ok: true; result: FupParseResult }
+  | { ok: false; error: string };
+
+export async function parseFupAction(formData: FormData): Promise<FupParseActionResult> {
+  await assertCallerHasCinemaAccess();
+  if (!fupImportEnabled()) {
+    return { ok: false, error: "GEMINI_API_KEY ist nicht gesetzt — FÜP-Import nicht verfügbar." };
+  }
+  const file = formData.get("image");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Bitte ein Bild hochladen." };
+  }
+  // Sicherheit: max ~6MB (Server-Action body limit greift davor)
+  if (file.size > 6 * 1024 * 1024) {
+    return { ok: false, error: "Bild zu groß (max 6 MB). Bitte kleiner skalieren." };
+  }
+  const buf = Buffer.from(await file.arrayBuffer());
+  const mime = file.type && file.type.startsWith("image/") ? file.type : "image/jpeg";
+  const dataUri = `data:${mime};base64,${buf.toString("base64")}`;
+
+  try {
+    const result = await analyzeFupImage({ dataUri });
+    return { ok: true, result };
+  } catch (e) {
+    console.error("[auslassplanung] FÜP parse failed", e);
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "FÜP konnte nicht ausgewertet werden.",
+    };
+  }
+}
+
+export type FupCreateRow = {
+  hall_number: number;
+  end_time: string;
+  cleanup_minutes: number;
+  movie_title: string | null;
+  intensity: "light" | "standard" | "intense";
+  attendees: number;
+};
+
+export async function createShowsFromFupAction(formData: FormData): Promise<{ created: number }> {
+  const user = await assertCallerHasCinemaAccess();
+  const showDate = String(formData.get("show_date") || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(showDate)) return { created: 0 };
+
+  const payload = String(formData.get("shows") || "[]");
+  let rows: unknown;
+  try {
+    rows = JSON.parse(payload);
+  } catch {
+    return { created: 0 };
+  }
+  if (!Array.isArray(rows)) return { created: 0 };
+
+  const sb = createAdminClient();
+  const inserts = rows
+    .map((r): FupCreateRow | null => {
+      if (!r || typeof r !== "object") return null;
+      const row = r as Record<string, unknown>;
+      const hall = Number(row.hall_number);
+      const endTimeRaw = String(row.end_time ?? "");
+      const m = endTimeRaw.match(/^(\d{1,2}):(\d{2})/);
+      if (!m) return null;
+      const endTime = `${String(Number(m[1])).padStart(2, "0")}:${m[2]}`;
+      if (!Number.isFinite(hall) || hall <= 0) return null;
+      const cleanup = Math.max(1, Math.round(Number(row.cleanup_minutes ?? 15) || 15));
+      const titleRaw = row.movie_title;
+      const movieTitle =
+        typeof titleRaw === "string" && titleRaw.trim().length > 0 ? titleRaw.trim() : null;
+      const intensityRaw = row.intensity;
+      const intensity: "light" | "standard" | "intense" =
+        intensityRaw === "light" || intensityRaw === "intense" ? intensityRaw : "standard";
+      const attendees = Math.max(0, Math.round(Number(row.attendees ?? 0) || 0));
+      return {
+        hall_number: Math.round(hall),
+        end_time: endTime,
+        cleanup_minutes: cleanup,
+        movie_title: movieTitle,
+        intensity,
+        attendees,
+      };
+    })
+    .filter((x): x is FupCreateRow => x !== null);
+
+  if (inserts.length === 0) return { created: 0 };
+
+  await sb.from("cinema_cleaning_shows").insert(
+    inserts.map((r) => ({
+      show_date: showDate,
+      hall_number: r.hall_number,
+      hall_label: null,
+      end_time: r.end_time,
+      attendees: r.attendees,
+      cleanup_minutes: r.cleanup_minutes,
+      intensity: r.intensity,
+      movie_title: r.movie_title,
+      notes: "Aus FÜP-Import",
+      plan_status: "open" as const,
+      created_by: user.id,
+    })),
+  );
+
+  revalidatePath(PLAN_PATH);
+  return { created: inserts.length };
 }
 
 // ── Feedback (Lerndaten) ──────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import RoleGate from "@/components/RoleGate";
 import AuslassplanungClient from "./AuslassplanungClient";
 import { auslassplanungAiEnabled } from "@/lib/auslassplanung/ai";
+import { fupImportEnabled } from "@/lib/auslassplanung/fup";
 import {
   createShowAction,
   updateShowAction,
@@ -16,6 +17,8 @@ import {
   planManyShowsAction,
   setManualAssignmentsAction,
   clearAssignmentsAction,
+  parseFupAction,
+  createShowsFromFupAction,
   saveFeedbackAction,
 } from "./actions";
 import type {
@@ -72,6 +75,7 @@ export default async function AuslassplanungPage() {
         initialFeedback={feedback}
         canEdit={hasCinema}
         aiEnabled={auslassplanungAiEnabled()}
+        fupImportEnabled={fupImportEnabled()}
         createStaffAction={createStaffAction}
         updateStaffAction={updateStaffAction}
         deleteStaffAction={deleteStaffAction}
@@ -82,6 +86,8 @@ export default async function AuslassplanungPage() {
         planManyShowsAction={planManyShowsAction}
         setManualAssignmentsAction={setManualAssignmentsAction}
         clearAssignmentsAction={clearAssignmentsAction}
+        parseFupAction={parseFupAction}
+        createShowsFromFupAction={createShowsFromFupAction}
         saveFeedbackAction={saveFeedbackAction}
       />
     </RoleGate>
