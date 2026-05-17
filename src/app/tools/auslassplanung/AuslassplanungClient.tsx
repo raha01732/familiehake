@@ -18,6 +18,7 @@ import {
   ScanLine,
   Sparkles,
   Trash2,
+  TrendingUp,
   Upload,
   UserPlus,
   Users,
@@ -31,11 +32,14 @@ import {
   formatTimeRange,
   recommendStaffCount,
   compareShowsByCinemaDay,
+  detectRutschen,
+  formatRutscheRange,
   type CleaningAssignment,
   type CleaningFeedback,
   type CleaningPreference,
   type CleaningShow,
   type CleaningStaff,
+  type Rutsche,
   type ShowIntensity,
   type ShowPlanStatus,
 } from "./utils";
@@ -92,6 +96,12 @@ type FupParseActionResult =
 type ParseFupFn = (_fd: FormData) => Promise<FupParseActionResult>;
 type CreateFromFupFn = (_fd: FormData) => Promise<{ created: number }>;
 
+type UpdateAttendeesFn = (_fd: FormData) => Promise<{ updated: number }>;
+type EstimateAttendeesResult =
+  | { ok: true; estimates: Array<{ show_id: number; attendees: number; reason?: string }>; notes?: string }
+  | { ok: false; error: string };
+type EstimateAttendeesFn = (_fd: FormData) => Promise<EstimateAttendeesResult>;
+
 type Props = {
   initialStaff: CleaningStaff[];
   initialShows: CleaningShow[];
@@ -113,6 +123,8 @@ type Props = {
   clearAssignmentsAction: ActionFn;
   parseFupAction: ParseFupFn;
   createShowsFromFupAction: CreateFromFupFn;
+  updateAttendeesAction: UpdateAttendeesFn;
+  estimateAttendeesAction: EstimateAttendeesFn;
   saveFeedbackAction: ActionFn;
 };
 
@@ -155,6 +167,8 @@ export default function AuslassplanungClient({
   clearAssignmentsAction,
   parseFupAction,
   createShowsFromFupAction,
+  updateAttendeesAction,
+  estimateAttendeesAction,
   saveFeedbackAction,
 }: Props) {
   const router = useRouter();
@@ -180,6 +194,7 @@ export default function AuslassplanungClient({
   const [fupModalOpen, setFupModalOpen] = useState(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const [isDeletingAll, startDeletingAll] = useTransition();
+  const [attendeesModalOpen, setAttendeesModalOpen] = useState(false);
 
   const staffById = useMemo(() => {
     const m = new Map<number, CleaningStaff>();
@@ -327,6 +342,7 @@ export default function AuslassplanungClient({
           onBulkPlanOpen={() => setBulkPickerOpen(true)}
           onFupOpen={() => setFupModalOpen(true)}
           onDeleteAllOpen={() => setConfirmDeleteAll(true)}
+          onAttendeesOpen={() => setAttendeesModalOpen(true)}
           onFeedback={(s) => setFeedbackShow(s)}
         />
       ) : (
@@ -426,6 +442,16 @@ export default function AuslassplanungClient({
         />
       )}
 
+      {attendeesModalOpen && (
+        <AttendeesEditorModal
+          shows={sortedShows}
+          onClose={() => setAttendeesModalOpen(false)}
+          updateAction={updateAttendeesAction}
+          estimateAction={estimateAttendeesAction}
+          onUpdated={() => router.refresh()}
+        />
+      )}
+
       {/* overrideAction ist als Prop verfügbar — reserviert für ein
           späteres manuelles Override-UI. Aktuell nicht in der UI angeboten. */}
     </div>
@@ -480,6 +506,7 @@ function ShowsTab({
   onBulkPlanOpen,
   onFupOpen,
   onDeleteAllOpen,
+  onAttendeesOpen,
   onFeedback,
 }: {
   shows: CleaningShow[];
@@ -503,6 +530,7 @@ function ShowsTab({
   onBulkPlanOpen: () => void;
   onFupOpen: () => void;
   onDeleteAllOpen: () => void;
+  onAttendeesOpen: () => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
   void isClearing;
@@ -525,6 +553,15 @@ function ShowsTab({
               title="Foto eines Filmübersichtsplans hochladen — Vorstellungen werden automatisch ausgelesen."
             >
               <ScanLine size={14} /> FÜP einlesen…
+            </button>
+          )}
+          {canEdit && shows.length > 0 && (
+            <button
+              onClick={onAttendeesOpen}
+              className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
+              title="Besucherzahlen pro Rutsche eingeben — wirkt sich auf die KI-Empfehlung aus."
+            >
+              <TrendingUp size={14} /> Besucherzahlen einpflegen
             </button>
           )}
           {canEdit && hasBulkable && (
@@ -1357,15 +1394,12 @@ function BulkPlanPickerModal({
     [shows],
   );
 
-  // Chronologisch sortiert (älteste zuerst), damit die Bulk-Verarbeitung später passend funktioniert
+  // Kino-chronologisch sortiert (älteste zuerst); danach in Rutschen gruppieren
   const sorted = useMemo(
-    () =>
-      [...eligible].sort((a, b) => {
-        if (a.show_date !== b.show_date) return a.show_date.localeCompare(b.show_date);
-        return a.end_time.localeCompare(b.end_time);
-      }),
+    () => [...eligible].sort(compareShowsByCinemaDay),
     [eligible],
   );
+  const rutschen = useMemo(() => detectRutschen(sorted), [sorted]);
 
   // Default: alle "offenen" angehakt
   const [selected, setSelected] = useState<Set<number>>(
@@ -1390,6 +1424,20 @@ function BulkPlanPickerModal({
   function selectNone() {
     setSelected(new Set());
   }
+  function selectRutsche(r: Rutsche) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const s of r.shows) next.add(s.id);
+      return next;
+    });
+  }
+  function deselectRutsche(r: Rutsche) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const s of r.shows) next.delete(s.id);
+      return next;
+    });
+  }
 
   const count = selected.size;
   const allCount = sorted.length;
@@ -1399,9 +1447,10 @@ function BulkPlanPickerModal({
     <ModalShell title={aiEnabled ? "KI-Plan für mehrere Vorstellungen" : "Plan für mehrere Vorstellungen"} onClose={onClose} size="wide">
       <div className="p-5 space-y-4">
         <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-          Wähle die Vorstellungen aus, die geplant werden sollen. Es werden chronologisch
-          nacheinander geplant — Mitarbeiter, die zur gleichen Zeit in einem anderen Saal
-          eingeteilt sind, werden automatisch übersprungen.
+          Vorstellungen sind nach Auslass-Zeit sortiert und in <strong>Rutschen</strong>
+          {" "}gruppiert (ein Block endet, wenn ein Saal wieder auftaucht oder eine längere
+          Pause entsteht). Markiere die nächste Rutsche, die geplant werden soll —
+          MA werden chronologisch zugeteilt und Doppelbelegungen automatisch erkannt.
         </p>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -1431,49 +1480,93 @@ function BulkPlanPickerModal({
           </span>
         </div>
 
-        {sorted.length === 0 ? (
+        {rutschen.length === 0 ? (
           <p className="text-sm italic" style={{ color: "hsl(var(--muted-foreground))" }}>
             Keine offenen oder bereits geplanten Vorstellungen vorhanden.
           </p>
         ) : (
-          <div className="border border-[hsl(var(--border))] rounded-xl max-h-[50vh] overflow-y-auto divide-y divide-[hsl(var(--border))]">
-            {sorted.map((s) => {
-              const status = STATUS_LABELS[s.plan_status];
-              const checked = selected.has(s.id);
+          <div className="max-h-[55vh] overflow-y-auto flex flex-col gap-3 pr-1">
+            {rutschen.map((r) => {
+              const allSelected = r.shows.every((s) => selected.has(s.id));
+              const anySelected = r.shows.some((s) => selected.has(s.id));
               return (
-                <label
-                  key={s.id}
-                  className="flex items-start gap-3 p-3 cursor-pointer hover:bg-[hsl(var(--secondary)/0.4)]"
+                <div
+                  key={r.index}
+                  className="rounded-xl border border-[hsl(var(--border))] overflow-hidden"
                 >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggle(s.id)}
-                    className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap text-xs">
-                      <span className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>
-                        Saal {s.hall_number}
-                        {s.hall_label ? ` – ${s.hall_label}` : ""}
-                      </span>
-                      <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${status.cls}`}>
-                        {status.label}
-                      </span>
-                      <span className="text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border border-[hsl(var(--border))]" style={{ color: "hsl(var(--muted-foreground))" }}>
-                        {INTENSITY_LABEL[s.intensity]}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-                      {formatShowDate(s.show_date)} · {formatTimeRange(s.end_time, s.cleanup_minutes)}
-                    </div>
-                    {s.movie_title && (
-                      <div className="text-[11px] italic truncate" style={{ color: "hsl(var(--muted-foreground))" }}>
-                        „{s.movie_title}"
-                      </div>
-                    )}
+                  <div
+                    className="flex items-center gap-2 px-3 py-2 border-b border-[hsl(var(--border))]"
+                    style={{ background: "hsl(var(--secondary) / 0.5)" }}
+                  >
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em]"
+                      style={{
+                        background: "hsl(var(--primary) / 0.12)",
+                        color: "hsl(var(--primary))",
+                        border: "1px solid hsl(var(--primary) / 0.3)",
+                      }}
+                    >
+                      Rutsche {r.index}
+                    </span>
+                    <span className="text-xs font-medium" style={{ color: "hsl(var(--foreground))" }}>
+                      {formatRutscheRange(r)}
+                    </span>
+                    <span className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      · {r.shows.length} {r.shows.length === 1 ? "Saal" : "Säle"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => (allSelected ? deselectRutsche(r) : selectRutsche(r))}
+                      className="ml-auto text-[11px] px-2 py-1 rounded-md bg-[hsl(var(--card))] hover:bg-[hsl(var(--muted))] border border-[hsl(var(--border))]"
+                    >
+                      {allSelected ? "Keine" : anySelected ? "Alle" : "Alle wählen"}
+                    </button>
                   </div>
-                </label>
+                  <div className="divide-y divide-[hsl(var(--border))]">
+                    {r.shows.map((s) => {
+                      const status = STATUS_LABELS[s.plan_status];
+                      const checked = selected.has(s.id);
+                      return (
+                        <label
+                          key={s.id}
+                          className="flex items-start gap-3 p-2.5 cursor-pointer hover:bg-[hsl(var(--secondary)/0.4)]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggle(s.id)}
+                            className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap text-xs">
+                              <span className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+                                Saal {s.hall_number}
+                                {s.hall_label ? ` – ${s.hall_label}` : ""}
+                              </span>
+                              <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${status.cls}`}>
+                                {status.label}
+                              </span>
+                              <span className="text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border border-[hsl(var(--border))]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                                {INTENSITY_LABEL[s.intensity]}
+                              </span>
+                              <span className="ml-auto text-[10px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                                {s.attendees} Besucher
+                              </span>
+                            </div>
+                            <div className="mt-0.5 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                              {formatShowDate(s.show_date)} · {formatTimeRange(s.end_time, s.cleanup_minutes)}
+                            </div>
+                            {s.movie_title && (
+                              <div className="text-[11px] italic truncate" style={{ color: "hsl(var(--muted-foreground))" }}>
+                                „{s.movie_title}"
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -1831,6 +1924,278 @@ function ConfirmClearModal({
         </div>
       </div>
     </ModalShell>
+  );
+}
+
+// ── Besucherzahlen-Modal ─────────────────────────────────────────────
+
+type AttendeesDraft = Record<number, number>;
+
+function AttendeesEditorModal({
+  shows,
+  onClose,
+  updateAction,
+  estimateAction,
+  onUpdated,
+}: {
+  shows: CleaningShow[];
+  onClose: () => void;
+  updateAction: UpdateAttendeesFn;
+  estimateAction: EstimateAttendeesFn;
+  onUpdated: () => void;
+}) {
+  // Nur offene & geplante sind sinnvoll — erledigte/abgesagte ignorieren
+  const eligible = useMemo(
+    () =>
+      shows
+        .filter((s) => s.plan_status === "open" || s.plan_status === "planned")
+        .slice()
+        .sort(compareShowsByCinemaDay),
+    [shows],
+  );
+  const rutschen = useMemo(() => detectRutschen(eligible), [eligible]);
+
+  const [draft, setDraft] = useState<AttendeesDraft>(() => {
+    const init: AttendeesDraft = {};
+    for (const s of eligible) init[s.id] = s.attendees;
+    return init;
+  });
+  const [estimating, setEstimating] = useState<number | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [isSaving, startSaving] = useTransition();
+  const [estimateError, setEstimateError] = useState<string | null>(null);
+
+  function setOne(id: number, value: number) {
+    setDraft((prev) => ({ ...prev, [id]: Math.max(0, Math.round(value || 0)) }));
+  }
+
+  async function estimateRutsche(r: Rutsche) {
+    setEstimateError(null);
+    setEstimating(r.index);
+    try {
+      const fd = new FormData();
+      for (const s of r.shows) fd.append("show_id", String(s.id));
+      const res = await estimateAction(fd);
+      if (!res.ok) {
+        setEstimateError(res.error);
+        return;
+      }
+      setDraft((prev) => {
+        const next = { ...prev };
+        for (const e of res.estimates) {
+          next[e.show_id] = e.attendees;
+        }
+        return next;
+      });
+    } catch (e) {
+      setEstimateError(e instanceof Error ? e.message : "Unbekannter Fehler");
+    } finally {
+      setEstimating(null);
+    }
+  }
+
+  function save() {
+    const changed = Object.entries(draft)
+      .map(([id, attendees]) => ({ id: Number(id), attendees }))
+      .filter((row) => {
+        const original = shows.find((s) => s.id === row.id);
+        return original ? original.attendees !== row.attendees : false;
+      });
+    if (changed.length === 0) {
+      setSavedAt(Date.now());
+      return;
+    }
+    startSaving(async () => {
+      const fd = new FormData();
+      fd.set("shows", JSON.stringify(changed));
+      await updateAction(fd);
+      setSavedAt(Date.now());
+      onUpdated();
+    });
+  }
+
+  return (
+    <ModalShell
+      title="Besucherzahlen einpflegen"
+      subtitle="Rutschenweise vor dem nächsten KI-Plan aktualisieren. KI-Schätzung als Startwert verfügbar."
+      onClose={onClose}
+      size="full"
+    >
+      <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5">
+          {rutschen.length === 0 ? (
+            <div className="feature-card p-8 text-center" style={{ color: "hsl(var(--muted-foreground))" }}>
+              <p className="text-sm italic">
+                Keine offenen oder geplanten Vorstellungen zum Pflegen.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {estimateError && (
+                <div
+                  className="rounded-xl p-3 text-xs flex items-start gap-2"
+                  style={{
+                    background: "hsl(var(--destructive) / 0.08)",
+                    border: "1px solid hsl(var(--destructive) / 0.3)",
+                    color: "hsl(var(--destructive))",
+                  }}
+                >
+                  <XCircle size={14} className="shrink-0 mt-0.5" />
+                  <span>{estimateError}</span>
+                </div>
+              )}
+              {rutschen.map((r) => (
+                <AttendeesRutscheCard
+                  key={r.index}
+                  rutsche={r}
+                  draft={draft}
+                  setOne={setOne}
+                  onEstimate={() => estimateRutsche(r)}
+                  estimating={estimating === r.index}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="shrink-0 flex items-center gap-2 px-6 py-4 border-t border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+          {savedAt && (
+            <span
+              className="inline-flex items-center gap-1 text-xs"
+              style={{ color: "hsl(142 70% 45%)" }}
+            >
+              <CheckCircle2 size={12} />
+              Gespeichert
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSaving}
+            className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-xl"
+          >
+            Schließen
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={isSaving || rutschen.length === 0}
+            className="brand-button inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-xl disabled:opacity-50"
+          >
+            <CheckCircle2 size={14} />
+            {isSaving ? "Speichere…" : "Speichern"}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function AttendeesRutscheCard({
+  rutsche,
+  draft,
+  setOne,
+  onEstimate,
+  estimating,
+}: {
+  rutsche: Rutsche;
+  draft: AttendeesDraft;
+  setOne: (id: number, value: number) => void;
+  onEstimate: () => void;
+  estimating: boolean;
+}) {
+  const totalDraft = rutsche.shows.reduce((acc, s) => acc + (draft[s.id] ?? 0), 0);
+  return (
+    <div className="feature-card overflow-hidden p-0">
+      <div
+        className="flex items-center gap-3 px-4 py-3 border-b border-[hsl(var(--border))] flex-wrap"
+        style={{ background: "hsl(var(--secondary) / 0.5)" }}
+      >
+        <span
+          className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em]"
+          style={{
+            background: "hsl(var(--primary) / 0.12)",
+            color: "hsl(var(--primary))",
+            border: "1px solid hsl(var(--primary) / 0.3)",
+          }}
+        >
+          Rutsche {rutsche.index}
+        </span>
+        <span className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+          {formatRutscheRange(rutsche)}
+        </span>
+        <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          · {rutsche.shows.length} {rutsche.shows.length === 1 ? "Saal" : "Säle"}
+        </span>
+        <span
+          className="text-[11px] inline-flex items-center gap-1"
+          style={{ color: "hsl(var(--muted-foreground))" }}
+        >
+          <TrendingUp size={11} /> Summe: {totalDraft}
+        </span>
+        <button
+          type="button"
+          onClick={onEstimate}
+          disabled={estimating}
+          className="ml-auto inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.18)] disabled:opacity-50"
+        >
+          <Sparkles size={12} />
+          {estimating ? "Schätze…" : "KI-Schätzen"}
+        </button>
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr
+            className="text-left border-b border-[hsl(var(--border))]"
+            style={{ color: "hsl(var(--muted-foreground))" }}
+          >
+            <th className="py-2 px-3 w-20 text-[10px] font-semibold uppercase tracking-[0.15em]">Saal</th>
+            <th className="py-2 px-3 w-32 text-[10px] font-semibold uppercase tracking-[0.15em]">Auslass</th>
+            <th className="py-2 px-3 text-[10px] font-semibold uppercase tracking-[0.15em]">Film</th>
+            <th className="py-2 px-3 w-28 text-[10px] font-semibold uppercase tracking-[0.15em]">Intensität</th>
+            <th className="py-2 px-3 w-36 text-[10px] font-semibold uppercase tracking-[0.15em]">Besucher</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rutsche.shows.map((s, i) => (
+            <tr
+              key={s.id}
+              className="border-t border-[hsl(var(--border))]"
+              style={{ background: i % 2 === 1 ? "hsl(var(--secondary) / 0.3)" : "transparent" }}
+            >
+              <td className="py-2.5 px-3 font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+                {s.hall_number}
+              </td>
+              <td className="py-2.5 px-3 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                {s.end_time.slice(0, 5)}
+              </td>
+              <td className="py-2.5 px-3 text-xs">
+                <span style={{ color: "hsl(var(--foreground))" }}>
+                  {s.movie_title ?? <span className="italic" style={{ color: "hsl(var(--muted-foreground))" }}>(ohne Titel)</span>}
+                </span>
+              </td>
+              <td className="py-2.5 px-3">
+                <span
+                  className="text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border border-[hsl(var(--border))]"
+                  style={{ color: "hsl(var(--muted-foreground))" }}
+                >
+                  {INTENSITY_LABEL[s.intensity]}
+                </span>
+              </td>
+              <td className="py-2.5 px-3">
+                <input
+                  type="number"
+                  min={0}
+                  value={draft[s.id] ?? 0}
+                  onChange={(e) => setOne(s.id, Number(e.target.value))}
+                  className={`${inputCls} !py-1.5`}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

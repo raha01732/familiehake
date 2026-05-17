@@ -21,6 +21,10 @@ import {
   fupImportEnabled,
   type FupParseResult,
 } from "@/lib/auslassplanung/fup";
+import {
+  estimateAttendeesWithAi,
+  attendeesAiEnabled,
+} from "@/lib/auslassplanung/attendees-ai";
 
 const PLAN_PATH = "/tools/auslassplanung";
 
@@ -1081,6 +1085,105 @@ export async function createShowsFromFupAction(formData: FormData): Promise<{ cr
 
   revalidatePath(PLAN_PATH);
   return { created: inserts.length };
+}
+
+// ── Besucherzahlen ────────────────────────────────────────────────────
+
+export async function updateAttendeesAction(formData: FormData): Promise<{ updated: number }> {
+  await assertCallerHasCinemaAccess();
+  // Payload: shows = JSON-Array von { id, attendees }
+  let payload: unknown;
+  try {
+    payload = JSON.parse(String(formData.get("shows") || "[]"));
+  } catch {
+    return { updated: 0 };
+  }
+  if (!Array.isArray(payload)) return { updated: 0 };
+
+  const sb = createAdminClient();
+  let updated = 0;
+  for (const row of payload) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const id = Number(r.id);
+    const attendees = Number(r.attendees);
+    if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(attendees)) continue;
+    await sb
+      .from("cinema_cleaning_shows")
+      .update({
+        attendees: Math.max(0, Math.round(attendees)),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    updated++;
+  }
+  revalidatePath(PLAN_PATH);
+  return { updated };
+}
+
+export type AttendeesEstimateActionResult =
+  | { ok: true; estimates: Array<{ show_id: number; attendees: number; reason?: string }>; notes?: string }
+  | { ok: false; error: string };
+
+export async function estimateAttendeesAction(
+  formData: FormData,
+): Promise<AttendeesEstimateActionResult> {
+  await assertCallerHasCinemaAccess();
+  if (!attendeesAiEnabled()) {
+    return { ok: false, error: "GEMINI_API_KEY ist nicht gesetzt — KI-Schätzung nicht verfügbar." };
+  }
+  const ids = formData
+    .getAll("show_id")
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (ids.length === 0) return { ok: false, error: "Keine Vorstellungen ausgewählt." };
+
+  const sb = createAdminClient();
+  const { data: showRows } = await sb
+    .from("cinema_cleaning_shows")
+    .select("id, hall_number, end_time, cleanup_minutes, intensity, movie_title")
+    .in("id", ids);
+  if (!showRows || showRows.length === 0) {
+    return { ok: false, error: "Vorstellungen nicht gefunden." };
+  }
+
+  // Lerndaten: vergangene Vorstellungen mit attendees > 0 (echte Werte)
+  const { data: pastShows } = await sb
+    .from("cinema_cleaning_shows")
+    .select("id, hall_number, end_time, intensity, movie_title, attendees")
+    .gt("attendees", 0)
+    .not("id", "in", `(${ids.join(",")})`)
+    .order("show_date", { ascending: false })
+    .limit(60);
+  const learning = (pastShows ?? []).map((r) => ({
+    hall_number: r.hall_number as number,
+    end_time: r.end_time as string,
+    intensity: r.intensity as string,
+    movie_title: (r.movie_title as string | null) ?? null,
+    attendees: r.attendees as number,
+  }));
+
+  try {
+    const result = await estimateAttendeesWithAi({
+      shows: showRows.map((s) => ({
+        id: s.id as number,
+        hall_number: s.hall_number as number,
+        end_time: s.end_time as string,
+        cleanup_minutes: s.cleanup_minutes as number,
+        intensity: s.intensity as "light" | "standard" | "intense",
+        movie_title: (s.movie_title as string | null) ?? null,
+      })),
+      learning,
+    });
+    if (!result) return { ok: false, error: "KI hat keine Antwort geliefert." };
+    return { ok: true, estimates: result.estimates, notes: result.notes };
+  } catch (e) {
+    console.error("[auslassplanung] attendees estimate failed", e);
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "KI-Schätzung fehlgeschlagen.",
+    };
+  }
 }
 
 // ── Feedback (Lerndaten) ──────────────────────────────────────────────

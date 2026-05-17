@@ -155,6 +155,77 @@ export function compareShowsByCinemaDay(
 }
 
 /**
+ * Erkennt "Rutschen" — Wellen von Auslässen, die als zusammengehöriger Block
+ * geplant werden. Eine Rutsche endet, wenn:
+ *   1. Ein Saal in der Rutsche wieder auftaucht (jeder Saal max. 1x pro Rutsche), ODER
+ *   2. die zeitliche Lücke zum nächsten Auslass-Start > RUTSCHE_GAP_MIN Minuten ist.
+ * Erwartet kino-chronologisch sortierte Shows (compareShowsByCinemaDay).
+ */
+export const RUTSCHE_GAP_MIN = 45;
+
+export type Rutsche = {
+  index: number; // 1-basiert für die Anzeige
+  shows: CleaningShow[];
+  startMin: number; // cinemaDayMinutes des frühesten Auslass-Starts
+  endMin: number; // cinemaDayMinutes des spätesten Auslass-Starts
+};
+
+export function detectRutschen(shows: CleaningShow[]): Rutsche[] {
+  if (shows.length === 0) return [];
+  // Stabil kino-chronologisch sortieren (Datum aufsteigend, dann cinemaDayMinutes)
+  const sorted = shows.slice().sort(compareShowsByCinemaDay);
+
+  const rutschen: Rutsche[] = [];
+  let current: CleaningShow[] = [];
+  let halls = new Set<number>();
+  let lastMin: number | null = null;
+  let currentDate: string | null = null;
+
+  function pushCurrent() {
+    if (current.length === 0) return;
+    const minutes = current.map((s) => cinemaDayMinutes(s.end_time));
+    rutschen.push({
+      index: rutschen.length + 1,
+      shows: current,
+      startMin: Math.min(...minutes),
+      endMin: Math.max(...minutes),
+    });
+    current = [];
+    halls = new Set();
+    lastMin = null;
+  }
+
+  for (const show of sorted) {
+    const cm = cinemaDayMinutes(show.end_time);
+    const hallSeen = halls.has(show.hall_number);
+    const sameDate = currentDate === null || currentDate === show.show_date;
+    const gapTooBig = lastMin !== null && cm - lastMin > RUTSCHE_GAP_MIN;
+
+    if (current.length > 0 && (hallSeen || gapTooBig || !sameDate)) {
+      pushCurrent();
+    }
+    if (current.length === 0) currentDate = show.show_date;
+    current.push(show);
+    halls.add(show.hall_number);
+    lastMin = cm;
+  }
+  pushCurrent();
+  return rutschen;
+}
+
+/** Formatiert die Zeitspanne einer Rutsche in HH:MM für die Anzeige. */
+export function formatRutscheRange(r: Rutsche): string {
+  function fmt(min: number): string {
+    const m = min % (24 * 60);
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+  if (r.startMin === r.endMin) return fmt(r.startMin);
+  return `${fmt(r.startMin)} – ${fmt(r.endMin)}`;
+}
+
+/**
  * Prüft, ob das gesamte Reinigungsfenster innerhalb der Arbeitszeit
  * des MAs liegt. Wenn work_start/work_end null sind, ist der MA
  * jederzeit verfügbar. work_end vor work_start bedeutet eine Schicht,

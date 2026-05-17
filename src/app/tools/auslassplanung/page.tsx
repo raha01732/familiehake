@@ -20,6 +20,8 @@ import {
   clearAssignmentsAction,
   parseFupAction,
   createShowsFromFupAction,
+  updateAttendeesAction,
+  estimateAttendeesAction,
   saveFeedbackAction,
 } from "./actions";
 import {
@@ -94,6 +96,8 @@ export default async function AuslassplanungPage() {
         clearAssignmentsAction={clearAssignmentsAction}
         parseFupAction={parseFupAction}
         createShowsFromFupAction={createShowsFromFupAction}
+        updateAttendeesAction={updateAttendeesAction}
+        estimateAttendeesAction={estimateAttendeesAction}
         saveFeedbackAction={saveFeedbackAction}
       />
     </RoleGate>
