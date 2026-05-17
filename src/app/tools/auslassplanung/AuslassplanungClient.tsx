@@ -8,9 +8,12 @@ import Link from "next/link";
 import {
   Brain,
   Brush,
+  CalendarDays,
   CalendarRange,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Clapperboard,
   Eraser,
@@ -112,6 +115,9 @@ type Props = {
   initialShows: CleaningShow[];
   initialAssignments: CleaningAssignment[];
   initialFeedback: CleaningFeedback[];
+  selectedDate: string;
+  todayDate: string;
+  availableDates: string[];
   canEdit: boolean;
   aiEnabled: boolean;
   fupImportEnabled: boolean;
@@ -158,6 +164,9 @@ export default function AuslassplanungClient({
   initialShows,
   initialAssignments,
   initialFeedback,
+  selectedDate,
+  todayDate,
+  availableDates,
   canEdit,
   aiEnabled,
   fupImportEnabled,
@@ -342,6 +351,16 @@ export default function AuslassplanungClient({
           </Link>
         </div>
       </div>
+
+      {/* Datums-Selector — nur im Vorstellungen-Tab relevant */}
+      {tab === "shows" && (
+        <DateSelector
+          selectedDate={selectedDate}
+          todayDate={todayDate}
+          availableDates={availableDates}
+          showCount={initialShows.length}
+        />
+      )}
 
       {tab === "shows" ? (
         <ShowsTab
@@ -1026,6 +1045,137 @@ function ShowCard({
                   )}
                 </div>
               </div>
+  );
+}
+
+// ── Datums-Selector ──────────────────────────────────────────────────
+
+function DateSelector({
+  selectedDate,
+  todayDate,
+  availableDates,
+  showCount,
+}: {
+  selectedDate: string;
+  todayDate: string;
+  availableDates: string[];
+  showCount: number;
+}) {
+  const router = useRouter();
+
+  // availableDates ist absteigend sortiert; für Prev/Next brauchen wir aufsteigend
+  const ascDates = useMemo(
+    () => [...availableDates].sort((a, b) => a.localeCompare(b)),
+    [availableDates],
+  );
+  const idx = ascDates.indexOf(selectedDate);
+  const prevDate = idx > 0 ? ascDates[idx - 1] : null;
+  const nextDate = idx >= 0 && idx < ascDates.length - 1 ? ascDates[idx + 1] : null;
+
+  function navigate(date: string) {
+    if (!date) return;
+    router.push(`/tools/auslassplanung?date=${encodeURIComponent(date)}`);
+  }
+
+  const isToday = selectedDate === todayDate;
+  const dateLabel = new Date(`${selectedDate}T00:00:00Z`).toLocaleDateString("de-DE", {
+    timeZone: "Europe/Berlin",
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+
+  return (
+    <div className="feature-card p-3 flex items-center gap-3 flex-wrap">
+      <div
+        className="flex items-center gap-1.5 rounded-full px-3 py-1"
+        style={{
+          background: isToday ? "hsl(var(--primary) / 0.12)" : "hsl(var(--secondary))",
+          border: `1px solid ${isToday ? "hsl(var(--primary) / 0.3)" : "hsl(var(--border))"}`,
+          color: isToday ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
+        }}
+      >
+        <CalendarDays size={12} />
+        <span className="text-[10px] font-semibold uppercase tracking-[0.15em]">
+          {isToday ? "Heute" : "Anderer Tag"}
+        </span>
+      </div>
+      <div className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+        {dateLabel}
+      </div>
+      <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+        · {showCount} {showCount === 1 ? "Vorstellung" : "Vorstellungen"}
+      </span>
+
+      <div className="ml-auto flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => prevDate && navigate(prevDate)}
+            disabled={!prevDate}
+            className="p-1.5 rounded-lg bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] disabled:opacity-30 disabled:cursor-not-allowed"
+            title={prevDate ? `Zum vorherigen Tag (${prevDate})` : "Kein älterer Tag verfügbar"}
+            aria-label="Vorheriger Tag"
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => nextDate && navigate(nextDate)}
+            disabled={!nextDate}
+            className="p-1.5 rounded-lg bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] disabled:opacity-30 disabled:cursor-not-allowed"
+            title={nextDate ? `Zum nächsten Tag (${nextDate})` : "Kein neuerer Tag verfügbar"}
+            aria-label="Nächster Tag"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => navigate(e.target.value)}
+          className="bg-[hsl(var(--background))] border border-[hsl(var(--border))] rounded-lg px-2 py-1.5 text-xs text-[hsl(var(--foreground))] focus:outline-none focus:border-[hsl(var(--ring))]"
+        />
+
+        {availableDates.length > 0 && (
+          <select
+            value={availableDates.includes(selectedDate) ? selectedDate : ""}
+            onChange={(e) => navigate(e.target.value)}
+            className="bg-[hsl(var(--background))] border border-[hsl(var(--border))] rounded-lg px-2 py-1.5 text-xs text-[hsl(var(--foreground))] focus:outline-none focus:border-[hsl(var(--ring))]"
+            title="Tag mit Vorstellungen auswählen"
+          >
+            {!availableDates.includes(selectedDate) && (
+              <option value="" disabled>
+                — Tage mit Vorstellungen —
+              </option>
+            )}
+            {availableDates.map((d) => (
+              <option key={d} value={d}>
+                {new Date(`${d}T00:00:00Z`).toLocaleDateString("de-DE", {
+                  timeZone: "Europe/Berlin",
+                  weekday: "short",
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "2-digit",
+                })}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {!isToday && (
+          <button
+            type="button"
+            onClick={() => navigate(todayDate)}
+            className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-[hsl(var(--primary)/0.1)] hover:bg-[hsl(var(--primary)/0.18)] text-[hsl(var(--primary))] border border-[hsl(var(--primary)/0.3)]"
+          >
+            <CalendarDays size={12} /> Heute
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 

@@ -155,6 +155,34 @@ export function compareShowsByCinemaDay(
 }
 
 /**
+ * Liefert das aktuelle Datum aus Sicht des Kino-Tags (Europa/Berlin).
+ * Vor 06:00 morgens gilt noch der Vortag — das matched die Sortier-Logik.
+ */
+export function currentCinemaDate(now: Date = new Date()): string {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const hourFmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    hour: "2-digit",
+    hour12: false,
+  });
+  const dateStr = fmt.format(now); // "2026-05-17"
+  const hour = Number(hourFmt.format(now));
+  if (hour >= CINEMA_DAY_CUTOFF_MIN / 60) {
+    return dateStr;
+  }
+  // Vor 06:00 → einen Tag zurück
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const prev = new Date(Date.UTC(y, m - 1, d));
+  prev.setUTCDate(prev.getUTCDate() - 1);
+  return prev.toISOString().slice(0, 10);
+}
+
+/**
  * Erkennt "Rutschen" — Wellen von Auslässen, die als zusammengehöriger Block
  * geplant werden. Eine Rutsche endet, wenn:
  *   1. Ein Saal in der Rutsche wieder auftaucht (jeder Saal max. 1x pro Rutsche), ODER

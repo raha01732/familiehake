@@ -32,12 +32,20 @@ import {
   type CleaningShow,
   type CleaningStaff,
   compareShowsByCinemaDay,
+  currentCinemaDate,
 } from "./utils";
 
 export const metadata = { title: "Auslassplanung" };
 export const dynamic = "force-dynamic";
 
-export default async function AuslassplanungPage() {
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export default async function AuslassplanungPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>;
+}) {
+  const params = await searchParams;
   const user = await currentUser();
   const role = user ? getRoleFromPublicMetadata(user.publicMetadata) : null;
   const isAdmin =
@@ -45,8 +53,17 @@ export default async function AuslassplanungPage() {
   const hasCinema =
     isAdmin || role === "cinema";
 
+  const requestedDate = params.date && DATE_RE.test(params.date) ? params.date : null;
+  const todayCinema = currentCinemaDate();
+
   const sb = createAdminClient();
-  const [staffResult, showsResult, assignmentsResult, feedbackResult] = await Promise.all([
+
+  // 1) Staff lädt komplett — der Tab ist tagesunabhängig
+  // 2) Shows nur des selektierten Tages (oder heute) für Performance
+  // 3) Liste aller vorhandenen Datümer für den Selector
+  const targetDate = requestedDate ?? todayCinema;
+
+  const [staffResult, showsResult, availableDatesResult] = await Promise.all([
     sb
       .from("cinema_cleaning_staff")
       .select("id, name, preference, color, is_active, user_id, notes, sort_order, work_start, work_end")
@@ -55,25 +72,48 @@ export default async function AuslassplanungPage() {
     sb
       .from("cinema_cleaning_shows")
       .select(
-        "id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes, intensity, movie_title, notes, plan_status, ai_recommended_staff_count, ai_notes"
-      ),
+        "id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes, intensity, movie_title, notes, plan_status, ai_recommended_staff_count, ai_notes",
+      )
+      .eq("show_date", targetDate),
     sb
-      .from("cinema_cleaning_assignments")
-      .select("id, show_id, staff_id, assigned_by, reason, created_at"),
-    sb
-      .from("cinema_cleaning_feedback")
-      .select("show_id, actual_staff_count, actual_duration_minutes, rating, notes, recorded_at"),
+      .from("cinema_cleaning_shows")
+      .select("show_date")
+      .order("show_date", { ascending: false }),
   ]);
 
   const staff = (staffResult.data ?? []) as CleaningStaff[];
-  // Kino-chronologisch sortieren: neueste Tage zuerst; innerhalb eines Tages
-  // chronologisch, wobei Zeiten vor 06:00 als Folgetags-Morgen ans Ende rutschen.
-  const shows = ((showsResult.data ?? []) as CleaningShow[]).slice().sort((a, b) => {
-    if (a.show_date !== b.show_date) return b.show_date.localeCompare(a.show_date);
-    return compareShowsByCinemaDay(a, b);
-  });
+  const shows = ((showsResult.data ?? []) as CleaningShow[])
+    .slice()
+    .sort(compareShowsByCinemaDay);
+
+  const visibleShowIds = shows.map((s) => s.id);
+
+  // Assignments + Feedback nur für die sichtbaren Shows laden (oder gar nicht, wenn leer)
+  const [assignmentsResult, feedbackResult] =
+    visibleShowIds.length > 0
+      ? await Promise.all([
+          sb
+            .from("cinema_cleaning_assignments")
+            .select("id, show_id, staff_id, assigned_by, reason, created_at")
+            .in("show_id", visibleShowIds),
+          sb
+            .from("cinema_cleaning_feedback")
+            .select("show_id, actual_staff_count, actual_duration_minutes, rating, notes, recorded_at")
+            .in("show_id", visibleShowIds),
+        ])
+      : [{ data: [] as CleaningAssignment[] }, { data: [] as CleaningFeedback[] }];
+
   const assignments = (assignmentsResult.data ?? []) as CleaningAssignment[];
   const feedback = (feedbackResult.data ?? []) as CleaningFeedback[];
+
+  // Verfügbare Datümer (dedupliziert), absteigend
+  const availableDates = Array.from(
+    new Set(
+      (availableDatesResult.data ?? [])
+        .map((r) => (r as { show_date: string }).show_date)
+        .filter(Boolean),
+    ),
+  ).sort((a, b) => b.localeCompare(a));
 
   return (
     <RoleGate routeKey="tools/auslassplanung">
@@ -82,6 +122,9 @@ export default async function AuslassplanungPage() {
         initialShows={shows}
         initialAssignments={assignments}
         initialFeedback={feedback}
+        selectedDate={targetDate}
+        todayDate={todayCinema}
+        availableDates={availableDates}
         canEdit={hasCinema}
         aiEnabled={auslassplanungAiEnabled()}
         fupImportEnabled={fupImportEnabled()}
