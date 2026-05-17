@@ -303,7 +303,7 @@ create table if not exists access_rules (
   primary key (route, role)
 );
 
--- Fallback: Ergänze fehlende Spalten, falls access_rules bereits ohne allowed existiert
+-- Fallback: Ergänze fehlende Spalten, falls access_rules bereits ohne allowed/updated_at existiert
 do $$
 begin
   if not exists (
@@ -314,6 +314,16 @@ begin
       and column_name = 'allowed'
   ) then
     alter table access_rules add column allowed boolean not null default false;
+  end if;
+
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'access_rules'
+      and column_name = 'updated_at'
+  ) then
+    alter table access_rules add column updated_at timestamptz not null default now();
   end if;
 end $$;
 
