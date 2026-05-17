@@ -1,7 +1,8 @@
 "use client";
 
 import type { FormEvent, ReactNode } from "react";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Brush,
@@ -2534,8 +2535,27 @@ function ModalShell({
       ? "max-w-3xl"
       : "max-w-lg";
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  // Portal-Mount: vermeidet, dass das fixed-Modal von einem Vorfahren mit
+  // transform / backdrop-filter / animate-fade-up "eingefangen" wird.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  if (!mounted) return null;
+
+  const overlay = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
@@ -2578,4 +2598,6 @@ function ModalShell({
       </div>
     </div>
   );
+
+  return createPortal(overlay, document.body);
 }
