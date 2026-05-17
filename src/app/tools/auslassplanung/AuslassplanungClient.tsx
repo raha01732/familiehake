@@ -4,14 +4,18 @@ import type { FormEvent, ReactNode } from "react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Brush,
   CalendarRange,
   CheckCircle2,
   Clapperboard,
+  Eraser,
   ListChecks,
+  Lock,
   Pencil,
   Plus,
   Sparkles,
   Trash2,
+  UserPlus,
   Users,
   XCircle,
 } from "lucide-react";
@@ -78,7 +82,8 @@ type Props = {
   deleteShowAction: ActionFn;
   planShowAction: PlanFn;
   planManyShowsAction: PlanManyFn;
-  overrideAction: ActionFn;
+  setManualAssignmentsAction: ActionFn;
+  clearAssignmentsAction: ActionFn;
   saveFeedbackAction: ActionFn;
 };
 
@@ -115,11 +120,10 @@ export default function AuslassplanungClient({
   deleteShowAction,
   planShowAction,
   planManyShowsAction,
-  overrideAction: _overrideAction,
+  setManualAssignmentsAction,
+  clearAssignmentsAction,
   saveFeedbackAction,
 }: Props) {
-  // overrideAction ist reserviert für ein zukünftiges Manuel-Override-UI.
-  void _overrideAction;
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("shows");
   const [staffModal, setStaffModal] = useState<CleaningStaff | null | undefined>(undefined);
@@ -137,6 +141,9 @@ export default function AuslassplanungClient({
   const [bulkPickerOpen, setBulkPickerOpen] = useState(false);
   const [bulkSummary, setBulkSummary] = useState<BulkPlanSummary | null>(null);
   const [isBulkPlanning, startBulkPlanning] = useTransition();
+  const [assignmentsModal, setAssignmentsModal] = useState<CleaningShow | null>(null);
+  const [confirmClearShow, setConfirmClearShow] = useState<CleaningShow | null>(null);
+  const [isClearing, startClearing] = useTransition();
 
   const staffById = useMemo(() => {
     const m = new Map<number, CleaningStaff>();
@@ -198,6 +205,16 @@ export default function AuslassplanungClient({
     });
   }
 
+  function handleClear(show: CleaningShow) {
+    startClearing(async () => {
+      const fd = new FormData();
+      fd.set("show_id", String(show.id));
+      await clearAssignmentsAction(fd);
+      setConfirmClearShow(null);
+      router.refresh();
+    });
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col gap-6 animate-fade-up">
       {/* Header */}
@@ -245,9 +262,12 @@ export default function AuslassplanungClient({
           isPlanning={isPlanning}
           planningShowId={planningShowId}
           isBulkPlanning={isBulkPlanning}
+          isClearing={isClearing}
           onAdd={() => setShowModal(null)}
           onEdit={(s) => setShowModal(s)}
           onPlan={handlePlan}
+          onAssign={(s) => setAssignmentsModal(s)}
+          onClear={(s) => setConfirmClearShow(s)}
           onBulkPlanOpen={() => setBulkPickerOpen(true)}
           onFeedback={(s) => setFeedbackShow(s)}
         />
@@ -310,6 +330,26 @@ export default function AuslassplanungClient({
         <BulkPlanResultModal summary={bulkSummary} onClose={() => setBulkSummary(null)} />
       )}
 
+      {assignmentsModal && (
+        <AssignmentsEditorModal
+          show={assignmentsModal}
+          staff={initialStaff}
+          assignments={assignmentsByShow.get(assignmentsModal.id) ?? []}
+          onClose={() => setAssignmentsModal(null)}
+          saveAction={setManualAssignmentsAction}
+        />
+      )}
+
+      {confirmClearShow && (
+        <ConfirmClearModal
+          show={confirmClearShow}
+          assignmentCount={(assignmentsByShow.get(confirmClearShow.id) ?? []).length}
+          isClearing={isClearing}
+          onCancel={() => setConfirmClearShow(null)}
+          onConfirm={() => handleClear(confirmClearShow)}
+        />
+      )}
+
       {/* overrideAction ist als Prop verfügbar — reserviert für ein
           späteres manuelles Override-UI. Aktuell nicht in der UI angeboten. */}
     </div>
@@ -354,9 +394,12 @@ function ShowsTab({
   isPlanning,
   planningShowId,
   isBulkPlanning,
+  isClearing,
   onAdd,
   onEdit,
   onPlan,
+  onAssign,
+  onClear,
   onBulkPlanOpen,
   onFeedback,
 }: {
@@ -371,12 +414,16 @@ function ShowsTab({
   isPlanning: boolean;
   planningShowId: number | null;
   isBulkPlanning: boolean;
+  isClearing: boolean;
   onAdd: () => void;
   onEdit: (show: CleaningShow) => void;
   onPlan: (show: CleaningShow) => void;
+  onAssign: (show: CleaningShow) => void;
+  onClear: (show: CleaningShow) => void;
   onBulkPlanOpen: () => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
+  void isClearing;
   const hasBulkable = shows.some(
     (s) => s.plan_status === "open" || s.plan_status === "planned",
   );
@@ -471,18 +518,41 @@ function ShowsTab({
                 </div>
 
                 <div className="border-t border-[hsl(var(--border))] pt-3 flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
                     <span className="text-[11px] uppercase font-semibold tracking-wide" style={{ color: "hsl(var(--muted-foreground))" }}>
                       Empfehlung: {recommended} {recommended === 1 ? "Mitarbeiter" : "Mitarbeiter"}
                     </span>
                     {canEdit && (
-                      <button
-                        onClick={() => onPlan(show)}
-                        disabled={planning}
-                        className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-2.5 py-1 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] hover:opacity-90 disabled:opacity-50"
-                      >
-                        <Sparkles size={12} /> {planning ? "Plane…" : aiEnabled ? "KI-Plan" : "Plan erstellen"}
-                      </button>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          onClick={() => onAssign(show)}
+                          className="inline-flex items-center gap-1 text-xs font-medium rounded-lg px-2.5 py-1 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))]"
+                          title="Mitarbeiter manuell zuweisen — werden von KI nicht überschrieben"
+                        >
+                          <UserPlus size={12} /> Zuweisen
+                        </button>
+                        <button
+                          onClick={() => onPlan(show)}
+                          disabled={planning || isBulkPlanning}
+                          className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-2.5 py-1 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] hover:opacity-90 disabled:opacity-50"
+                          title={
+                            (assignments.some((a) => a.assigned_by === "manual" || a.assigned_by === "override"))
+                              ? "Manuelle Zuweisungen bleiben fest — KI füllt nur auf"
+                              : undefined
+                          }
+                        >
+                          <Sparkles size={12} /> {planning ? "Plane…" : aiEnabled ? "KI-Plan" : "Plan erstellen"}
+                        </button>
+                        {assignments.length > 0 && (
+                          <button
+                            onClick={() => onClear(show)}
+                            className="inline-flex items-center gap-1 text-xs font-medium rounded-lg px-2.5 py-1 bg-[hsl(var(--destructive)/0.1)] hover:bg-[hsl(var(--destructive)/0.2)] text-[hsl(var(--destructive))] border border-[hsl(var(--destructive)/0.3)]"
+                            title="Alle Zuweisungen entfernen"
+                          >
+                            <Eraser size={12} /> Leeren
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -495,16 +565,17 @@ function ShowsTab({
                       {assignments.map((a) => {
                         const staff = staffById.get(a.staff_id);
                         if (!staff) return null;
+                        const isManual = a.assigned_by === "manual" || a.assigned_by === "override";
                         return (
                           <span
                             key={a.id}
-                            className="inline-flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-0.5 text-xs"
+                            className="inline-flex items-center gap-1.5 rounded-full pl-1 pr-2 py-0.5 text-xs"
                             style={{
                               backgroundColor: `${staff.color}1f`,
                               color: staff.color,
-                              border: `1px solid ${staff.color}55`,
+                              border: `1px solid ${staff.color}${isManual ? "aa" : "55"}`,
                             }}
-                            title={a.reason ?? undefined}
+                            title={`${a.reason ?? ""}${isManual ? " (Manuell — KI überschreibt nicht)" : ""}`.trim()}
                           >
                             <span
                               className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
@@ -512,7 +583,12 @@ function ShowsTab({
                             >
                               {getInitials(staff.name)}
                             </span>
-                            {staff.name}
+                            <span>{staff.name}</span>
+                            {isManual ? (
+                              <Lock size={9} style={{ opacity: 0.85 }} aria-label="Manuell" />
+                            ) : (
+                              <Brush size={9} style={{ opacity: 0.6 }} aria-label="KI" />
+                            )}
                           </span>
                         );
                       })}
@@ -1368,6 +1444,255 @@ function Stat({
       <div className="text-[10px] uppercase tracking-wide opacity-80">{label}</div>
       <div className="text-lg font-bold leading-tight">{value}</div>
     </div>
+  );
+}
+
+// ── Zuweisen-Modal ───────────────────────────────────────────────────
+
+function AssignmentsEditorModal({
+  show,
+  staff,
+  assignments,
+  onClose,
+  saveAction,
+}: {
+  show: CleaningShow;
+  staff: CleaningStaff[];
+  assignments: CleaningAssignment[];
+  onClose: () => void;
+  saveAction: ActionFn;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
+  const activeStaff = useMemo(
+    () => staff.filter((s) => s.is_active),
+    [staff],
+  );
+
+  // Vorbelegung: alle aktuell zugewiesenen MA (egal ob manuell oder KI)
+  const initialIds = useMemo(
+    () => new Set(assignments.filter((a) => activeStaff.some((s) => s.id === a.staff_id)).map((a) => a.staff_id)),
+    [assignments, activeStaff],
+  );
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(initialIds));
+
+  function toggle(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function onSubmit() {
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("show_id", String(show.id));
+      for (const id of selected) fd.append("staff_id", String(id));
+      await saveAction(fd);
+      router.refresh();
+      onClose();
+    });
+  }
+
+  const preferred = activeStaff.filter((s) => s.preference === "preferred");
+  const backup = activeStaff.filter((s) => s.preference === "backup");
+  const aiAssignedIds = new Set(
+    assignments
+      .filter((a) => a.assigned_by !== "manual" && a.assigned_by !== "override")
+      .map((a) => a.staff_id),
+  );
+  const manualAssignedIds = new Set(
+    assignments
+      .filter((a) => a.assigned_by === "manual" || a.assigned_by === "override")
+      .map((a) => a.staff_id),
+  );
+
+  return (
+    <ModalShell title={`Manuelle Zuweisung — Saal ${show.hall_number}`} onClose={onClose}>
+      <div className="p-5 space-y-4">
+        <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          Hier ausgewählte Mitarbeiter werden <strong>fest</strong> für diesen Auslass eingeplant.
+          Beim nächsten KI-Plan werden sie nicht überschrieben — die KI füllt nur auf, wenn die
+          Empfehlung höher liegt.
+        </p>
+
+        <StaffPickerGroup
+          title="Bevorzugt"
+          list={preferred}
+          selected={selected}
+          onToggle={toggle}
+          aiAssignedIds={aiAssignedIds}
+          manualAssignedIds={manualAssignedIds}
+        />
+        <StaffPickerGroup
+          title="Im Zweifelsfall"
+          list={backup}
+          selected={selected}
+          onToggle={toggle}
+          aiAssignedIds={aiAssignedIds}
+          manualAssignedIds={manualAssignedIds}
+          muted
+        />
+
+        {activeStaff.length === 0 && (
+          <p className="text-sm italic" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Keine aktiven Mitarbeiter vorhanden.
+          </p>
+        )}
+
+        <div className="flex items-center gap-2 pt-2 border-t border-[hsl(var(--border))]">
+          <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+            {selected.size} ausgewählt
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isPending}
+            className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
+          >
+            Abbrechen
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={isPending}
+            className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg disabled:opacity-50"
+          >
+            {isPending ? "Speichern…" : "Übernehmen"}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function StaffPickerGroup({
+  title,
+  list,
+  selected,
+  onToggle,
+  aiAssignedIds,
+  manualAssignedIds,
+  muted = false,
+}: {
+  title: string;
+  list: CleaningStaff[];
+  selected: Set<number>;
+  onToggle: (id: number) => void;
+  aiAssignedIds: Set<number>;
+  manualAssignedIds: Set<number>;
+  muted?: boolean;
+}) {
+  if (list.length === 0) return null;
+  return (
+    <div>
+      <p
+        className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em]"
+        style={{ color: muted ? "hsl(var(--muted-foreground) / 0.7)" : "hsl(var(--muted-foreground))" }}
+      >
+        {title} ({list.length})
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {list.map((s) => {
+          const checked = selected.has(s.id);
+          const wasAi = aiAssignedIds.has(s.id);
+          const wasManual = manualAssignedIds.has(s.id);
+          return (
+            <label
+              key={s.id}
+              className={`flex items-center gap-2.5 rounded-lg border p-2 text-sm cursor-pointer transition-colors ${
+                checked
+                  ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)]"
+                  : "border-[hsl(var(--border))] bg-[hsl(var(--background))] hover:bg-[hsl(var(--secondary)/0.4)]"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => onToggle(s.id)}
+                className="h-4 w-4 accent-[hsl(var(--primary))]"
+              />
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
+                style={{ backgroundColor: s.color }}
+              >
+                {getInitials(s.name)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium" style={{ color: "hsl(var(--foreground))" }}>
+                  {s.name}
+                </div>
+                <div className="text-[10px] flex items-center gap-1" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  {wasManual ? (
+                    <span className="inline-flex items-center gap-0.5">
+                      <Lock size={8} /> aktuell manuell
+                    </span>
+                  ) : wasAi ? (
+                    <span className="inline-flex items-center gap-0.5">
+                      <Brush size={8} /> aktuell durch KI
+                    </span>
+                  ) : (
+                    <span>nicht eingeplant</span>
+                  )}
+                </div>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ConfirmClearModal({
+  show,
+  assignmentCount,
+  isClearing,
+  onCancel,
+  onConfirm,
+}: {
+  show: CleaningShow;
+  assignmentCount: number;
+  isClearing: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ModalShell title="Planung leeren?" onClose={onCancel}>
+      <div className="p-5 space-y-4">
+        <p className="text-sm" style={{ color: "hsl(var(--foreground))" }}>
+          Sollen alle {assignmentCount}{" "}
+          {assignmentCount === 1 ? "Zuweisung" : "Zuweisungen"} für Saal {show.hall_number}
+          {show.hall_label ? ` – ${show.hall_label}` : ""} entfernt werden?
+        </p>
+        <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          Sowohl manuelle als auch KI-generierte Zuweisungen werden gelöscht. Die Vorstellung
+          wechselt zurück in den Status „Offen".
+        </p>
+        <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isClearing}
+            className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
+          >
+            Abbrechen
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isClearing}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-[hsl(var(--destructive))] hover:opacity-90 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+          >
+            <Eraser size={14} />
+            {isClearing ? "Leere…" : "Ja, leeren"}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 

@@ -14,7 +14,8 @@ import {
   deleteStaffAction,
   planShowAction,
   planManyShowsAction,
-  manualOverrideAssignmentAction,
+  setManualAssignmentsAction,
+  clearAssignmentsAction,
   saveFeedbackAction,
 } from "./actions";
 import type {
@@ -79,7 +80,8 @@ export default async function AuslassplanungPage() {
         deleteShowAction={deleteShowAction}
         planShowAction={planShowAction}
         planManyShowsAction={planManyShowsAction}
-        overrideAction={manualOverrideAssignmentAction}
+        setManualAssignmentsAction={setManualAssignmentsAction}
+        clearAssignmentsAction={clearAssignmentsAction}
         saveFeedbackAction={saveFeedbackAction}
       />
     </RoleGate>

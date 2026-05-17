@@ -239,12 +239,20 @@ function shiftDate(isoDate: string, days: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-// Welche MA sind in einem zur Vorstellung überlappenden Reinigungsfenster
-// (anderer Saal, gleiche Zeit) bereits eingeteilt? Diese werden vor der
-// Planung aus dem Pool entfernt, damit niemand zwei Säle gleichzeitig macht.
-async function getBusyStaffIds(
+function windowsOverlap(a: ShowWindowInput, b: ShowWindowInput): boolean {
+  const wa = showWindowMs(a);
+  const wb = showWindowMs(b);
+  return wa.startMs < wb.endMs && wb.startMs < wa.endMs;
+}
+
+// Welche MA sind in zur Vorstellung überlappenden Reinigungsfenstern
+// (anderer Saal, gleiche Zeit) bereits eingeteilt? Wird als WEICHE Präferenz
+// behandelt: erst MA ohne Überschneidung wählen, sonst trotzdem zuteilen —
+// MA dürfen vorzeitig aus einem Auslass raus.
+async function getExternalBusy(
   sb: SupabaseAdmin,
-  show: { id: number } & ShowWindowInput
+  show: { id: number } & ShowWindowInput,
+  excludeShowIds: ReadonlySet<number>
 ): Promise<{ busy: Set<number>; conflictHallNumbers: Set<number> }> {
   const { startMs, endMs } = showWindowMs(show);
   const dateMin = shiftDate(show.show_date, -1);
@@ -254,10 +262,11 @@ async function getBusyStaffIds(
     .from("cinema_cleaning_shows")
     .select("id, hall_number, show_date, end_time, cleanup_minutes")
     .gte("show_date", dateMin)
-    .lte("show_date", dateMax)
-    .neq("id", show.id);
+    .lte("show_date", dateMax);
 
   const overlappingShows = (nearby ?? []).filter((row) => {
+    if (excludeShowIds.has(row.id as number)) return false;
+    if ((row.id as number) === show.id) return false;
     const w = showWindowMs(row as ShowWindowInput);
     return w.startMs < endMs && startMs < w.endMs;
   });
@@ -288,6 +297,153 @@ async function getBusyStaffIds(
   return { busy, conflictHallNumbers };
 }
 
+// Wählt aus dem Pool den günstigsten Kandidaten:
+//   1. Bevorzuge nicht-überlappende MA,
+//   2. dann den mit den wenigsten bisherigen Zuweisungen im Batch,
+//   3. Tiebreak: sort_order.
+// Wenn ALLE Kandidaten bereits in einem überlappenden Auslass eingeplant sind,
+// wird trotzdem einer zurückgegeben — mit Flag `overlap=true`.
+function pickFromPool(
+  pool: CleaningStaff[],
+  excludeIds: ReadonlySet<number>,
+  softBusy: ReadonlySet<number>,
+  usageCount: ReadonlyMap<number, number>
+): { staff: CleaningStaff; overlap: boolean } | null {
+  const candidates = pool.filter((s) => !excludeIds.has(s.id));
+  if (candidates.length === 0) return null;
+  const nonOverlapping = candidates.filter((s) => !softBusy.has(s.id));
+  const pickFrom = nonOverlapping.length > 0 ? nonOverlapping : candidates;
+  const best = pickFrom.reduce((acc, c) => {
+    const cUse = usageCount.get(c.id) ?? 0;
+    const aUse = usageCount.get(acc.id) ?? 0;
+    if (cUse !== aUse) return cUse < aUse ? c : acc;
+    return c.sort_order < acc.sort_order ? c : acc;
+  });
+  return { staff: best, overlap: nonOverlapping.length === 0 };
+}
+
+type ExistingAssignment = {
+  staff_id: number;
+  assigned_by: string;
+  reason: string | null;
+};
+
+function isManualAssignment(a: { assigned_by: string }): boolean {
+  return a.assigned_by === "manual" || a.assigned_by === "override";
+}
+
+type LearningEntry = {
+  hall_number: number;
+  attendees: number;
+  cleanup_minutes: number;
+  intensity: string;
+  movie_title: string | null;
+  actual_staff_count: number;
+  actual_duration_minutes: number | null;
+  rating: number | null;
+  notes: string | null;
+};
+
+async function loadLearningData(
+  sb: SupabaseAdmin,
+  excludeShowIds: ReadonlySet<number>,
+): Promise<LearningEntry[]> {
+  const { data: pastRows } = await sb
+    .from("cinema_cleaning_shows")
+    .select(`
+      id, hall_number, attendees, cleanup_minutes, intensity, movie_title,
+      cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes )
+    `)
+    .order("show_date", { ascending: false })
+    .limit(60);
+  const out: LearningEntry[] = [];
+  for (const row of (pastRows ?? []) as any[]) {
+    if (excludeShowIds.has(row.id as number)) continue;
+    const fb = Array.isArray(row.cinema_cleaning_feedback)
+      ? row.cinema_cleaning_feedback[0]
+      : row.cinema_cleaning_feedback;
+    if (!fb) continue;
+    out.push({
+      hall_number: row.hall_number as number,
+      attendees: row.attendees as number,
+      cleanup_minutes: row.cleanup_minutes as number,
+      intensity: row.intensity as string,
+      movie_title: (row.movie_title as string | null) ?? null,
+      actual_staff_count: fb.actual_staff_count as number,
+      actual_duration_minutes: (fb.actual_duration_minutes as number | null) ?? null,
+      rating: (fb.rating as number | null) ?? null,
+      notes: (fb.notes as string | null) ?? null,
+    });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
+async function computeRecommendedCount(
+  show: CleaningShow,
+  poolForAi: CleaningStaff[],
+  learning: Awaited<ReturnType<typeof loadLearningData>>
+): Promise<{ count: number; aiNote: string | null; source: "ai" | "heuristic" }> {
+  let count = recommendStaffCount(show.attendees, show.intensity);
+  let aiNote: string | null = null;
+  let source: "ai" | "heuristic" = "heuristic";
+  if (!auslassplanungAiEnabled()) {
+    return { count, aiNote, source };
+  }
+  try {
+    const aiResult = await generateCleaningPlanWithAi({
+      show: {
+        id: show.id,
+        show_date: show.show_date,
+        hall_number: show.hall_number,
+        hall_label: show.hall_label,
+        end_time: show.end_time,
+        attendees: show.attendees,
+        cleanup_minutes: show.cleanup_minutes,
+        intensity: show.intensity,
+        movie_title: show.movie_title,
+        notes: show.notes,
+      },
+      staff: poolForAi.map((s) => ({
+        id: s.id,
+        name: s.name,
+        preference: s.preference,
+        notes: s.notes,
+      })),
+      learning,
+    });
+    if (aiResult) {
+      count = aiResult.recommended_staff_count;
+      aiNote = aiResult.notes ?? null;
+      source = "ai";
+    }
+  } catch (e) {
+    console.error("[auslassplanung] ai count failed", e);
+  }
+  return { count, aiNote, source };
+}
+
+function reasonForPickedSlot(
+  isPreferred: boolean,
+  isFirstSlot: boolean,
+  overlap: boolean,
+  overlapHalls: ReadonlySet<number> | null,
+): string {
+  const parts: string[] = [];
+  if (isPreferred) {
+    parts.push(isFirstSlot ? "Bevorzugt (primärer Slot)" : "Bevorzugt");
+  } else {
+    parts.push("Aushilfe (Ergänzung)");
+  }
+  if (overlap) {
+    const hallList = overlapHalls && overlapHalls.size > 0
+      ? ` mit Saal ${Array.from(overlapHalls).sort((a, b) => a - b).join(", ")}`
+      : "";
+    parts.push(`auch zur selben Zeit eingeteilt${hallList} — wechselt vorzeitig`);
+  }
+  return parts.join(" · ");
+}
+
 async function performPlanForShow(
   sb: SupabaseAdmin,
   showId: number
@@ -305,8 +461,10 @@ async function performPlanForShow(
     .select("id, name, preference, color, is_active, user_id, notes, sort_order")
     .eq("is_active", true)
     .order("sort_order");
-  const allActiveStaff = (staffRows ?? []) as CleaningStaff[];
-  if (allActiveStaff.length === 0) {
+  const allActive = (staffRows ?? []) as CleaningStaff[];
+  const staffById = new Map(allActive.map((s) => [s.id, s]));
+
+  if (allActive.length === 0) {
     return {
       showId,
       recommendedCount: 0,
@@ -317,160 +475,118 @@ async function performPlanForShow(
     };
   }
 
-  // Konflikt-Erkennung: MA, die zur selben Zeit in einem anderen Saal eingeteilt sind
-  const { busy: busyStaffIds, conflictHallNumbers } = await getBusyStaffIds(sb, show);
-  const availableStaff = allActiveStaff.filter((s) => !busyStaffIds.has(s.id));
+  // Existierende Zuweisungen laden — manuelle bleiben unangetastet
+  const { data: existing } = await sb
+    .from("cinema_cleaning_assignments")
+    .select("staff_id, assigned_by, reason")
+    .eq("show_id", showId);
+  const manuals = ((existing ?? []) as ExistingAssignment[]).filter(isManualAssignment);
+  const manualStaffIds = new Set(manuals.map((m) => m.staff_id));
+  const manualHasPreferred = manuals.some(
+    (m) => staffById.get(m.staff_id)?.preference === "preferred",
+  );
+
+  // Externe Belegung (weiche Präferenz)
+  const { busy: externalBusy, conflictHallNumbers } = await getExternalBusy(
+    sb,
+    show,
+    new Set([showId]),
+  );
+
+  // Pool: Active MA, ohne die bereits manuell zugewiesenen
+  const preferredPool = allActive
+    .filter((s) => s.preference === "preferred" && !manualStaffIds.has(s.id))
+    .sort((a, b) => a.sort_order - b.sort_order);
+  const backupPool = allActive
+    .filter((s) => s.preference === "backup" && !manualStaffIds.has(s.id))
+    .sort((a, b) => a.sort_order - b.sort_order);
+
+  // KI-Empfehlung für recommended_count (AI wählt nur die Anzahl + notes)
+  const learning = await loadLearningData(sb, new Set([showId]));
+  const { count: recommendedCount, aiNote, source } = await computeRecommendedCount(
+    show,
+    allActive,
+    learning,
+  );
+
+  // Wie viele zusätzliche Slots braucht es noch (über manuelle hinaus)?
+  const additionalNeeded = Math.max(0, recommendedCount - manuals.length);
+
+  const usageCount = new Map<number, number>();
+  const exclude = new Set<number>(manualStaffIds);
+  const aiAdditional: Array<{ staff_id: number; reason: string }> = [];
+  let preferredAddedHere = manualHasPreferred ? 1 : 0;
+
+  for (let i = 0; i < additionalNeeded; i++) {
+    // Slot 1: bevorzuge preferred, damit Regel "1× bevorzugt pro Vorstellung" erfüllt wird
+    let picked = pickFromPool(preferredPool, exclude, externalBusy, usageCount);
+    let isPreferred = true;
+    if (!picked) {
+      picked = pickFromPool(backupPool, exclude, externalBusy, usageCount);
+      isPreferred = false;
+    }
+    if (!picked) break;
+    const isFirstAiSlot = preferredAddedHere === 0;
+    const reason = reasonForPickedSlot(isPreferred, isFirstAiSlot, picked.overlap, conflictHallNumbers);
+    aiAdditional.push({ staff_id: picked.staff.id, reason });
+    exclude.add(picked.staff.id);
+    if (isPreferred) preferredAddedHere++;
+  }
+
+  // KI-Note + Konflikt-Hinweis zusammensetzen
   const conflictNote =
     conflictHallNumbers.size > 0
-      ? `Belegt in Saal ${Array.from(conflictHallNumbers).sort((a, b) => a - b).join(", ")}: ${busyStaffIds.size} MA`
+      ? `Überschneidung mit Saal ${Array.from(conflictHallNumbers).sort((a, b) => a - b).join(", ")} (weicher Konflikt — MA kann vorzeitig wechseln)`
       : null;
-
-  if (availableStaff.length === 0) {
-    // Konsistenz: alte Zuweisungen entfernen, Status zurück auf "open"
-    await sb.from("cinema_cleaning_assignments").delete().eq("show_id", showId);
-    await sb
-      .from("cinema_cleaning_shows")
-      .update({
-        ai_recommended_staff_count: recommendStaffCount(show.attendees, show.intensity),
-        ai_notes: conflictNote,
-        plan_status: "open",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", showId);
-    return {
-      showId,
-      recommendedCount: recommendStaffCount(show.attendees, show.intensity),
-      assignments: [],
-      source: "heuristic",
-      aiNote: conflictNote,
-      unmet: "Keine MA verfügbar — alle aktiven MA sind in einem anderen Saal zur gleichen Zeit eingeteilt.",
-    };
-  }
-
-  // Lerndaten: letzte 20 abgeschlossene Shows mit Feedback
-  const { data: pastRows } = await sb
-    .from("cinema_cleaning_shows")
-    .select(`
-      id, hall_number, attendees, cleanup_minutes, intensity, movie_title,
-      cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes )
-    `)
-    .neq("id", showId)
-    .order("show_date", { ascending: false })
-    .limit(20);
-  const learning =
-    (pastRows ?? [])
-      .map((row: any) => {
-        const fb = Array.isArray(row.cinema_cleaning_feedback)
-          ? row.cinema_cleaning_feedback[0]
-          : row.cinema_cleaning_feedback;
-        if (!fb) return null;
-        return {
-          hall_number: row.hall_number as number,
-          attendees: row.attendees as number,
-          cleanup_minutes: row.cleanup_minutes as number,
-          intensity: row.intensity as string,
-          movie_title: (row.movie_title as string | null) ?? null,
-          actual_staff_count: fb.actual_staff_count as number,
-          actual_duration_minutes: (fb.actual_duration_minutes as number | null) ?? null,
-          rating: (fb.rating as number | null) ?? null,
-          notes: (fb.notes as string | null) ?? null,
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null);
-
-  let source: "ai" | "heuristic" = "heuristic";
-  let aiNote: string | null = null;
-  let recommendedCount = recommendStaffCount(show.attendees, show.intensity);
-  let chosen: { staff_id: number; reason: string | null }[] = [];
-
-  if (auslassplanungAiEnabled()) {
-    try {
-      const aiResult = await generateCleaningPlanWithAi({
-        show: {
-          id: show.id,
-          show_date: show.show_date,
-          hall_number: show.hall_number,
-          hall_label: show.hall_label,
-          end_time: show.end_time,
-          attendees: show.attendees,
-          cleanup_minutes: show.cleanup_minutes,
-          intensity: show.intensity,
-          movie_title: show.movie_title,
-          notes: show.notes,
-        },
-        staff: availableStaff.map((s) => ({
-          id: s.id,
-          name: s.name,
-          preference: s.preference,
-          notes: s.notes,
-        })),
-        learning,
-      });
-      if (aiResult) {
-        recommendedCount = aiResult.recommended_staff_count;
-        chosen = aiResult.assignments
-          .map((a) => ({ staff_id: a.staff_id, reason: a.reason ?? null }))
-          .filter((a) => availableStaff.some((s) => s.id === a.staff_id));
-        aiNote = aiResult.notes ?? null;
-        source = "ai";
-      }
-    } catch (e) {
-      console.error("[auslassplanung] ai call failed, falling back to heuristic", e);
-    }
-  }
-
-  if (source === "heuristic") {
-    // Heuristik: erst preferred, dann backup, sortiert nach sort_order
-    const sorted = [...availableStaff].sort((a, b) => {
-      if (a.preference !== b.preference) return a.preference === "preferred" ? -1 : 1;
-      return a.sort_order - b.sort_order;
-    });
-    chosen = sorted.slice(0, recommendedCount).map((s) => ({
-      staff_id: s.id,
-      reason: s.preference === "preferred" ? "Heuristik: bevorzugt" : "Heuristik: Zweifelsfall",
-    }));
-  }
-
-  // Konflikt-Hinweis an die Notiz anhängen, damit er in der Karte sichtbar wird
   const finalNote =
-    conflictNote && aiNote
-      ? `${aiNote} · ${conflictNote}`
-      : aiNote ?? conflictNote;
+    aiNote && conflictNote ? `${aiNote} · ${conflictNote}` : aiNote ?? conflictNote;
 
-  // Alte Zuweisungen löschen, neue setzen
-  await sb.from("cinema_cleaning_assignments").delete().eq("show_id", showId);
-  if (chosen.length > 0) {
+  // Persistieren: nur KI-Zuweisungen entfernen, manuelle bleiben
+  await sb
+    .from("cinema_cleaning_assignments")
+    .delete()
+    .eq("show_id", showId)
+    .eq("assigned_by", "ai");
+  if (aiAdditional.length > 0) {
     await sb.from("cinema_cleaning_assignments").insert(
-      chosen.map((c) => ({
+      aiAdditional.map((a) => ({
         show_id: showId,
-        staff_id: c.staff_id,
-        assigned_by: source === "ai" ? "ai" : "manual",
-        reason: c.reason,
-      }))
+        staff_id: a.staff_id,
+        assigned_by: "ai" as const,
+        reason: a.reason,
+      })),
     );
   }
+
+  const totalAssigned = manuals.length + aiAdditional.length;
   await sb
     .from("cinema_cleaning_shows")
     .update({
       ai_recommended_staff_count: recommendedCount,
       ai_notes: finalNote,
-      plan_status: chosen.length > 0 ? "planned" : "open",
+      plan_status: totalAssigned > 0 ? "planned" : "open",
       updated_at: new Date().toISOString(),
     })
     .eq("id", showId);
 
   const unmetParts: string[] = [];
-  if (chosen.length < recommendedCount) {
-    unmetParts.push(`Nur ${chosen.length} von ${recommendedCount} empfohlenen Plätzen besetzt.`);
+  if (totalAssigned < recommendedCount) {
+    unmetParts.push(`Nur ${totalAssigned} von ${recommendedCount} empfohlenen Plätzen besetzt.`);
   }
-  if (busyStaffIds.size > 0) {
-    unmetParts.push(`${busyStaffIds.size} MA sind in einem anderen Saal zur gleichen Zeit eingeteilt.`);
+  const totalPreferred =
+    (manualHasPreferred ? manuals.filter((m) => staffById.get(m.staff_id)?.preference === "preferred").length : 0) +
+    aiAdditional.filter((a) => staffById.get(a.staff_id)?.preference === "preferred").length;
+  if (totalPreferred === 0 && totalAssigned > 0) {
+    unmetParts.push("Kein bevorzugter MA in diesem Auslass.");
   }
 
   return {
     showId,
     recommendedCount,
-    assignments: chosen,
+    assignments: [
+      ...manuals.map((m) => ({ staff_id: m.staff_id, reason: m.reason ?? "Manuell zugewiesen" })),
+      ...aiAdditional,
+    ],
     source,
     aiNote: finalNote,
     unmet: unmetParts.length > 0 ? unmetParts.join(" ") : undefined,
@@ -511,116 +627,299 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
   await assertCallerHasCinemaAccess();
   const rawIds = formData.getAll("show_id").map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0);
   const showIds = Array.from(new Set(rawIds));
-  if (showIds.length === 0) {
-    return { total: 0, planned: 0, empty: 0, failed: 0, bySource: { ai: 0, heuristic: 0 }, results: [] };
-  }
+  const emptySummary: BulkPlanSummary = {
+    total: 0, planned: 0, empty: 0, failed: 0, bySource: { ai: 0, heuristic: 0 }, results: [],
+  };
+  if (showIds.length === 0) return emptySummary;
 
   const sb = createAdminClient();
+  const showIdSet = new Set(showIds);
 
-  // Reihenfolge: chronologisch (älteste zuerst), damit aufeinander folgende Vorstellungen
-  // korrekt die bereits gemachten Zuweisungen sehen.
-  const { data: orderedShows } = await sb
+  // Chronologisch laden
+  const { data: showRows } = await sb
     .from("cinema_cleaning_shows")
-    .select("id, hall_number, show_date, end_time")
+    .select("id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes, intensity, movie_title, notes")
     .in("id", showIds)
     .order("show_date", { ascending: true })
     .order("end_time", { ascending: true });
+  const shows = (showRows ?? []) as CleaningShow[];
+  if (shows.length === 0) return emptySummary;
 
-  const summary: BulkPlanSummary = {
-    total: orderedShows?.length ?? 0,
-    planned: 0,
-    empty: 0,
-    failed: 0,
-    bySource: { ai: 0, heuristic: 0 },
-    results: [],
-  };
+  // Aktive MA
+  const { data: staffRows } = await sb
+    .from("cinema_cleaning_staff")
+    .select("id, name, preference, color, is_active, user_id, notes, sort_order")
+    .eq("is_active", true)
+    .order("sort_order");
+  const allActive = (staffRows ?? []) as CleaningStaff[];
+  const staffById = new Map(allActive.map((s) => [s.id, s]));
 
-  for (const row of orderedShows ?? []) {
-    const meta = row as { id: number; hall_number: number; show_date: string; end_time: string };
-    try {
-      const r = await performPlanForShow(sb, meta.id);
-      if (!r) {
-        summary.failed++;
-        summary.results.push({
-          showId: meta.id,
-          hallNumber: meta.hall_number,
-          showDate: meta.show_date,
-          endTime: meta.end_time,
-          ok: false,
-          source: null,
-          assignedCount: 0,
-          recommendedCount: 0,
-          error: "Vorstellung nicht gefunden.",
-        });
-        continue;
-      }
-      if (r.assignments.length === 0) {
-        summary.empty++;
-      } else {
-        summary.planned++;
-      }
-      summary.bySource[r.source]++;
-      summary.results.push({
-        showId: meta.id,
-        hallNumber: meta.hall_number,
-        showDate: meta.show_date,
-        endTime: meta.end_time,
-        ok: r.assignments.length > 0,
-        source: r.source,
-        assignedCount: r.assignments.length,
-        recommendedCount: r.recommendedCount,
-        unmet: r.unmet,
-      });
-    } catch (e) {
-      console.error("[auslassplanung] bulk plan failed for show", meta.id, e);
-      summary.failed++;
-      summary.results.push({
-        showId: meta.id,
-        hallNumber: meta.hall_number,
-        showDate: meta.show_date,
-        endTime: meta.end_time,
+  if (allActive.length === 0) {
+    return {
+      ...emptySummary,
+      total: shows.length,
+      empty: shows.length,
+      results: shows.map((s) => ({
+        showId: s.id,
+        hallNumber: s.hall_number,
+        showDate: s.show_date,
+        endTime: s.end_time,
         ok: false,
         source: null,
         assignedCount: 0,
         recommendedCount: 0,
-        error: e instanceof Error ? e.message : "Unbekannter Fehler",
-      });
+        error: "Keine aktiven Reinigungsmitarbeiter angelegt.",
+      })),
+    };
+  }
+  const preferredPool = allActive.filter((s) => s.preference === "preferred");
+  const backupPool = allActive.filter((s) => s.preference === "backup");
+
+  // Bestehende Zuweisungen für alle Batch-Vorstellungen laden
+  const { data: existingAll } = await sb
+    .from("cinema_cleaning_assignments")
+    .select("show_id, staff_id, assigned_by, reason")
+    .in("show_id", showIds);
+  const manualByShow = new Map<number, ExistingAssignment[]>();
+  for (const a of existingAll ?? []) {
+    const row = a as { show_id: number } & ExistingAssignment;
+    if (!isManualAssignment(row)) continue;
+    if (!manualByShow.has(row.show_id)) manualByShow.set(row.show_id, []);
+    manualByShow.get(row.show_id)!.push(row);
+  }
+
+  // KI-Zuweisungen der Batch-Vorstellungen entfernen (manuelle bleiben)
+  await sb
+    .from("cinema_cleaning_assignments")
+    .delete()
+    .in("show_id", showIds)
+    .eq("assigned_by", "ai");
+
+  // Lerndaten einmal laden
+  const learning = await loadLearningData(sb, showIdSet);
+
+  // Pro Show: empfohlene Anzahl per KI/Heuristik (parallel)
+  type Item = {
+    show: CleaningShow;
+    recommendedCount: number;
+    aiNote: string | null;
+    countSource: "ai" | "heuristic";
+    currentStaffIds: Set<number>;
+    currentPreferredCount: number;
+    manualEntries: ExistingAssignment[];
+    newAssignments: Array<{ staff_id: number; reason: string }>;
+    externalBusy: Set<number>;
+    conflictHallNumbers: Set<number>;
+  };
+
+  const items: Item[] = await Promise.all(
+    shows.map(async (show): Promise<Item> => {
+      const manuals = manualByShow.get(show.id) ?? [];
+      const manualStaffIds = new Set(manuals.map((m) => m.staff_id));
+      const manualPreferredCount = manuals.filter(
+        (m) => staffById.get(m.staff_id)?.preference === "preferred",
+      ).length;
+      const { busy, conflictHallNumbers } = await getExternalBusy(sb, show, showIdSet);
+      const { count, aiNote, source } = await computeRecommendedCount(show, allActive, learning);
+      return {
+        show,
+        recommendedCount: count,
+        aiNote,
+        countSource: source,
+        currentStaffIds: new Set(manualStaffIds),
+        currentPreferredCount: manualPreferredCount,
+        manualEntries: manuals,
+        newAssignments: [],
+        externalBusy: busy,
+        conflictHallNumbers,
+      };
+    }),
+  );
+
+  // Usage-Map für Spreading
+  const usageCount = new Map<number, number>();
+  for (const it of items) {
+    for (const sid of it.currentStaffIds) {
+      usageCount.set(sid, (usageCount.get(sid) ?? 0) + 1);
     }
+  }
+
+  function softBusyForItem(item: Item): Set<number> {
+    const busy = new Set<number>(item.externalBusy);
+    for (const other of items) {
+      if (other === item) continue;
+      if (windowsOverlap(item.show, other.show)) {
+        for (const sid of other.currentStaffIds) busy.add(sid);
+      }
+    }
+    return busy;
+  }
+
+  function overlapHallsForItem(item: Item): Set<number> {
+    const halls = new Set<number>(item.conflictHallNumbers);
+    for (const other of items) {
+      if (other === item) continue;
+      if (other.currentStaffIds.size === 0) continue;
+      if (windowsOverlap(item.show, other.show)) {
+        halls.add(other.show.hall_number);
+      }
+    }
+    return halls;
+  }
+
+  // Phase 1: jede Vorstellung bekommt 1 preferred (wenn noch keiner manuell vorhanden)
+  for (const it of items) {
+    if (it.currentPreferredCount > 0) continue;
+    if (it.currentStaffIds.size >= it.recommendedCount) continue;
+    const softBusy = softBusyForItem(it);
+    const picked = pickFromPool(preferredPool, it.currentStaffIds, softBusy, usageCount);
+    if (!picked) continue;
+    const reason = reasonForPickedSlot(true, true, picked.overlap, overlapHallsForItem(it));
+    it.newAssignments.push({ staff_id: picked.staff.id, reason });
+    it.currentStaffIds.add(picked.staff.id);
+    it.currentPreferredCount++;
+    usageCount.set(picked.staff.id, (usageCount.get(picked.staff.id) ?? 0) + 1);
+  }
+
+  // Phase 2: restliche Slots auffüllen (preferred first, dann backup)
+  for (const it of items) {
+    while (it.currentStaffIds.size < it.recommendedCount) {
+      const softBusy = softBusyForItem(it);
+      let picked = pickFromPool(preferredPool, it.currentStaffIds, softBusy, usageCount);
+      let isPreferred = true;
+      if (!picked) {
+        picked = pickFromPool(backupPool, it.currentStaffIds, softBusy, usageCount);
+        isPreferred = false;
+      }
+      if (!picked) break;
+      const isFirstAi = it.newAssignments.length === 0 && it.manualEntries.length === 0;
+      const reason = reasonForPickedSlot(isPreferred, isFirstAi, picked.overlap, overlapHallsForItem(it));
+      it.newAssignments.push({ staff_id: picked.staff.id, reason });
+      it.currentStaffIds.add(picked.staff.id);
+      if (isPreferred) it.currentPreferredCount++;
+      usageCount.set(picked.staff.id, (usageCount.get(picked.staff.id) ?? 0) + 1);
+    }
+  }
+
+  // Persistieren
+  const inserts: Array<{ show_id: number; staff_id: number; assigned_by: "ai"; reason: string }> = [];
+  for (const it of items) {
+    for (const a of it.newAssignments) {
+      inserts.push({ show_id: it.show.id, staff_id: a.staff_id, assigned_by: "ai", reason: a.reason });
+    }
+  }
+  if (inserts.length > 0) {
+    await sb.from("cinema_cleaning_assignments").insert(inserts);
+  }
+
+  // Show-Status updaten
+  const summary: BulkPlanSummary = {
+    total: shows.length, planned: 0, empty: 0, failed: 0, bySource: { ai: 0, heuristic: 0 }, results: [],
+  };
+  for (const it of items) {
+    const totalAssigned = it.currentStaffIds.size;
+    const conflictNote =
+      it.conflictHallNumbers.size > 0
+        ? `Überschneidung mit Saal ${Array.from(it.conflictHallNumbers).sort((a, b) => a - b).join(", ")} (weicher Konflikt)`
+        : null;
+    const finalNote =
+      it.aiNote && conflictNote ? `${it.aiNote} · ${conflictNote}` : it.aiNote ?? conflictNote;
+    await sb
+      .from("cinema_cleaning_shows")
+      .update({
+        ai_recommended_staff_count: it.recommendedCount,
+        ai_notes: finalNote,
+        plan_status: totalAssigned > 0 ? "planned" : "open",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", it.show.id);
+
+    if (totalAssigned > 0) summary.planned++;
+    else summary.empty++;
+    summary.bySource[it.countSource]++;
+
+    const unmetParts: string[] = [];
+    if (totalAssigned < it.recommendedCount) {
+      unmetParts.push(`Nur ${totalAssigned} von ${it.recommendedCount}.`);
+    }
+    if (it.currentPreferredCount === 0 && totalAssigned > 0) {
+      unmetParts.push("Kein bevorzugter MA verfügbar.");
+    }
+
+    summary.results.push({
+      showId: it.show.id,
+      hallNumber: it.show.hall_number,
+      showDate: it.show.show_date,
+      endTime: it.show.end_time,
+      ok: totalAssigned > 0,
+      source: it.countSource,
+      assignedCount: totalAssigned,
+      recommendedCount: it.recommendedCount,
+      unmet: unmetParts.length > 0 ? unmetParts.join(" ") : undefined,
+    });
   }
 
   revalidatePath(PLAN_PATH);
   return summary;
 }
 
-export async function manualOverrideAssignmentAction(formData: FormData) {
+// ── Manuelle Zuweisungen ──────────────────────────────────────────────
+
+// Setzt die manuellen Zuweisungen für eine Vorstellung exakt auf die übergebene
+// Mitarbeiter-Liste. Bestehende KI-Zuweisungen werden entfernt — der Nutzer hat
+// damit volle Kontrolle und kann anschließend mit "KI-Plan" auffüllen lassen.
+export async function setManualAssignmentsAction(formData: FormData) {
   await assertCallerHasCinemaAccess();
   const showId = Number(formData.get("show_id"));
   if (!showId) return;
-  const staffIds = formData
-    .getAll("staff_id")
-    .map((v) => Number(v))
-    .filter((n) => Number.isFinite(n) && n > 0);
+  const staffIds = Array.from(new Set(
+    formData
+      .getAll("staff_id")
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n > 0),
+  ));
 
   const sb = createAdminClient();
+  // Alle bisherigen Zuweisungen wegräumen (manuelle und KI)
   await sb.from("cinema_cleaning_assignments").delete().eq("show_id", showId);
+
   if (staffIds.length > 0) {
     await sb.from("cinema_cleaning_assignments").insert(
       staffIds.map((id) => ({
         show_id: showId,
         staff_id: id,
-        assigned_by: "override" as const,
-      }))
+        assigned_by: "manual" as const,
+        reason: "Manuell zugewiesen",
+      })),
     );
-    await sb
-      .from("cinema_cleaning_shows")
-      .update({ plan_status: "planned", updated_at: new Date().toISOString() })
-      .eq("id", showId);
-  } else {
-    await sb
-      .from("cinema_cleaning_shows")
-      .update({ plan_status: "open", updated_at: new Date().toISOString() })
-      .eq("id", showId);
   }
+
+  await sb
+    .from("cinema_cleaning_shows")
+    .update({
+      plan_status: staffIds.length > 0 ? "planned" : "open",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", showId);
+  revalidatePath(PLAN_PATH);
+}
+
+// Entfernt alle Zuweisungen (manuell + KI) für eine Vorstellung.
+export async function clearAssignmentsAction(formData: FormData) {
+  await assertCallerHasCinemaAccess();
+  const showId = Number(formData.get("show_id"));
+  if (!showId) return;
+  const sb = createAdminClient();
+  await sb.from("cinema_cleaning_assignments").delete().eq("show_id", showId);
+  await sb
+    .from("cinema_cleaning_shows")
+    .update({
+      plan_status: "open",
+      ai_notes: null,
+      ai_recommended_staff_count: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", showId);
   revalidatePath(PLAN_PATH);
 }
 
