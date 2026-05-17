@@ -17,6 +17,7 @@ import {
   planShowAction,
   planManyShowsAction,
   setManualAssignmentsAction,
+  removeAssignmentAction,
   clearAssignmentsAction,
   parseFupAction,
   createShowsFromFupAction,
@@ -93,6 +94,7 @@ export default async function AuslassplanungPage() {
         planShowAction={planShowAction}
         planManyShowsAction={planManyShowsAction}
         setManualAssignmentsAction={setManualAssignmentsAction}
+        removeAssignmentAction={removeAssignmentAction}
         clearAssignmentsAction={clearAssignmentsAction}
         parseFupAction={parseFupAction}
         createShowsFromFupAction={createShowsFromFupAction}

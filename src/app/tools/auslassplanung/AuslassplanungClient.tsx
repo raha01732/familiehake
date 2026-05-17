@@ -4,7 +4,9 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
+  Brain,
   Brush,
   CalendarRange,
   CheckCircle2,
@@ -22,6 +24,7 @@ import {
   Upload,
   UserPlus,
   Users,
+  X,
   XCircle,
 } from "lucide-react";
 import {
@@ -120,6 +123,7 @@ type Props = {
   planShowAction: PlanFn;
   planManyShowsAction: PlanManyFn;
   setManualAssignmentsAction: ActionFn;
+  removeAssignmentAction: ActionFn;
   clearAssignmentsAction: ActionFn;
   parseFupAction: ParseFupFn;
   createShowsFromFupAction: CreateFromFupFn;
@@ -164,6 +168,7 @@ export default function AuslassplanungClient({
   planShowAction,
   planManyShowsAction,
   setManualAssignmentsAction,
+  removeAssignmentAction,
   clearAssignmentsAction,
   parseFupAction,
   createShowsFromFupAction,
@@ -266,6 +271,14 @@ export default function AuslassplanungClient({
     });
   }
 
+  function handleRemoveAssignment(showId: number, staffId: number) {
+    const fd = new FormData();
+    fd.set("show_id", String(showId));
+    fd.set("staff_id", String(staffId));
+    // Optimistisch: kurzes Transition, dann refresh
+    void removeAssignmentAction(fd).then(() => router.refresh());
+  }
+
   function handleDeleteAll() {
     startDeletingAll(async () => {
       const fd = new FormData();
@@ -307,7 +320,7 @@ export default function AuslassplanungClient({
             {aiEnabled ? null : " (KI-Service nicht konfiguriert — Heuristik aktiv.)"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <TabButton active={tab === "shows"} onClick={() => setTab("shows")}>
             <CalendarRange size={14} aria-hidden /> Vorstellungen
             <span className="ml-1 text-[10px] opacity-70">{initialShows.length}</span>
@@ -316,6 +329,13 @@ export default function AuslassplanungClient({
             <Users size={14} aria-hidden /> Mitarbeiter
             <span className="ml-1 text-[10px] opacity-70">{activeStaffCount}</span>
           </TabButton>
+          <Link
+            href="/tools/auslassplanung/lerndaten"
+            className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
+            title="Was die KI bei jedem Plan sieht — Lerndaten-Dashboard"
+          >
+            <Brain size={14} aria-hidden /> Lerndaten
+          </Link>
         </div>
       </div>
 
@@ -339,6 +359,7 @@ export default function AuslassplanungClient({
           onPlan={handlePlan}
           onAssign={(s) => setAssignmentsModal(s)}
           onClear={(s) => setConfirmClearShow(s)}
+          onRemoveAssignment={handleRemoveAssignment}
           onBulkPlanOpen={() => setBulkPickerOpen(true)}
           onFupOpen={() => setFupModalOpen(true)}
           onDeleteAllOpen={() => setConfirmDeleteAll(true)}
@@ -503,6 +524,7 @@ function ShowsTab({
   onPlan,
   onAssign,
   onClear,
+  onRemoveAssignment,
   onBulkPlanOpen,
   onFupOpen,
   onDeleteAllOpen,
@@ -527,6 +549,7 @@ function ShowsTab({
   onPlan: (show: CleaningShow) => void;
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
+  onRemoveAssignment: (showId: number, staffId: number) => void;
   onBulkPlanOpen: () => void;
   onFupOpen: () => void;
   onDeleteAllOpen: () => void;
@@ -614,6 +637,7 @@ function ShowsTab({
           onPlan={onPlan}
           onAssign={onAssign}
           onClear={onClear}
+          onRemoveAssignment={onRemoveAssignment}
           onFeedback={onFeedback}
         />
       )}
@@ -637,6 +661,7 @@ function RutschenSections({
   onPlan,
   onAssign,
   onClear,
+  onRemoveAssignment,
   onFeedback,
 }: {
   shows: CleaningShow[];
@@ -652,6 +677,7 @@ function RutschenSections({
   onPlan: (show: CleaningShow) => void;
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
+  onRemoveAssignment: (showId: number, staffId: number) => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
   // Wir berechnen Rutschen pro show_date getrennt, damit eine Rutsche nicht
@@ -708,6 +734,7 @@ function RutschenSections({
                 onPlan={onPlan}
                 onAssign={onAssign}
                 onClear={onClear}
+                onRemoveAssignment={onRemoveAssignment}
                 onFeedback={onFeedback}
               />
             ))}
@@ -732,6 +759,7 @@ function RutscheBlock({
   onPlan,
   onAssign,
   onClear,
+  onRemoveAssignment,
   onFeedback,
 }: {
   rutsche: Rutsche;
@@ -747,6 +775,7 @@ function RutscheBlock({
   onPlan: (show: CleaningShow) => void;
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
+  onRemoveAssignment: (showId: number, staffId: number) => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
   const totalAttendees = rutsche.shows.reduce((acc, s) => acc + s.attendees, 0);
@@ -815,6 +844,7 @@ function RutscheBlock({
             onPlan={onPlan}
             onAssign={onAssign}
             onClear={onClear}
+            onRemoveAssignment={onRemoveAssignment}
             onFeedback={onFeedback}
           />
         ))}
@@ -836,6 +866,7 @@ function ShowCard({
   onPlan,
   onAssign,
   onClear,
+  onRemoveAssignment,
   onFeedback,
 }: {
   show: CleaningShow;
@@ -850,6 +881,7 @@ function ShowCard({
   onPlan: (show: CleaningShow) => void;
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
+  onRemoveAssignment: (showId: number, staffId: number) => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
   const status = STATUS_LABELS[show.plan_status];
@@ -951,29 +983,14 @@ function ShowCard({
                         if (!staff) return null;
                         const isManual = a.assigned_by === "manual" || a.assigned_by === "override";
                         return (
-                          <span
+                          <AssignmentChip
                             key={a.id}
-                            className="inline-flex items-center gap-1.5 rounded-full pl-1 pr-2 py-0.5 text-xs"
-                            style={{
-                              backgroundColor: `${staff.color}1f`,
-                              color: staff.color,
-                              border: `1px solid ${staff.color}${isManual ? "aa" : "55"}`,
-                            }}
-                            title={`${a.reason ?? ""}${isManual ? " (Manuell — KI überschreibt nicht)" : ""}`.trim()}
-                          >
-                            <span
-                              className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
-                              style={{ backgroundColor: staff.color }}
-                            >
-                              {getInitials(staff.name)}
-                            </span>
-                            <span>{staff.name}</span>
-                            {isManual ? (
-                              <Lock size={9} style={{ opacity: 0.85 }} aria-label="Manuell" />
-                            ) : (
-                              <Brush size={9} style={{ opacity: 0.6 }} aria-label="KI" />
-                            )}
-                          </span>
+                            staff={staff}
+                            isManual={isManual}
+                            reason={a.reason}
+                            canRemove={canEdit}
+                            onRemove={() => onRemoveAssignment(show.id, staff.id)}
+                          />
                         );
                       })}
                     </div>
@@ -1004,6 +1021,73 @@ function ShowCard({
                   )}
                 </div>
               </div>
+  );
+}
+
+// ── Chip mit Hover-Remove ────────────────────────────────────────────
+
+function AssignmentChip({
+  staff,
+  isManual,
+  reason,
+  canRemove,
+  onRemove,
+}: {
+  staff: CleaningStaff;
+  isManual: boolean;
+  reason: string | null;
+  canRemove: boolean;
+  onRemove: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  function handleRemove(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (removing) return;
+    setRemoving(true);
+    onRemove();
+  }
+
+  return (
+    <span
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="group relative inline-flex items-center gap-1.5 rounded-full pl-1 pr-2 py-0.5 text-xs transition-opacity"
+      style={{
+        backgroundColor: `${staff.color}1f`,
+        color: staff.color,
+        border: `1px solid ${staff.color}${isManual ? "aa" : "55"}`,
+        opacity: removing ? 0.4 : 1,
+      }}
+      title={`${reason ?? ""}${isManual ? " (Manuell — KI überschreibt nicht)" : ""}`.trim()}
+    >
+      <span
+        className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
+        style={{ backgroundColor: staff.color }}
+      >
+        {getInitials(staff.name)}
+      </span>
+      <span>{staff.name}</span>
+      {isManual ? (
+        <Lock size={9} style={{ opacity: 0.85 }} aria-label="Manuell" />
+      ) : (
+        <Brush size={9} style={{ opacity: 0.6 }} aria-label="KI" />
+      )}
+      {canRemove && hovered && (
+        <button
+          type="button"
+          onClick={handleRemove}
+          disabled={removing}
+          aria-label={`${staff.name} aus dieser Vorstellung entfernen`}
+          className="ml-0.5 w-4 h-4 rounded-full flex items-center justify-center text-white hover:scale-110 transition-transform"
+          style={{ backgroundColor: staff.color }}
+        >
+          <X size={9} strokeWidth={3} />
+        </button>
+      )}
+    </span>
   );
 }
 

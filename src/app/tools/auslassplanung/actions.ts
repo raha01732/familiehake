@@ -226,23 +226,39 @@ export async function deleteShowAction(formData: FormData) {
   const id = Number(formData.get("id"));
   if (!id) return;
   const sb = createAdminClient();
+  // Feedback (falls vorhanden) ins Archiv kopieren, damit die KI dieses
+  // Lernen behält.
+  await archiveShowsByIds(sb, [id]);
   await sb.from("cinema_cleaning_shows").delete().eq("id", id);
   revalidatePath(PLAN_PATH);
 }
 
-// Löscht ALLE Vorstellungen (Assignments laufen per FK-Cascade mit). Erfordert
-// einen "confirm"-Parameter im FormData als Schutz vor versehentlichem Aufruf.
-export async function deleteAllShowsAction(formData: FormData): Promise<{ deleted: number }> {
+// Löscht ALLE Vorstellungen — Feedback-Einträge werden vorher ins Lern-Archiv
+// kopiert, damit die KI das Wissen nicht verliert.
+export async function deleteAllShowsAction(formData: FormData): Promise<{
+  deleted: number;
+  archived: number;
+}> {
   await assertCallerHasCinemaAccess();
-  if (String(formData.get("confirm") || "") !== "yes") return { deleted: 0 };
+  if (String(formData.get("confirm") || "") !== "yes") return { deleted: 0, archived: 0 };
   const sb = createAdminClient();
   const { count: before } = await sb
     .from("cinema_cleaning_shows")
     .select("*", { count: "exact", head: true });
+
+  // Alle Show-IDs holen, deren Feedback wir bewahren wollen
+  const { data: feedbackRows } = await sb
+    .from("cinema_cleaning_feedback")
+    .select("show_id");
+  const idsToArchive = (feedbackRows ?? [])
+    .map((r) => (r as { show_id: number }).show_id)
+    .filter((n) => Number.isFinite(n));
+  const archived = await archiveShowsByIds(sb, idsToArchive);
+
   // Postgrest verlangt eine WHERE-Klausel — id > 0 trifft alle echten Rows.
   await sb.from("cinema_cleaning_shows").delete().gt("id", 0);
   revalidatePath(PLAN_PATH);
-  return { deleted: before ?? 0 };
+  return { deleted: before ?? 0, archived };
 }
 
 // ── Planung ───────────────────────────────────────────────────────────
@@ -393,6 +409,49 @@ type LearningEntry = {
   rating: number | null;
   notes: string | null;
 };
+type LearningEntryWithDate = LearningEntry & { _sortKey: string };
+
+/** Archiviert die Feedback-Daten der angegebenen Vorstellungen ins Lern-Archiv,
+ *  bevor sie aus cinema_cleaning_shows (und damit via cascade auch aus feedback)
+ *  gelöscht werden. Rückgabe: Anzahl der archivierten Einträge. */
+async function archiveShowsByIds(sb: SupabaseAdmin, showIds: number[]): Promise<number> {
+  if (showIds.length === 0) return 0;
+  const { data: rows } = await sb
+    .from("cinema_cleaning_shows")
+    .select(`
+      id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes,
+      intensity, movie_title, notes, ai_recommended_staff_count,
+      cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes )
+    `)
+    .in("id", showIds);
+  const toArchive: Record<string, unknown>[] = [];
+  for (const r of (rows ?? []) as any[]) {
+    const fb = Array.isArray(r.cinema_cleaning_feedback)
+      ? r.cinema_cleaning_feedback[0]
+      : r.cinema_cleaning_feedback;
+    if (!fb) continue;
+    toArchive.push({
+      show_date: r.show_date,
+      hall_number: r.hall_number,
+      hall_label: r.hall_label,
+      end_time: r.end_time,
+      attendees: r.attendees,
+      cleanup_minutes: r.cleanup_minutes,
+      intensity: r.intensity,
+      movie_title: r.movie_title,
+      show_notes: r.notes,
+      ai_recommended_staff_count: r.ai_recommended_staff_count,
+      actual_staff_count: fb.actual_staff_count,
+      actual_duration_minutes: fb.actual_duration_minutes,
+      rating: fb.rating,
+      feedback_notes: fb.notes,
+      archived_from_show_id: r.id,
+    });
+  }
+  if (toArchive.length === 0) return 0;
+  await sb.from("cinema_cleaning_learning_archive").insert(toArchive);
+  return toArchive.length;
+}
 
 const LEARNING_LIMIT = 100;
 
@@ -400,24 +459,23 @@ async function loadLearningData(
   sb: SupabaseAdmin,
   excludeShowIds: ReadonlySet<number>,
 ): Promise<LearningEntry[]> {
-  // Wir laden mit Puffer, da nicht jede Vorstellung Feedback hat. 4x Limit
-  // sollte selbst bei 25% Feedback-Quote noch 100 Treffer liefern.
+  // 1) Aktive Shows mit Feedback laden (mit Puffer für die Feedback-Quote)
   const { data: pastRows } = await sb
     .from("cinema_cleaning_shows")
     .select(`
-      id, hall_number, attendees, cleanup_minutes, intensity, movie_title,
+      id, show_date, hall_number, attendees, cleanup_minutes, intensity, movie_title,
       cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes )
     `)
     .order("show_date", { ascending: false })
     .limit(LEARNING_LIMIT * 4);
-  const out: LearningEntry[] = [];
+  const activeOut: LearningEntryWithDate[] = [];
   for (const row of (pastRows ?? []) as any[]) {
     if (excludeShowIds.has(row.id as number)) continue;
     const fb = Array.isArray(row.cinema_cleaning_feedback)
       ? row.cinema_cleaning_feedback[0]
       : row.cinema_cleaning_feedback;
     if (!fb) continue;
-    out.push({
+    activeOut.push({
       hall_number: row.hall_number as number,
       attendees: row.attendees as number,
       cleanup_minutes: row.cleanup_minutes as number,
@@ -427,10 +485,39 @@ async function loadLearningData(
       actual_duration_minutes: (fb.actual_duration_minutes as number | null) ?? null,
       rating: (fb.rating as number | null) ?? null,
       notes: (fb.notes as string | null) ?? null,
+      _sortKey: row.show_date as string,
     });
-    if (out.length >= LEARNING_LIMIT) break;
   }
-  return out;
+
+  // 2) Archiv-Einträge laden (die kommen aus früheren Löschungen)
+  const { data: archiveRows } = await sb
+    .from("cinema_cleaning_learning_archive")
+    .select(
+      "show_date, hall_number, attendees, cleanup_minutes, intensity, movie_title, actual_staff_count, actual_duration_minutes, rating, feedback_notes",
+    )
+    .order("show_date", { ascending: false })
+    .limit(LEARNING_LIMIT);
+  const archiveOut: LearningEntryWithDate[] = (archiveRows ?? []).map((row: any) => ({
+    hall_number: row.hall_number as number,
+    attendees: row.attendees as number,
+    cleanup_minutes: row.cleanup_minutes as number,
+    intensity: row.intensity as string,
+    movie_title: (row.movie_title as string | null) ?? null,
+    actual_staff_count: row.actual_staff_count as number,
+    actual_duration_minutes: (row.actual_duration_minutes as number | null) ?? null,
+    rating: (row.rating as number | null) ?? null,
+    notes: (row.feedback_notes as string | null) ?? null,
+    _sortKey: row.show_date as string,
+  }));
+
+  // 3) Mergen, nach show_date desc sortieren, auf LIMIT slicen, Sort-Key strippen
+  return [...activeOut, ...archiveOut]
+    .sort((a, b) => b._sortKey.localeCompare(a._sortKey))
+    .slice(0, LEARNING_LIMIT)
+    .map(({ _sortKey, ...rest }) => {
+      void _sortKey;
+      return rest;
+    });
 }
 
 async function computeRecommendedCount(
@@ -962,6 +1049,37 @@ export async function setManualAssignmentsAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
+// Entfernt eine einzelne Zuweisung (Mitarbeiter aus einer Vorstellung).
+export async function removeAssignmentAction(formData: FormData) {
+  await assertCallerHasCinemaAccess();
+  const showId = Number(formData.get("show_id"));
+  const staffId = Number(formData.get("staff_id"));
+  if (!showId || !staffId) return;
+  const sb = createAdminClient();
+  await sb
+    .from("cinema_cleaning_assignments")
+    .delete()
+    .eq("show_id", showId)
+    .eq("staff_id", staffId);
+  // Wenn dadurch keine Zuweisung mehr übrig ist, plan_status auf "open" zurücksetzen
+  const { count } = await sb
+    .from("cinema_cleaning_assignments")
+    .select("*", { count: "exact", head: true })
+    .eq("show_id", showId);
+  if ((count ?? 0) === 0) {
+    await sb
+      .from("cinema_cleaning_shows")
+      .update({ plan_status: "open", updated_at: new Date().toISOString() })
+      .eq("id", showId);
+  } else {
+    await sb
+      .from("cinema_cleaning_shows")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", showId);
+  }
+  revalidatePath(PLAN_PATH);
+}
+
 // Entfernt alle Zuweisungen (manuell + KI) für eine Vorstellung.
 export async function clearAssignmentsAction(formData: FormData) {
   await assertCallerHasCinemaAccess();
@@ -1152,20 +1270,53 @@ export async function estimateAttendeesAction(
   }
 
   // Lerndaten: vergangene Vorstellungen mit attendees > 0 (echte Werte)
-  const { data: pastShows } = await sb
-    .from("cinema_cleaning_shows")
-    .select("id, hall_number, end_time, intensity, movie_title, attendees")
-    .gt("attendees", 0)
-    .not("id", "in", `(${ids.join(",")})`)
-    .order("show_date", { ascending: false })
-    .limit(LEARNING_LIMIT);
-  const learning = (pastShows ?? []).map((r) => ({
+  // — kombiniert aus aktiven Shows und dem Archiv.
+  const [{ data: pastShows }, { data: pastArchive }] = await Promise.all([
+    sb
+      .from("cinema_cleaning_shows")
+      .select("id, show_date, hall_number, end_time, intensity, movie_title, attendees")
+      .gt("attendees", 0)
+      .not("id", "in", `(${ids.join(",")})`)
+      .order("show_date", { ascending: false })
+      .limit(LEARNING_LIMIT),
+    sb
+      .from("cinema_cleaning_learning_archive")
+      .select("show_date, hall_number, end_time, intensity, movie_title, attendees")
+      .gt("attendees", 0)
+      .order("show_date", { ascending: false })
+      .limit(LEARNING_LIMIT),
+  ]);
+  type LearningWithDate = {
+    hall_number: number;
+    end_time: string;
+    intensity: string;
+    movie_title: string | null;
+    attendees: number;
+    _sortKey: string;
+  };
+  const fromActive: LearningWithDate[] = (pastShows ?? []).map((r: any) => ({
     hall_number: r.hall_number as number,
     end_time: r.end_time as string,
     intensity: r.intensity as string,
     movie_title: (r.movie_title as string | null) ?? null,
     attendees: r.attendees as number,
+    _sortKey: r.show_date as string,
   }));
+  const fromArchive: LearningWithDate[] = (pastArchive ?? []).map((r: any) => ({
+    hall_number: r.hall_number as number,
+    end_time: r.end_time as string,
+    intensity: r.intensity as string,
+    movie_title: (r.movie_title as string | null) ?? null,
+    attendees: r.attendees as number,
+    _sortKey: r.show_date as string,
+  }));
+  const learning = [...fromActive, ...fromArchive]
+    .sort((a, b) => b._sortKey.localeCompare(a._sortKey))
+    .slice(0, LEARNING_LIMIT)
+    .map(({ _sortKey, ...rest }) => {
+      void _sortKey;
+      return rest;
+    });
 
   try {
     const result = await estimateAttendeesWithAi({
