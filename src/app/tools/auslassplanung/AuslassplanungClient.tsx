@@ -1312,7 +1312,7 @@ function BulkPlanPickerModal({
   const openCount = sorted.filter((s) => s.plan_status === "open").length;
 
   return (
-    <ModalShell title={aiEnabled ? "KI-Plan für mehrere Vorstellungen" : "Plan für mehrere Vorstellungen"} onClose={onClose}>
+    <ModalShell title={aiEnabled ? "KI-Plan für mehrere Vorstellungen" : "Plan für mehrere Vorstellungen"} onClose={onClose} size="wide">
       <div className="p-5 space-y-4">
         <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
           Wähle die Vorstellungen aus, die geplant werden sollen. Es werden chronologisch
@@ -1427,7 +1427,7 @@ function BulkPlanResultModal({
   onClose: () => void;
 }) {
   return (
-    <ModalShell title="Bulk-Plan-Ergebnis" onClose={onClose}>
+    <ModalShell title="Bulk-Plan-Ergebnis" onClose={onClose} size="wide">
       <div className="p-5 space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <Stat label="Geplant" value={summary.planned} tone="ok" />
@@ -1565,7 +1565,7 @@ function AssignmentsEditorModal({
   );
 
   return (
-    <ModalShell title={`Manuelle Zuweisung — Saal ${show.hall_number}`} onClose={onClose}>
+    <ModalShell title={`Manuelle Zuweisung — Saal ${show.hall_number}`} onClose={onClose} size="wide">
       <div className="p-5 space-y-4">
         <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
           Hier ausgewählte Mitarbeiter werden <strong>fest</strong> für diesen Auslass eingeplant.
@@ -1906,7 +1906,7 @@ function FupUploadModal({
   const selectedCount = rows.filter((r) => r.selected).length;
 
   return (
-    <ModalShell title="FÜP einlesen" onClose={onClose}>
+    <ModalShell title="FÜP einlesen" onClose={onClose} size="xl">
       <div className="p-5 space-y-4">
         {stage === "pick" && (
           <>
@@ -2166,16 +2166,20 @@ function ModalShell({
   title,
   onClose,
   children,
+  size = "default",
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  size?: "default" | "wide" | "xl";
 }) {
+  const maxWidthCls =
+    size === "xl" ? "max-w-6xl" : size === "wide" ? "max-w-3xl" : "max-w-lg";
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative min-h-full flex items-start justify-center p-4 sm:p-6">
-        <div className="relative w-full max-w-lg my-auto bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl">
+        <div className={`relative w-full ${maxWidthCls} my-auto bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl`}>
           <div className="flex items-center gap-3 p-5 border-b border-[hsl(var(--border))] rounded-t-2xl sticky top-0 bg-[hsl(var(--card))] z-10">
             <h2 className="font-semibold text-[hsl(var(--foreground))]">{title}</h2>
             <button
