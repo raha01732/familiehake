@@ -1861,7 +1861,6 @@ function FupUploadModal({
         attendees: 0,
         fsk: s.fsk,
       }));
-      // Chronologisch sortieren
       editable.sort((a, b) => {
         if (a.end_time !== b.end_time) return a.end_time.localeCompare(b.end_time);
         return a.hall_number - b.hall_number;
@@ -1876,6 +1875,13 @@ function FupUploadModal({
 
   function updateRow(index: number, patch: Partial<FupEditableRow>) {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  }
+
+  function selectAll() {
+    setRows((prev) => prev.map((r) => ({ ...r, selected: true })));
+  }
+  function selectNone() {
+    setRows((prev) => prev.map((r) => ({ ...r, selected: false })));
   }
 
   function onSubmit() {
@@ -1906,257 +1912,600 @@ function FupUploadModal({
   const selectedCount = rows.filter((r) => r.selected).length;
 
   return (
-    <ModalShell title="FÜP einlesen" onClose={onClose} size="xl">
-      <div className="p-5 space-y-4">
-        {stage === "pick" && (
-          <>
-            <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-              Lade ein Foto des Filmübersichtsplans hoch. Die KI liest Saal, Credit-Offset (Beginn
-              Auslass), Aufräumzeit und Filmtitel pro Zeile aus. Du kannst alles vor dem Anlegen
-              prüfen und anpassen.
-            </p>
-            <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-[hsl(var(--border))] rounded-xl p-6 cursor-pointer hover:bg-[hsl(var(--secondary)/0.4)] transition-colors">
-              <Upload size={28} className="text-[hsl(var(--muted-foreground))]" />
-              <span className="text-sm font-medium" style={{ color: "hsl(var(--foreground))" }}>
-                {file ? file.name : "Bild auswählen (oder hier ablegen)"}
-              </span>
-              {file && (
-                <span className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
-                  {(file.size / 1024 / 1024).toFixed(1)} MB
+    <ModalShell
+      title="FÜP einlesen"
+      subtitle={
+        stage === "pick"
+          ? "Foto eines Filmübersichtsplans hochladen — Vorstellungen werden automatisch erkannt."
+          : stage === "parsing"
+          ? "KI liest die Tabelle aus…"
+          : created === null
+          ? `${rows.length} Vorstellungen erkannt — bitte prüfen und anlegen.`
+          : "Erfolgreich angelegt."
+      }
+      onClose={onClose}
+      size="full"
+    >
+      {stage === "pick" && (
+        <FupPickerStage
+          file={file}
+          previewUrl={previewUrl}
+          error={error}
+          onFileChange={onFileChange}
+          onParse={onParse}
+          onClose={onClose}
+        />
+      )}
+
+      {stage === "parsing" && <FupParsingStage />}
+
+      {stage === "review" && created === null && (
+        <FupReviewStage
+          rows={rows}
+          showDate={showDate}
+          setShowDate={setShowDate}
+          updateRow={updateRow}
+          selectAll={selectAll}
+          selectNone={selectNone}
+          isCreating={isCreating}
+          selectedCount={selectedCount}
+          onBack={() => {
+            setStage("pick");
+            setRows([]);
+          }}
+          onClose={onClose}
+          onSubmit={onSubmit}
+        />
+      )}
+
+      {stage === "review" && created !== null && (
+        <FupSuccessStage created={created} onClose={onClose} />
+      )}
+    </ModalShell>
+  );
+}
+
+function FupPickerStage({
+  file,
+  previewUrl,
+  error,
+  onFileChange,
+  onParse,
+  onClose,
+}: {
+  file: File | null;
+  previewUrl: string | null;
+  error: string | null;
+  onFileChange: (ev: React.ChangeEvent<HTMLInputElement>) => void;
+  onParse: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 h-full">
+          {/* Info-Panel */}
+          <aside className="lg:col-span-2 feature-card p-5 flex flex-col gap-4">
+            <div className="flex items-center gap-2">
+              <div
+                className="shimmer-badge inline-flex items-center gap-2 rounded-full px-3 py-1"
+                style={{ border: "1px solid hsl(var(--primary) / 0.3)" }}
+              >
+                <ScanLine size={11} style={{ color: "hsl(var(--primary))" }} aria-hidden />
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-[0.2em]"
+                  style={{ color: "hsl(var(--primary))" }}
+                >
+                  KI-Erkennung
                 </span>
-              )}
+              </div>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold tracking-tight">
+                <span className="gradient-text">FÜP-Foto auswerten</span>
+              </h3>
+              <p
+                className="text-xs mt-1"
+                style={{ color: "hsl(var(--muted-foreground))" }}
+              >
+                Die KI liest jede Zeile der Tabelle aus und füllt die Vorstellungen automatisch
+                für dich aus.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2.5">
+              <p
+                className="text-[10px] font-semibold uppercase tracking-[0.2em]"
+                style={{ color: "hsl(var(--muted-foreground))" }}
+              >
+                Erkannte Felder
+              </p>
+              <FupInfoRow label="Saal-Nr." hint={'„Kino 1" wird zu 1'} />
+              <FupInfoRow label="Auslass-Start" hint="aus Spalte Credit-Offset" />
+              <FupInfoRow label="Reinigungsdauer" hint="aus Spalte Aufräumzeit" />
+              <FupInfoRow label="Filmtitel" hint="Präfixe wie 2D/ATMOS werden entfernt" />
+              <FupInfoRow label="FSK + Intensität" hint="Vorschlag basierend auf Altersfreigabe" />
+            </div>
+
+            <div
+              className="rounded-xl border border-[hsl(var(--border))] p-3 mt-auto"
+              style={{ background: "hsl(var(--secondary) / 0.5)" }}
+            >
+              <p
+                className="text-[10px] font-semibold uppercase tracking-[0.2em] mb-1.5"
+                style={{ color: "hsl(var(--muted-foreground))" }}
+              >
+                Tipps für gute Erkennung
+              </p>
+              <ul className="space-y-1 text-xs" style={{ color: "hsl(var(--foreground))" }}>
+                <li>· Möglichst geradeaus fotografieren, keine Schräge</li>
+                <li>· Gute Beleuchtung — Reflexionen vermeiden</li>
+                <li>· Hochkant ist ok, die KI dreht das Bild bei Bedarf</li>
+                <li>· Vor dem Anlegen erscheint eine prüfbare Vorschau</li>
+              </ul>
+            </div>
+          </aside>
+
+          {/* Upload-Panel */}
+          <section className="lg:col-span-3 flex flex-col gap-4 min-h-0">
+            <label
+              className={`relative flex-1 min-h-[280px] flex flex-col items-center justify-center gap-3 rounded-2xl cursor-pointer transition-all overflow-hidden ${
+                file
+                  ? "border-2 border-solid border-[hsl(var(--primary)/0.4)]"
+                  : "border-2 border-dashed border-[hsl(var(--border))] hover:border-[hsl(var(--primary)/0.5)]"
+              }`}
+              style={{
+                background: file
+                  ? "linear-gradient(135deg, hsl(var(--primary)/0.06), hsl(var(--accent)/0.04))"
+                  : "linear-gradient(135deg, hsl(var(--secondary)/0.4), hsl(var(--background)))",
+              }}
+            >
+              <div
+                className="w-16 h-16 rounded-2xl flex items-center justify-center"
+                style={{
+                  background: file
+                    ? "linear-gradient(135deg, hsl(var(--primary)/0.18), hsl(var(--accent)/0.15))"
+                    : "hsl(var(--secondary))",
+                }}
+              >
+                {file ? (
+                  <FileImage size={28} style={{ color: "hsl(var(--primary))" }} />
+                ) : (
+                  <Upload size={28} className="text-[hsl(var(--muted-foreground))]" />
+                )}
+              </div>
+              <div className="text-center px-6">
+                <p
+                  className="text-base font-semibold"
+                  style={{ color: "hsl(var(--foreground))" }}
+                >
+                  {file ? file.name : "Bild auswählen"}
+                </p>
+                <p
+                  className="text-xs mt-1"
+                  style={{ color: "hsl(var(--muted-foreground))" }}
+                >
+                  {file
+                    ? `${(file.size / 1024 / 1024).toFixed(2)} MB · klicke zum Wechseln`
+                    : "Klicke hier oder lege ein Foto ab — JPG/PNG"}
+                </p>
+              </div>
               <input
                 type="file"
                 accept="image/*"
                 onChange={onFileChange}
-                className="hidden"
+                className="absolute inset-0 opacity-0 cursor-pointer"
               />
             </label>
+
             {previewUrl && (
-              <div className="rounded-lg overflow-hidden border border-[hsl(var(--border))] max-h-60 flex items-center justify-center bg-[hsl(var(--background))]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={previewUrl} alt="Vorschau" className="max-h-60 object-contain" />
+              <div className="feature-card p-3 flex items-center gap-3">
+                <div className="rounded-lg overflow-hidden border border-[hsl(var(--border))] bg-[hsl(var(--background))] shrink-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={previewUrl}
+                    alt="Vorschau"
+                    className="w-28 h-28 object-cover"
+                  />
+                </div>
+                <div className="text-xs flex-1 min-w-0">
+                  <p className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+                    Vorschau
+                  </p>
+                  <p
+                    className="mt-1"
+                    style={{ color: "hsl(var(--muted-foreground))" }}
+                  >
+                    Das Bild wird vor dem Upload auf max. 1800 px verkleinert und als JPEG mit
+                    Qualität 85 % komprimiert, damit der Upload schnell bleibt.
+                  </p>
+                </div>
               </div>
             )}
-            {error && (
-              <p className="text-xs" style={{ color: "hsl(var(--destructive))" }}>
-                {error}
-              </p>
-            )}
-            <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
-              <button
-                type="button"
-                onClick={onClose}
-                className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
-              >
-                Abbrechen
-              </button>
-              <button
-                type="button"
-                onClick={onParse}
-                disabled={!file}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg disabled:opacity-50"
-              >
-                <FileImage size={14} />
-                Auswerten
-              </button>
-            </div>
-          </>
-        )}
 
-        {stage === "parsing" && (
-          <div className="flex flex-col items-center gap-3 py-10">
-            <div className="w-10 h-10 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm font-medium" style={{ color: "hsl(var(--foreground))" }}>
-              KI liest den FÜP aus…
-            </p>
-            <p className="text-xs text-center max-w-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-              Das kann je nach Größe und Detailgrad 5–20 Sekunden dauern.
+            {error && (
+              <div
+                className="rounded-xl p-3 text-xs flex items-start gap-2"
+                style={{
+                  background: "hsl(var(--destructive) / 0.08)",
+                  border: "1px solid hsl(var(--destructive) / 0.3)",
+                  color: "hsl(var(--destructive))",
+                }}
+              >
+                <XCircle size={14} className="shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+
+      <div className="shrink-0 flex items-center gap-2 px-6 py-4 border-t border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+        <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          KI-Auswertung dauert ca. 5–20 Sek.
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-xl"
+        >
+          Abbrechen
+        </button>
+        <button
+          type="button"
+          onClick={onParse}
+          disabled={!file}
+          className="brand-button inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Sparkles size={14} />
+          Auswerten
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FupInfoRow({ label, hint }: { label: string; hint: string }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <div
+        className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0"
+        style={{ background: "hsl(var(--primary))" }}
+      />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+          {label}
+        </p>
+        <p className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+          {hint}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function FupParsingStage() {
+  return (
+    <div className="flex-1 min-h-0 flex items-center justify-center p-8">
+      <div className="feature-card p-10 flex flex-col items-center gap-4 max-w-md w-full">
+        <div className="relative">
+          <div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center"
+            style={{
+              background: "linear-gradient(135deg, hsl(var(--primary)/0.18), hsl(var(--accent)/0.15))",
+            }}
+          >
+            <Sparkles size={28} style={{ color: "hsl(var(--primary))" }} />
+          </div>
+          <div className="absolute -inset-2 rounded-2xl border-2 border-[hsl(var(--primary)/0.3)] border-t-transparent animate-spin" />
+        </div>
+        <div className="text-center">
+          <p className="text-base font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+            <span className="gradient-text">KI liest den FÜP aus</span>
+          </p>
+          <p
+            className="text-xs mt-1.5 max-w-xs"
+            style={{ color: "hsl(var(--muted-foreground))" }}
+          >
+            Tabelle wird Zeile für Zeile analysiert. Das kann 5–20 Sekunden dauern.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FupReviewStage({
+  rows,
+  showDate,
+  setShowDate,
+  updateRow,
+  selectAll,
+  selectNone,
+  isCreating,
+  selectedCount,
+  onBack,
+  onClose,
+  onSubmit,
+}: {
+  rows: FupEditableRow[];
+  showDate: string;
+  setShowDate: (v: string) => void;
+  updateRow: (i: number, patch: Partial<FupEditableRow>) => void;
+  selectAll: () => void;
+  selectNone: () => void;
+  isCreating: boolean;
+  selectedCount: number;
+  onBack: () => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      {/* Toolbar */}
+      <div className="shrink-0 px-6 py-4 border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] flex items-end gap-4 flex-wrap">
+        <div>
+          <label
+            className="block text-[10px] font-semibold uppercase tracking-[0.2em] mb-1.5"
+            style={{ color: "hsl(var(--muted-foreground))" }}
+          >
+            Datum für alle Vorstellungen
+          </label>
+          <input
+            type="date"
+            value={showDate}
+            onChange={(e) => setShowDate(e.target.value)}
+            className={inputCls}
+            style={{ width: "auto" }}
+          />
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={selectAll}
+            className="text-xs px-2.5 py-1.5 rounded-lg bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))]"
+          >
+            Alle wählen
+          </button>
+          <button
+            type="button"
+            onClick={selectNone}
+            className="text-xs px-2.5 py-1.5 rounded-lg bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))]"
+          >
+            Keine
+          </button>
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
+            style={{
+              background: "hsl(var(--primary) / 0.1)",
+              color: "hsl(var(--primary))",
+              border: "1px solid hsl(var(--primary) / 0.3)",
+            }}
+          >
+            <CheckCircle2 size={12} />
+            {selectedCount} ausgewählt
+          </span>
+          <span
+            className="text-xs"
+            style={{ color: "hsl(var(--muted-foreground))" }}
+          >
+            von {rows.length} erkannt
+          </span>
+        </div>
+      </div>
+
+      {/* Tabelle */}
+      <div className="flex-1 min-h-0 overflow-auto px-6 py-4">
+        {rows.length === 0 ? (
+          <div className="feature-card p-10 text-center" style={{ color: "hsl(var(--muted-foreground))" }}>
+            <p className="text-sm italic">
+              Keine Vorstellungen erkannt. Möglicherweise war das Bild zu unscharf — versuche
+              ein klareres Foto.
             </p>
           </div>
-        )}
-
-        {stage === "review" && created === null && (
-          <>
-            <div className="flex items-end gap-3 flex-wrap">
-              <div>
-                <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
-                  Datum für alle Vorstellungen
-                </label>
-                <input
-                  type="date"
-                  value={showDate}
-                  onChange={(e) => setShowDate(e.target.value)}
-                  className={inputCls}
-                  style={{ width: "auto" }}
-                />
-              </div>
-              <p className="text-xs ml-auto" style={{ color: "hsl(var(--muted-foreground))" }}>
-                {rows.length} erkannt · {selectedCount} ausgewählt
-              </p>
-            </div>
-
-            {rows.length === 0 ? (
-              <p className="text-sm italic" style={{ color: "hsl(var(--muted-foreground))" }}>
-                Keine Vorstellungen erkannt. Möglicherweise war das Bild zu unscharf — versuche
-                ein klareres Foto.
-              </p>
-            ) : (
-              <div className="border border-[hsl(var(--border))] rounded-xl overflow-auto max-h-[55vh]">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-[hsl(var(--card))] border-b border-[hsl(var(--border))]">
-                    <tr className="text-left" style={{ color: "hsl(var(--muted-foreground))" }}>
-                      <th className="p-2 w-8"></th>
-                      <th className="p-2">Saal</th>
-                      <th className="p-2">Auslass-Start</th>
-                      <th className="p-2">Reinigung (min)</th>
-                      <th className="p-2">Titel</th>
-                      <th className="p-2">Intensität</th>
-                      <th className="p-2">Besucher</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r, i) => (
-                      <tr
-                        key={i}
-                        className="border-t border-[hsl(var(--border))]"
-                        style={{ opacity: r.selected ? 1 : 0.5 }}
-                      >
-                        <td className="p-2">
-                          <input
-                            type="checkbox"
-                            checked={r.selected}
-                            onChange={(e) => updateRow(i, { selected: e.target.checked })}
-                            className="h-4 w-4 accent-[hsl(var(--primary))]"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="number"
-                            min={1}
-                            value={r.hall_number}
-                            onChange={(e) =>
-                              updateRow(i, { hall_number: Math.max(1, Number(e.target.value) || 1) })
-                            }
-                            className={`${inputCls} !w-16 !py-1`}
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="time"
-                            value={r.end_time}
-                            onChange={(e) => updateRow(i, { end_time: e.target.value })}
-                            className={`${inputCls} !w-24 !py-1`}
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="number"
-                            min={1}
-                            value={r.cleanup_minutes}
-                            onChange={(e) =>
-                              updateRow(i, {
-                                cleanup_minutes: Math.max(1, Number(e.target.value) || 1),
-                              })
-                            }
-                            className={`${inputCls} !w-20 !py-1`}
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="text"
-                            value={r.movie_title}
-                            onChange={(e) => updateRow(i, { movie_title: e.target.value })}
-                            className={`${inputCls} !py-1 min-w-[180px]`}
-                          />
-                          {r.fsk !== null && (
-                            <span className="ml-1 inline-block text-[9px] px-1 py-0.5 rounded bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]">
-                              FSK {r.fsk}
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-2">
-                          <select
-                            value={r.intensity}
-                            onChange={(e) =>
-                              updateRow(i, {
-                                intensity: e.target.value as "light" | "standard" | "intense",
-                              })
-                            }
-                            className={`${inputCls} !py-1`}
+        ) : (
+          <div className="feature-card overflow-hidden p-0">
+            <table className="w-full text-sm">
+              <thead
+                className="sticky top-0 z-10"
+                style={{ background: "hsl(var(--card))" }}
+              >
+                <tr
+                  className="text-left border-b border-[hsl(var(--border))]"
+                  style={{ color: "hsl(var(--muted-foreground))" }}
+                >
+                  <th className="py-3 px-3 w-10"></th>
+                  <th className="py-3 px-3 w-20 text-[10px] font-semibold uppercase tracking-[0.15em]">Saal</th>
+                  <th className="py-3 px-3 w-32 text-[10px] font-semibold uppercase tracking-[0.15em]">Auslass-Start</th>
+                  <th className="py-3 px-3 w-28 text-[10px] font-semibold uppercase tracking-[0.15em]">Reinigung</th>
+                  <th className="py-3 px-3 text-[10px] font-semibold uppercase tracking-[0.15em]">Filmtitel</th>
+                  <th className="py-3 px-3 w-36 text-[10px] font-semibold uppercase tracking-[0.15em]">Intensität</th>
+                  <th className="py-3 px-3 w-28 text-[10px] font-semibold uppercase tracking-[0.15em]">Besucher</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr
+                    key={i}
+                    className="border-t border-[hsl(var(--border))] transition-colors"
+                    style={{
+                      opacity: r.selected ? 1 : 0.45,
+                      background: i % 2 === 1 ? "hsl(var(--secondary) / 0.3)" : "transparent",
+                    }}
+                  >
+                    <td className="py-2.5 px-3 align-middle">
+                      <input
+                        type="checkbox"
+                        checked={r.selected}
+                        onChange={(e) => updateRow(i, { selected: e.target.checked })}
+                        className="h-4 w-4 accent-[hsl(var(--primary))]"
+                      />
+                    </td>
+                    <td className="py-2.5 px-3 align-middle">
+                      <input
+                        type="number"
+                        min={1}
+                        value={r.hall_number}
+                        onChange={(e) =>
+                          updateRow(i, { hall_number: Math.max(1, Number(e.target.value) || 1) })
+                        }
+                        className={`${inputCls} !py-1.5`}
+                      />
+                    </td>
+                    <td className="py-2.5 px-3 align-middle">
+                      <input
+                        type="time"
+                        value={r.end_time}
+                        onChange={(e) => updateRow(i, { end_time: e.target.value })}
+                        className={`${inputCls} !py-1.5`}
+                      />
+                    </td>
+                    <td className="py-2.5 px-3 align-middle">
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={1}
+                          value={r.cleanup_minutes}
+                          onChange={(e) =>
+                            updateRow(i, {
+                              cleanup_minutes: Math.max(1, Number(e.target.value) || 1),
+                            })
+                          }
+                          className={`${inputCls} !py-1.5`}
+                        />
+                        <span className="text-[10px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                          min
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3 align-middle">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={r.movie_title}
+                          onChange={(e) => updateRow(i, { movie_title: e.target.value })}
+                          className={`${inputCls} !py-1.5 flex-1`}
+                          placeholder="Filmtitel"
+                        />
+                        {r.fsk !== null && (
+                          <span
+                            className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
+                            style={{
+                              background: "hsl(var(--secondary))",
+                              color: "hsl(var(--muted-foreground))",
+                              border: "1px solid hsl(var(--border))",
+                            }}
                           >
-                            <option value="light">Leicht</option>
-                            <option value="standard">Standard</option>
-                            <option value="intense">Intensiv</option>
-                          </select>
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="number"
-                            min={0}
-                            value={r.attendees}
-                            onChange={(e) =>
-                              updateRow(i, { attendees: Math.max(0, Number(e.target.value) || 0) })
-                            }
-                            className={`${inputCls} !w-20 !py-1`}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
-              <button
-                type="button"
-                onClick={() => {
-                  setStage("pick");
-                  setRows([]);
-                }}
-                disabled={isCreating}
-                className="px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
-              >
-                Zurück
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={isCreating}
-                className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
-              >
-                Abbrechen
-              </button>
-              <button
-                type="button"
-                onClick={onSubmit}
-                disabled={isCreating || selectedCount === 0}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg disabled:opacity-50"
-              >
-                <Plus size={14} />
-                {isCreating ? "Lege an…" : `${selectedCount} Vorstellungen anlegen`}
-              </button>
-            </div>
-          </>
-        )}
-
-        {stage === "review" && created !== null && (
-          <div className="flex flex-col items-center gap-3 py-8">
-            <CheckCircle2 size={36} style={{ color: "hsl(142 70% 45%)" }} />
-            <p className="text-sm font-medium" style={{ color: "hsl(var(--foreground))" }}>
-              {created} {created === 1 ? "Vorstellung" : "Vorstellungen"} angelegt.
-            </p>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg"
-            >
-              Fertig
-            </button>
+                            FSK {r.fsk}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3 align-middle">
+                      <select
+                        value={r.intensity}
+                        onChange={(e) =>
+                          updateRow(i, {
+                            intensity: e.target.value as "light" | "standard" | "intense",
+                          })
+                        }
+                        className={`${inputCls} !py-1.5`}
+                      >
+                        <option value="light">Leicht</option>
+                        <option value="standard">Standard</option>
+                        <option value="intense">Intensiv</option>
+                      </select>
+                    </td>
+                    <td className="py-2.5 px-3 align-middle">
+                      <input
+                        type="number"
+                        min={0}
+                        value={r.attendees}
+                        onChange={(e) =>
+                          updateRow(i, { attendees: Math.max(0, Number(e.target.value) || 0) })
+                        }
+                        className={`${inputCls} !py-1.5`}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
-    </ModalShell>
+
+      {/* Footer */}
+      <div className="shrink-0 flex items-center gap-2 px-6 py-4 border-t border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={isCreating}
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-xl"
+        >
+          ← Zurück
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={isCreating}
+          className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-xl"
+        >
+          Abbrechen
+        </button>
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={isCreating || selectedCount === 0}
+          className="brand-button inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Plus size={14} />
+          {isCreating
+            ? "Lege an…"
+            : `${selectedCount} ${selectedCount === 1 ? "Vorstellung" : "Vorstellungen"} anlegen`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FupSuccessStage({ created, onClose }: { created: number; onClose: () => void }) {
+  return (
+    <div className="flex-1 min-h-0 flex items-center justify-center p-8">
+      <div className="feature-card p-10 flex flex-col items-center gap-4 max-w-md w-full text-center">
+        <div
+          className="w-16 h-16 rounded-2xl flex items-center justify-center"
+          style={{
+            background: "linear-gradient(135deg, hsl(142 70% 45% / 0.18), hsl(142 70% 55% / 0.12))",
+          }}
+        >
+          <CheckCircle2 size={32} style={{ color: "hsl(142 70% 45%)" }} />
+        </div>
+        <div>
+          <p className="text-lg font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+            <span className="gradient-text">
+              {created} {created === 1 ? "Vorstellung" : "Vorstellungen"} angelegt
+            </span>
+          </p>
+          <p
+            className="text-xs mt-1.5"
+            style={{ color: "hsl(var(--muted-foreground))" }}
+          >
+            Du kannst jetzt direkt den Bulk-KI-Plan über die neuen Vorstellungen laufen lassen.
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="brand-button inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-xl mt-2"
+        >
+          Fertig
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -2164,24 +2513,52 @@ function FupUploadModal({
 
 function ModalShell({
   title,
+  subtitle,
   onClose,
   children,
   size = "default",
 }: {
   title: string;
+  subtitle?: string;
   onClose: () => void;
   children: ReactNode;
-  size?: "default" | "wide" | "xl";
+  size?: "default" | "wide" | "xl" | "full";
 }) {
+  const isFull = size === "full";
   const maxWidthCls =
-    size === "xl" ? "max-w-6xl" : size === "wide" ? "max-w-3xl" : "max-w-lg";
+    size === "full"
+      ? "max-w-[min(96vw,1600px)]"
+      : size === "xl"
+      ? "max-w-6xl"
+      : size === "wide"
+      ? "max-w-3xl"
+      : "max-w-lg";
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative min-h-full flex items-start justify-center p-4 sm:p-6">
-        <div className={`relative w-full ${maxWidthCls} my-auto bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl`}>
-          <div className="flex items-center gap-3 p-5 border-b border-[hsl(var(--border))] rounded-t-2xl sticky top-0 bg-[hsl(var(--card))] z-10">
-            <h2 className="font-semibold text-[hsl(var(--foreground))]">{title}</h2>
+      <div
+        className={`relative min-h-full flex ${
+          isFull ? "items-center" : "items-start"
+        } justify-center p-3 sm:p-6`}
+      >
+        <div
+          className={`relative w-full ${maxWidthCls} ${
+            isFull ? "h-[92vh] flex flex-col" : "my-auto"
+          } bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl`}
+        >
+          <div
+            className={`flex items-center gap-3 p-5 border-b border-[hsl(var(--border))] rounded-t-2xl bg-[hsl(var(--card))] z-10 ${
+              isFull ? "shrink-0" : "sticky top-0"
+            }`}
+          >
+            <div className="min-w-0">
+              <h2 className="font-semibold text-[hsl(var(--foreground))]">{title}</h2>
+              {subtitle && (
+                <p className="text-xs mt-0.5" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  {subtitle}
+                </p>
+              )}
+            </div>
             <button
               onClick={onClose}
               className="ml-auto text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] p-1 rounded-lg hover:bg-[hsl(var(--secondary))]"
@@ -2192,7 +2569,11 @@ function ModalShell({
               </svg>
             </button>
           </div>
-          {children}
+          {isFull ? (
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{children}</div>
+          ) : (
+            children
+          )}
         </div>
       </div>
     </div>
