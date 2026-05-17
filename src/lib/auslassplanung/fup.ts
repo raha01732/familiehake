@@ -42,11 +42,21 @@ Das Bild kann um 90° gedreht erscheinen. Spalten (in dieser Reihenfolge):
 Wenn am oberen Rand des FÜP ein Datum erkennbar ist, gib es als ISO-Datum zurück
 ("date": "YYYY-MM-DD"). Wenn nicht erkennbar, "date": null.
 
-intensity_hint basierend auf FSK + Titel:
-- "intense": Familien-/Animationsfilme (Super Mario, Schafskrimi, Conni-Filme, Glennkill,
-  Tom & Jerry, etc.) oder FSK 0/6 mit Kinder-Kontext
-- "light": kurze Vormittagsvorstellungen ohne erkennbares Familienpublikum
-- "standard": alle anderen — Default
+intensity_hint — Reinigungsintensität pro Vorstellung. Stütze deine Einschätzung auf:
+1. Dein allgemeines Wissen über den Film (Zielgruppe, Genre, Erfahrungen aus dem Kinoalltag).
+2. FSK als zusätzlichen Indikator.
+3. Plausibilitätsregeln:
+   - "intense": viel Müll und Schmutz zu erwarten. Typischerweise Familien- und Animationsfilme
+     (Disney-/Pixar-Filme, Conni, Mario, Tom & Jerry, Paw Patrol etc.), Event-Vorstellungen
+     mit Snacks/Getränken, Schul- oder Kindergeburtstags-Klientel, Vorpremieren oder
+     ausverkaufte Vorstellungen. FSK 0/6 + Kinderfilm-Charakter ist ein starker Hinweis,
+     reicht aber alleine nicht — schau auf den Film selbst.
+   - "light": ruhige Vorstellungen mit erwartbar wenig Müll: Arthouse, Programmkino,
+     dokumentarische Filme, OV-Vorstellungen mit kleinerem Publikum, Vormittagsvorstellungen
+     für Erwachsene ohne Snacks.
+   - "standard": alles Übrige — normale Spielfilme, durchschnittliches Publikum.
+Wenn du den Film nicht eindeutig kennst, leite anhand von Titel und FSK eine plausible
+Einschätzung ab und bleibe im Zweifel bei "standard".
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt nach diesem Schema. Keine Markdown-Code-Fences,
 kein erklärender Text außerhalb des JSON:

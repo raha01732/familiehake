@@ -600,23 +600,270 @@ function ShowsTab({
           Noch keine Vorstellungen angelegt. Lege deine erste an, dann kann die KI planen.
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {shows.map((show) => {
-            const assignments = assignmentsByShow.get(show.id) ?? [];
-            const feedback = feedbackByShow.get(show.id) ?? null;
-            const status = STATUS_LABELS[show.plan_status];
-            const planning = planningShowId === show.id && isPlanning;
-            const recommended =
-              show.ai_recommended_staff_count ?? recommendStaffCount(show.attendees, show.intensity);
-            const dateLabel = new Date(`${show.show_date}T00:00:00Z`).toLocaleDateString("de-DE", {
-              timeZone: "Europe/Berlin",
-              weekday: "short",
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-            });
-            return (
-              <div key={show.id} className="feature-card p-4 flex flex-col gap-3">
+        <RutschenSections
+          shows={shows}
+          staffById={staffById}
+          assignmentsByShow={assignmentsByShow}
+          feedbackByShow={feedbackByShow}
+          canEdit={canEdit}
+          aiEnabled={aiEnabled}
+          isPlanning={isPlanning}
+          isBulkPlanning={isBulkPlanning}
+          planningShowId={planningShowId}
+          onEdit={onEdit}
+          onPlan={onPlan}
+          onAssign={onAssign}
+          onClear={onClear}
+          onFeedback={onFeedback}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Rutschen-Sektion mit Cards ──────────────────────────────────────
+
+function RutschenSections({
+  shows,
+  staffById,
+  assignmentsByShow,
+  feedbackByShow,
+  canEdit,
+  aiEnabled,
+  isPlanning,
+  isBulkPlanning,
+  planningShowId,
+  onEdit,
+  onPlan,
+  onAssign,
+  onClear,
+  onFeedback,
+}: {
+  shows: CleaningShow[];
+  staffById: Map<number, CleaningStaff>;
+  assignmentsByShow: Map<number, CleaningAssignment[]>;
+  feedbackByShow: Map<number, CleaningFeedback>;
+  canEdit: boolean;
+  aiEnabled: boolean;
+  isPlanning: boolean;
+  isBulkPlanning: boolean;
+  planningShowId: number | null;
+  onEdit: (show: CleaningShow) => void;
+  onPlan: (show: CleaningShow) => void;
+  onAssign: (show: CleaningShow) => void;
+  onClear: (show: CleaningShow) => void;
+  onFeedback: (show: CleaningShow) => void;
+}) {
+  // Wir berechnen Rutschen pro show_date getrennt, damit eine Rutsche nicht
+  // zwischen verschiedenen Tagen springt. Tages-Reihenfolge: neueste zuerst
+  // (passt zur bestehenden Page-Sortierung).
+  const sections = useMemo(() => {
+    const byDate = new Map<string, CleaningShow[]>();
+    for (const s of shows) {
+      const arr = byDate.get(s.show_date) ?? [];
+      arr.push(s);
+      byDate.set(s.show_date, arr);
+    }
+    const dates = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a));
+    return dates.map((date) => {
+      const dayShows = (byDate.get(date) ?? []).slice().sort(compareShowsByCinemaDay);
+      return { date, rutschen: detectRutschen(dayShows) };
+    });
+  }, [shows]);
+
+  return (
+    <div className="flex flex-col gap-6">
+      {sections.map(({ date, rutschen }) => {
+        const dateLabel = new Date(`${date}T00:00:00Z`).toLocaleDateString("de-DE", {
+          timeZone: "Europe/Berlin",
+          weekday: "long",
+          day: "2-digit",
+          month: "long",
+          year: "numeric",
+        });
+        return (
+          <section key={date} className="flex flex-col gap-4">
+            <div className="flex items-baseline gap-3 flex-wrap">
+              <h2 className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+                {dateLabel}
+              </h2>
+              <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                {rutschen.length} {rutschen.length === 1 ? "Rutsche" : "Rutschen"} ·{" "}
+                {rutschen.reduce((acc, r) => acc + r.shows.length, 0)} Vorstellungen
+              </span>
+            </div>
+            {rutschen.map((r) => (
+              <RutscheBlock
+                key={`${date}-${r.index}`}
+                rutsche={r}
+                staffById={staffById}
+                assignmentsByShow={assignmentsByShow}
+                feedbackByShow={feedbackByShow}
+                canEdit={canEdit}
+                aiEnabled={aiEnabled}
+                isPlanning={isPlanning}
+                isBulkPlanning={isBulkPlanning}
+                planningShowId={planningShowId}
+                onEdit={onEdit}
+                onPlan={onPlan}
+                onAssign={onAssign}
+                onClear={onClear}
+                onFeedback={onFeedback}
+              />
+            ))}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function RutscheBlock({
+  rutsche,
+  staffById,
+  assignmentsByShow,
+  feedbackByShow,
+  canEdit,
+  aiEnabled,
+  isPlanning,
+  isBulkPlanning,
+  planningShowId,
+  onEdit,
+  onPlan,
+  onAssign,
+  onClear,
+  onFeedback,
+}: {
+  rutsche: Rutsche;
+  staffById: Map<number, CleaningStaff>;
+  assignmentsByShow: Map<number, CleaningAssignment[]>;
+  feedbackByShow: Map<number, CleaningFeedback>;
+  canEdit: boolean;
+  aiEnabled: boolean;
+  isPlanning: boolean;
+  isBulkPlanning: boolean;
+  planningShowId: number | null;
+  onEdit: (show: CleaningShow) => void;
+  onPlan: (show: CleaningShow) => void;
+  onAssign: (show: CleaningShow) => void;
+  onClear: (show: CleaningShow) => void;
+  onFeedback: (show: CleaningShow) => void;
+}) {
+  const totalAttendees = rutsche.shows.reduce((acc, s) => acc + s.attendees, 0);
+  const statusCounts = {
+    open: rutsche.shows.filter((s) => s.plan_status === "open").length,
+    planned: rutsche.shows.filter((s) => s.plan_status === "planned").length,
+    completed: rutsche.shows.filter((s) => s.plan_status === "completed").length,
+    cancelled: rutsche.shows.filter((s) => s.plan_status === "cancelled").length,
+  };
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span
+          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em]"
+          style={{
+            background: "hsl(var(--primary) / 0.12)",
+            color: "hsl(var(--primary))",
+            border: "1px solid hsl(var(--primary) / 0.3)",
+          }}
+        >
+          Rutsche {rutsche.index}
+        </span>
+        <span className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+          {formatRutscheRange(rutsche)}
+        </span>
+        <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          · {rutsche.shows.length} {rutsche.shows.length === 1 ? "Saal" : "Säle"}
+          {totalAttendees > 0 ? ` · ${totalAttendees} Besucher` : ""}
+        </span>
+        <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+          {statusCounts.open > 0 && (
+            <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${STATUS_LABELS.open.cls}`}>
+              {statusCounts.open} offen
+            </span>
+          )}
+          {statusCounts.planned > 0 && (
+            <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${STATUS_LABELS.planned.cls}`}>
+              {statusCounts.planned} geplant
+            </span>
+          )}
+          {statusCounts.completed > 0 && (
+            <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${STATUS_LABELS.completed.cls}`}>
+              {statusCounts.completed} erledigt
+            </span>
+          )}
+          {statusCounts.cancelled > 0 && (
+            <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${STATUS_LABELS.cancelled.cls}`}>
+              {statusCounts.cancelled} abgesagt
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {rutsche.shows.map((show) => (
+          <ShowCard
+            key={show.id}
+            show={show}
+            assignments={assignmentsByShow.get(show.id) ?? []}
+            feedback={feedbackByShow.get(show.id) ?? null}
+            staffById={staffById}
+            canEdit={canEdit}
+            aiEnabled={aiEnabled}
+            planning={planningShowId === show.id && isPlanning}
+            isBulkPlanning={isBulkPlanning}
+            onEdit={onEdit}
+            onPlan={onPlan}
+            onAssign={onAssign}
+            onClear={onClear}
+            onFeedback={onFeedback}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ShowCard({
+  show,
+  assignments,
+  feedback,
+  staffById,
+  canEdit,
+  aiEnabled,
+  planning,
+  isBulkPlanning,
+  onEdit,
+  onPlan,
+  onAssign,
+  onClear,
+  onFeedback,
+}: {
+  show: CleaningShow;
+  assignments: CleaningAssignment[];
+  feedback: CleaningFeedback | null;
+  staffById: Map<number, CleaningStaff>;
+  canEdit: boolean;
+  aiEnabled: boolean;
+  planning: boolean;
+  isBulkPlanning: boolean;
+  onEdit: (show: CleaningShow) => void;
+  onPlan: (show: CleaningShow) => void;
+  onAssign: (show: CleaningShow) => void;
+  onClear: (show: CleaningShow) => void;
+  onFeedback: (show: CleaningShow) => void;
+}) {
+  const status = STATUS_LABELS[show.plan_status];
+  const recommended =
+    show.ai_recommended_staff_count ?? recommendStaffCount(show.attendees, show.intensity);
+  const dateLabel = new Date(`${show.show_date}T00:00:00Z`).toLocaleDateString("de-DE", {
+    timeZone: "Europe/Berlin",
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  return (
+    <div className="feature-card p-4 flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -757,11 +1004,6 @@ function ShowsTab({
                   )}
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
   );
 }
 
