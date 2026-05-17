@@ -10,6 +10,8 @@ import {
   Brush,
   CalendarRange,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clapperboard,
   Eraser,
   FileImage,
@@ -116,6 +118,7 @@ type Props = {
   createStaffAction: ActionFn;
   updateStaffAction: ActionFn;
   deleteStaffAction: ActionFn;
+  moveStaffAction: ActionFn;
   createShowAction: ActionFn;
   updateShowAction: ActionFn;
   deleteShowAction: ActionFn;
@@ -161,6 +164,7 @@ export default function AuslassplanungClient({
   createStaffAction,
   updateStaffAction,
   deleteStaffAction,
+  moveStaffAction,
   createShowAction,
   updateShowAction,
   deleteShowAction,
@@ -372,6 +376,7 @@ export default function AuslassplanungClient({
           canEdit={canEdit}
           onAdd={() => setStaffModal(null)}
           onEdit={(s) => setStaffModal(s)}
+          moveAction={moveStaffAction}
         />
       )}
 
@@ -1098,11 +1103,13 @@ function StaffTab({
   canEdit,
   onAdd,
   onEdit,
+  moveAction,
 }: {
   staff: CleaningStaff[];
   canEdit: boolean;
   onAdd: () => void;
   onEdit: (s: CleaningStaff) => void;
+  moveAction: ActionFn;
 }) {
   const preferred = staff.filter((s) => s.preference === "preferred");
   const backup = staff.filter((s) => s.preference === "backup");
@@ -1111,6 +1118,7 @@ function StaffTab({
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
           {preferred.length} bevorzugt · {backup.length} im Zweifelsfall.
+          {" "}Die Reihenfolge innerhalb einer Gruppe bestimmt, wer zuerst eingeplant wird.
         </p>
         {canEdit && (
           <button onClick={onAdd} className="brand-button inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold">
@@ -1118,8 +1126,21 @@ function StaffTab({
           </button>
         )}
       </div>
-      <StaffGroup title="Bevorzugt" list={preferred} onEdit={onEdit} canEdit={canEdit} />
-      <StaffGroup title="Im Zweifelsfall" list={backup} onEdit={onEdit} canEdit={canEdit} muted />
+      <StaffGroup
+        title="Bevorzugt"
+        list={preferred}
+        onEdit={onEdit}
+        canEdit={canEdit}
+        moveAction={moveAction}
+      />
+      <StaffGroup
+        title="Im Zweifelsfall"
+        list={backup}
+        onEdit={onEdit}
+        canEdit={canEdit}
+        moveAction={moveAction}
+        muted
+      />
     </div>
   );
 }
@@ -1129,12 +1150,14 @@ function StaffGroup({
   list,
   onEdit,
   canEdit,
+  moveAction,
   muted = false,
 }: {
   title: string;
   list: CleaningStaff[];
   onEdit: (s: CleaningStaff) => void;
   canEdit: boolean;
+  moveAction: ActionFn;
   muted?: boolean;
 }) {
   if (list.length === 0) return null;
@@ -1147,45 +1170,121 @@ function StaffGroup({
         {title} ({list.length})
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {list.map((s) => (
-          <div
+        {list.map((s, idx) => (
+          <StaffCard
             key={s.id}
-            className="feature-card p-3 flex items-center gap-3"
-            style={{ opacity: s.is_active ? 1 : 0.55 }}
-          >
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-              style={{ backgroundColor: s.color }}
-            >
-              {getInitials(s.name)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold truncate" style={{ color: "hsl(var(--foreground))" }}>
-                {s.name}
-              </div>
-              {(s.work_start && s.work_end) && (
-                <div className="text-[11px] truncate" style={{ color: "hsl(var(--muted-foreground))" }}>
-                  Arbeitszeit: {s.work_start.slice(0, 5)} – {s.work_end.slice(0, 5)}
-                </div>
-              )}
-              {s.notes && (
-                <div className="text-[11px] truncate" style={{ color: "hsl(var(--muted-foreground))" }}>
-                  {s.notes}
-                </div>
-              )}
-            </div>
-            {canEdit && (
-              <button
-                onClick={() => onEdit(s)}
-                className="p-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
-                title="Bearbeiten"
-              >
-                <Pencil size={14} />
-              </button>
-            )}
-          </div>
+            staff={s}
+            position={idx + 1}
+            isFirst={idx === 0}
+            isLast={idx === list.length - 1}
+            canEdit={canEdit}
+            onEdit={() => onEdit(s)}
+            moveAction={moveAction}
+          />
         ))}
       </div>
+    </div>
+  );
+}
+
+function StaffCard({
+  staff,
+  position,
+  isFirst,
+  isLast,
+  canEdit,
+  onEdit,
+  moveAction,
+}: {
+  staff: CleaningStaff;
+  position: number;
+  isFirst: boolean;
+  isLast: boolean;
+  canEdit: boolean;
+  onEdit: () => void;
+  moveAction: ActionFn;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
+  function move(direction: "up" | "down") {
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("id", String(staff.id));
+      fd.set("direction", direction);
+      await moveAction(fd);
+      router.refresh();
+    });
+  }
+
+  return (
+    <div
+      className="feature-card p-3 flex items-center gap-3"
+      style={{ opacity: staff.is_active ? 1 : 0.55 }}
+    >
+      <div className="flex flex-col items-center gap-0.5">
+        <span
+          className="text-[10px] font-bold tabular-nums w-5 text-center"
+          style={{ color: "hsl(var(--muted-foreground))" }}
+          title={`Priorität ${position}`}
+        >
+          #{position}
+        </span>
+        {canEdit && (
+          <div className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => move("up")}
+              disabled={isFirst || isPending}
+              className="p-0.5 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Eine Position höher"
+              aria-label={`${staff.name} höher priorisieren`}
+            >
+              <ChevronUp size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => move("down")}
+              disabled={isLast || isPending}
+              className="p-0.5 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Eine Position tiefer"
+              aria-label={`${staff.name} niedriger priorisieren`}
+            >
+              <ChevronDown size={14} />
+            </button>
+          </div>
+        )}
+      </div>
+      <div
+        className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+        style={{ backgroundColor: staff.color }}
+      >
+        {getInitials(staff.name)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold truncate" style={{ color: "hsl(var(--foreground))" }}>
+          {staff.name}
+        </div>
+        {(staff.work_start && staff.work_end) && (
+          <div className="text-[11px] truncate" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Arbeitszeit: {staff.work_start.slice(0, 5)} – {staff.work_end.slice(0, 5)}
+          </div>
+        )}
+        {staff.notes && (
+          <div className="text-[11px] truncate" style={{ color: "hsl(var(--muted-foreground))" }}>
+            {staff.notes}
+          </div>
+        )}
+      </div>
+      {canEdit && (
+        <button
+          onClick={onEdit}
+          className="p-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+          title="Bearbeiten"
+        >
+          <Pencil size={14} />
+        </button>
+      )}
     </div>
   );
 }

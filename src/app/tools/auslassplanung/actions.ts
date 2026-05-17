@@ -134,6 +134,49 @@ export async function deleteStaffAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
+// Tauscht sort_order mit dem direkten Nachbarn innerhalb derselben
+// Präferenz-Gruppe (preferred / backup). direction = "up" | "down".
+// Niedrigere sort_order = höhere Priorität in der Allokation.
+export async function moveStaffAction(formData: FormData) {
+  await assertCallerHasCinemaAccess();
+  const id = Number(formData.get("id"));
+  const direction = String(formData.get("direction") || "");
+  if (!id || (direction !== "up" && direction !== "down")) return;
+
+  const sb = createAdminClient();
+  const { data: rows } = await sb
+    .from("cinema_cleaning_staff")
+    .select("id, preference, sort_order")
+    .order("sort_order", { ascending: true })
+    .order("id", { ascending: true });
+  if (!rows) return;
+
+  const current = rows.find((r) => (r as { id: number }).id === id) as
+    | { id: number; preference: string; sort_order: number }
+    | undefined;
+  if (!current) return;
+
+  const sameGroup = (rows as Array<{ id: number; preference: string; sort_order: number }>).filter(
+    (r) => r.preference === current.preference,
+  );
+  const idx = sameGroup.findIndex((r) => r.id === id);
+  const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (targetIdx < 0 || targetIdx >= sameGroup.length) return;
+
+  const target = sameGroup[targetIdx];
+  // sort_order tauschen — wenn beide gleich sind (alte DB), explizit neue Werte vergeben
+  if (current.sort_order === target.sort_order) {
+    const lower = direction === "up" ? current.sort_order : current.sort_order + 1;
+    const higher = direction === "up" ? current.sort_order + 1 : current.sort_order;
+    await sb.from("cinema_cleaning_staff").update({ sort_order: lower }).eq("id", current.id);
+    await sb.from("cinema_cleaning_staff").update({ sort_order: higher }).eq("id", target.id);
+  } else {
+    await sb.from("cinema_cleaning_staff").update({ sort_order: target.sort_order }).eq("id", current.id);
+    await sb.from("cinema_cleaning_staff").update({ sort_order: current.sort_order }).eq("id", target.id);
+  }
+  revalidatePath(PLAN_PATH);
+}
+
 // ── Show CRUD ─────────────────────────────────────────────────────────
 
 export async function createShowAction(formData: FormData) {

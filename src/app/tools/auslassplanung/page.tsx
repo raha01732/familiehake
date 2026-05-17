@@ -14,6 +14,7 @@ import {
   createStaffAction,
   updateStaffAction,
   deleteStaffAction,
+  moveStaffAction,
   planShowAction,
   planManyShowsAction,
   setManualAssignmentsAction,
@@ -87,6 +88,7 @@ export default async function AuslassplanungPage() {
         createStaffAction={createStaffAction}
         updateStaffAction={updateStaffAction}
         deleteStaffAction={deleteStaffAction}
+        moveStaffAction={moveStaffAction}
         createShowAction={createShowAction}
         updateShowAction={updateShowAction}
         deleteShowAction={deleteShowAction}
