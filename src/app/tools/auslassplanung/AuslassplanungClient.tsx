@@ -2533,48 +2533,48 @@ function ModalShell({
       : size === "wide"
       ? "max-w-3xl"
       : "max-w-lg";
+
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
-        className={`relative min-h-full flex ${
-          isFull ? "items-center" : "items-start"
-        } justify-center p-3 sm:p-6`}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div
+        className={`relative w-full ${maxWidthCls} mx-3 sm:mx-6 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl ${
+          isFull
+            ? "h-[calc(100vh-1.5rem)] sm:h-[calc(100vh-3rem)] flex flex-col overflow-hidden"
+            : "max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] overflow-y-auto"
+        }`}
       >
         <div
-          className={`relative w-full ${maxWidthCls} ${
-            isFull ? "h-[92vh] flex flex-col" : "my-auto"
-          } bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl`}
+          className={`flex items-center gap-3 p-5 border-b border-[hsl(var(--border))] rounded-t-2xl bg-[hsl(var(--card))] ${
+            isFull ? "shrink-0" : "sticky top-0 z-10"
+          }`}
         >
-          <div
-            className={`flex items-center gap-3 p-5 border-b border-[hsl(var(--border))] rounded-t-2xl bg-[hsl(var(--card))] z-10 ${
-              isFull ? "shrink-0" : "sticky top-0"
-            }`}
-          >
-            <div className="min-w-0">
-              <h2 className="font-semibold text-[hsl(var(--foreground))]">{title}</h2>
-              {subtitle && (
-                <p className="text-xs mt-0.5" style={{ color: "hsl(var(--muted-foreground))" }}>
-                  {subtitle}
-                </p>
-              )}
-            </div>
-            <button
-              onClick={onClose}
-              className="ml-auto text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] p-1 rounded-lg hover:bg-[hsl(var(--secondary))]"
-              aria-label="Schließen"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+          <div className="min-w-0">
+            <h2 className="font-semibold text-[hsl(var(--foreground))]">{title}</h2>
+            {subtitle && (
+              <p className="text-xs mt-0.5" style={{ color: "hsl(var(--muted-foreground))" }}>
+                {subtitle}
+              </p>
+            )}
           </div>
-          {isFull ? (
-            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{children}</div>
-          ) : (
-            children
-          )}
+          <button
+            onClick={onClose}
+            className="ml-auto text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] p-1 rounded-lg hover:bg-[hsl(var(--secondary))]"
+            aria-label="Schließen"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
+        {isFull ? (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{children}</div>
+        ) : (
+          children
+        )}
       </div>
     </div>
   );
