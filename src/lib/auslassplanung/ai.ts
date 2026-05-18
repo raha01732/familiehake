@@ -376,28 +376,44 @@ export async function generateRutschenPlanWithAi(params: {
     ],
   });
 
-  const parsed = safeJsonParse<{
-    shows?: Array<{
-      show_id?: number;
-      recommended_staff_count?: number;
-      assignments?: Array<{
-        staff_id?: number;
-        early_leave?: boolean;
-        moves_to_hall?: number | null;
-        reason?: string;
-      }>;
-      notes?: string;
+  const parsed = safeJsonParse<RawRutschenAiResponse>(content);
+  return normalizeRutschenAiResponse(parsed, params.shows, params.staff);
+}
+
+/** Rohe (ungeprüfte) KI-Antwort, wie sie aus dem JSON-Parser fällt. Exportiert
+ *  für Tests. */
+export type RawRutschenAiResponse = {
+  shows?: Array<{
+    show_id?: number;
+    recommended_staff_count?: number;
+    assignments?: Array<{
+      staff_id?: number;
+      early_leave?: boolean;
+      moves_to_hall?: number | null;
+      reason?: string;
     }>;
     notes?: string;
-  }>(content);
+  }>;
+  notes?: string;
+};
 
-  // Normalisieren
-  const allowedStaff = new Set(params.staff.map((s) => s.id));
-  const staffById = new Map(params.staff.map((s) => [s.id, s]));
-  const allowedShows = new Set(params.shows.map((s) => s.id));
-  const showById = new Map(params.shows.map((s) => [s.id, s]));
-  const hallByShow = new Map(params.shows.map((s) => [s.id, s.hall_number]));
-  const allowedHalls = new Set(params.shows.map((s) => s.hall_number));
+/** Normalisiert eine rohe KI-Antwort gegen Show- und Staff-Pool:
+ *  - dropt unbekannte Show-/Staff-IDs,
+ *  - klemmt recommended_staff_count auf [1, staff.length],
+ *  - dropt MA, deren Schicht das Reinigungsfenster nicht abdeckt,
+ *  - validiert moves_to_hall + early_leave.
+ *  Pure Funktion — eignet sich für Unit-Tests ohne Netzwerk-Mock. */
+export function normalizeRutschenAiResponse(
+  parsed: RawRutschenAiResponse,
+  shows: AiShowInput[],
+  staff: AiStaffInput[],
+): AiRutschenPlan {
+  const allowedStaff = new Set(staff.map((s) => s.id));
+  const staffById = new Map(staff.map((s) => [s.id, s]));
+  const allowedShows = new Set(shows.map((s) => s.id));
+  const showById = new Map(shows.map((s) => [s.id, s]));
+  const hallByShow = new Map(shows.map((s) => [s.id, s.hall_number]));
+  const allowedHalls = new Set(shows.map((s) => s.hall_number));
 
   const normalizedShows: AiRutscheShowPlan[] = [];
   for (const row of parsed.shows ?? []) {
@@ -406,18 +422,18 @@ export async function generateRutschenPlanWithAi(params: {
     const show = showById.get(showId)!;
     const count = Math.max(
       1,
-      Math.min(params.staff.length, Math.round(row.recommended_staff_count ?? 1) || 1),
+      Math.min(staff.length, Math.round(row.recommended_staff_count ?? 1) || 1),
     );
     const myHall = hallByShow.get(showId);
     const assignments: AiRutscheShowPlan["assignments"] = [];
     for (const a of row.assignments ?? []) {
       const sid = Number(a.staff_id);
       if (!allowedStaff.has(sid)) continue;
-      const staff = staffById.get(sid)!;
+      const s = staffById.get(sid)!;
       // HARTER Schicht-Filter: KI darf keine MA einplanen, deren Schicht
       // den Reinigungszeitraum nicht abdeckt. Schützt vor KI-Halluzinationen
       // bei work_start/work_end.
-      if (!cleanupWithinShift(show.end_time, show.cleanup_minutes, staff.work_start, staff.work_end)) {
+      if (!cleanupWithinShift(show.end_time, show.cleanup_minutes, s.work_start, s.work_end)) {
         continue;
       }
       const movesTo =
