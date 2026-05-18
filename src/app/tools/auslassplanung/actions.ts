@@ -304,6 +304,45 @@ export async function deleteAllShowsAction(formData: FormData): Promise<{
   return { deleted: before ?? 0, archived };
 }
 
+// Überträgt alle Feedback-Einträge ins Lern-Archiv, ohne die Vorstellungen
+// zu löschen. Idempotent — wiederholtes Aufrufen erzeugt keine Duplikate
+// (archiveShowsByIds entfernt vorher bestehende Archiv-Einträge für die
+// gleichen Show-IDs). Optional kann show_id[] mitgegeben werden, um nur
+// bestimmte Vorstellungen zu archivieren.
+export async function archiveFeedbackAction(
+  formData: FormData,
+): Promise<{ archived: number; eligible: number }> {
+  await assertCallerHasCinemaAccess();
+  const sb = createAdminClient();
+
+  const explicitIds = formData
+    .getAll("show_id")
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  let candidateIds: number[];
+  if (explicitIds.length > 0) {
+    // Nur Shows mit Feedback aus der Auswahl
+    const { data } = await sb
+      .from("cinema_cleaning_feedback")
+      .select("show_id")
+      .in("show_id", explicitIds);
+    candidateIds = (data ?? [])
+      .map((r) => (r as { show_id: number }).show_id)
+      .filter((n) => Number.isFinite(n));
+  } else {
+    const { data } = await sb.from("cinema_cleaning_feedback").select("show_id");
+    candidateIds = (data ?? [])
+      .map((r) => (r as { show_id: number }).show_id)
+      .filter((n) => Number.isFinite(n));
+  }
+
+  const archived = await archiveShowsByIds(sb, candidateIds);
+  revalidatePath(PLAN_PATH);
+  revalidatePath("/tools/auslassplanung/lerndaten");
+  return { archived, eligible: candidateIds.length };
+}
+
 // ── Planung ───────────────────────────────────────────────────────────
 
 type PlanResult = {
@@ -454,9 +493,11 @@ type LearningEntry = {
 };
 type LearningEntryWithDate = LearningEntry & { _sortKey: string };
 
-/** Archiviert die Feedback-Daten der angegebenen Vorstellungen ins Lern-Archiv,
- *  bevor sie aus cinema_cleaning_shows (und damit via cascade auch aus feedback)
- *  gelöscht werden. Rückgabe: Anzahl der archivierten Einträge. */
+/** Archiviert die Feedback-Daten der angegebenen Vorstellungen ins Lern-Archiv.
+ *  Idempotent: bestehende Archiv-Einträge für dieselbe Show-ID werden vorher
+ *  entfernt, damit derselbe Datensatz nicht doppelt der KI vorgesetzt wird.
+ *  Rückgabe: Anzahl der neu eingefügten Einträge.
+ */
 async function archiveShowsByIds(sb: SupabaseAdmin, showIds: number[]): Promise<number> {
   if (showIds.length === 0) return 0;
   const { data: rows } = await sb
@@ -492,6 +533,11 @@ async function archiveShowsByIds(sb: SupabaseAdmin, showIds: number[]): Promise<
     });
   }
   if (toArchive.length === 0) return 0;
+  // Idempotent: bestehende Einträge zu denselben Show-IDs vorher entfernen
+  await sb
+    .from("cinema_cleaning_learning_archive")
+    .delete()
+    .in("archived_from_show_id", showIds);
   await sb.from("cinema_cleaning_learning_archive").insert(toArchive);
   return toArchive.length;
 }
@@ -502,18 +548,39 @@ async function loadLearningData(
   sb: SupabaseAdmin,
   excludeShowIds: ReadonlySet<number>,
 ): Promise<LearningEntry[]> {
-  // 1) Aktive Shows mit Feedback laden (mit Puffer für die Feedback-Quote)
-  const { data: pastRows } = await sb
-    .from("cinema_cleaning_shows")
-    .select(`
-      id, show_date, hall_number, attendees, cleanup_minutes, intensity, movie_title,
-      cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes )
-    `)
-    .order("show_date", { ascending: false })
-    .limit(LEARNING_LIMIT * 4);
+  // 1) Archiv parallel zu aktiven Shows laden
+  const [pastRowsResult, archiveRowsResult] = await Promise.all([
+    sb
+      .from("cinema_cleaning_shows")
+      .select(`
+        id, show_date, hall_number, attendees, cleanup_minutes, intensity, movie_title,
+        cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes )
+      `)
+      .order("show_date", { ascending: false })
+      .limit(LEARNING_LIMIT * 4),
+    sb
+      .from("cinema_cleaning_learning_archive")
+      .select(
+        "show_date, hall_number, attendees, cleanup_minutes, intensity, movie_title, actual_staff_count, actual_duration_minutes, rating, feedback_notes, archived_from_show_id",
+      )
+      .order("show_date", { ascending: false })
+      .limit(LEARNING_LIMIT),
+  ]);
+  const pastRows = pastRowsResult.data;
+  const archiveRows = archiveRowsResult.data;
+
+  // Show-IDs, die bereits im Archiv stehen — diese Shows aus dem aktiven Pool
+  // ausschließen, sonst sähe die KI denselben Datensatz doppelt.
+  const archivedShowIds = new Set<number>();
+  for (const row of (archiveRows ?? []) as any[]) {
+    const id = row.archived_from_show_id;
+    if (typeof id === "number") archivedShowIds.add(id);
+  }
+
   const activeOut: LearningEntryWithDate[] = [];
   for (const row of (pastRows ?? []) as any[]) {
     if (excludeShowIds.has(row.id as number)) continue;
+    if (archivedShowIds.has(row.id as number)) continue;
     const fb = Array.isArray(row.cinema_cleaning_feedback)
       ? row.cinema_cleaning_feedback[0]
       : row.cinema_cleaning_feedback;
@@ -532,14 +599,6 @@ async function loadLearningData(
     });
   }
 
-  // 2) Archiv-Einträge laden (die kommen aus früheren Löschungen)
-  const { data: archiveRows } = await sb
-    .from("cinema_cleaning_learning_archive")
-    .select(
-      "show_date, hall_number, attendees, cleanup_minutes, intensity, movie_title, actual_staff_count, actual_duration_minutes, rating, feedback_notes",
-    )
-    .order("show_date", { ascending: false })
-    .limit(LEARNING_LIMIT);
   const archiveOut: LearningEntryWithDate[] = (archiveRows ?? []).map((row: any) => ({
     hall_number: row.hall_number as number,
     attendees: row.attendees as number,
@@ -553,7 +612,7 @@ async function loadLearningData(
     _sortKey: row.show_date as string,
   }));
 
-  // 3) Mergen, nach show_date desc sortieren, auf LIMIT slicen, Sort-Key strippen
+  // 2) Mergen, nach show_date desc sortieren, auf LIMIT slicen, Sort-Key strippen
   return [...activeOut, ...archiveOut]
     .sort((a, b) => b._sortKey.localeCompare(a._sortKey))
     .slice(0, LEARNING_LIMIT)

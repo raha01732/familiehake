@@ -138,6 +138,7 @@ type Props = {
   createShowsFromFupAction: CreateFromFupFn;
   updateAttendeesAction: UpdateAttendeesFn;
   estimateAttendeesAction: EstimateAttendeesFn;
+  archiveFeedbackAction: (_fd: FormData) => Promise<{ archived: number; eligible: number }>;
   saveFeedbackAction: ActionFn;
 };
 
@@ -187,6 +188,7 @@ export default function AuslassplanungClient({
   createShowsFromFupAction,
   updateAttendeesAction,
   estimateAttendeesAction,
+  archiveFeedbackAction,
   saveFeedbackAction,
 }: Props) {
   const router = useRouter();
@@ -213,6 +215,11 @@ export default function AuslassplanungClient({
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const [isDeletingAll, startDeletingAll] = useTransition();
   const [attendeesModalOpen, setAttendeesModalOpen] = useState(false);
+  const [archiveFeedbackOpen, setArchiveFeedbackOpen] = useState(false);
+  const [isArchivingFeedback, startArchivingFeedback] = useTransition();
+  const [archiveResult, setArchiveResult] = useState<{ archived: number; eligible: number } | null>(null);
+
+  const feedbackCount = initialFeedback.length;
 
   const staffById = useMemo(() => {
     const m = new Map<number, CleaningStaff>();
@@ -290,6 +297,15 @@ export default function AuslassplanungClient({
     fd.set("staff_id", String(staffId));
     // Optimistisch: kurzes Transition, dann refresh
     void removeAssignmentAction(fd).then(() => router.refresh());
+  }
+
+  function handleArchiveFeedback() {
+    startArchivingFeedback(async () => {
+      const fd = new FormData();
+      const res = await archiveFeedbackAction(fd);
+      setArchiveResult(res);
+      router.refresh();
+    });
   }
 
   function handleDeleteAll() {
@@ -387,6 +403,11 @@ export default function AuslassplanungClient({
           onFupOpen={() => setFupModalOpen(true)}
           onDeleteAllOpen={() => setConfirmDeleteAll(true)}
           onAttendeesOpen={() => setAttendeesModalOpen(true)}
+          onArchiveFeedbackOpen={() => {
+            setArchiveResult(null);
+            setArchiveFeedbackOpen(true);
+          }}
+          feedbackCount={feedbackCount}
           onFeedback={(s) => setFeedbackShow(s)}
         />
       ) : (
@@ -487,6 +508,19 @@ export default function AuslassplanungClient({
         />
       )}
 
+      {archiveFeedbackOpen && (
+        <ArchiveFeedbackModal
+          feedbackCount={feedbackCount}
+          isArchiving={isArchivingFeedback}
+          result={archiveResult}
+          onCancel={() => {
+            setArchiveFeedbackOpen(false);
+            setArchiveResult(null);
+          }}
+          onConfirm={handleArchiveFeedback}
+        />
+      )}
+
       {attendeesModalOpen && (
         <AttendeesEditorModal
           shows={sortedShows}
@@ -553,6 +587,8 @@ function ShowsTab({
   onFupOpen,
   onDeleteAllOpen,
   onAttendeesOpen,
+  onArchiveFeedbackOpen,
+  feedbackCount,
   onFeedback,
 }: {
   shows: CleaningShow[];
@@ -578,6 +614,8 @@ function ShowsTab({
   onFupOpen: () => void;
   onDeleteAllOpen: () => void;
   onAttendeesOpen: () => void;
+  onArchiveFeedbackOpen: () => void;
+  feedbackCount: number;
   onFeedback: (show: CleaningShow) => void;
 }) {
   void isClearing;
@@ -609,6 +647,21 @@ function ShowsTab({
               title="Besucherzahlen pro Rutsche eingeben — wirkt sich auf die KI-Empfehlung aus."
             >
               <TrendingUp size={14} /> Besucherzahlen einpflegen
+            </button>
+          )}
+          {canEdit && (
+            <button
+              onClick={onArchiveFeedbackOpen}
+              className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
+              title="Feedback-Daten ins Lern-Archiv kopieren, ohne die Vorstellungen zu löschen."
+            >
+              <Brain size={14} />
+              Feedback ins Archiv
+              {feedbackCount > 0 && (
+                <span className="text-[10px] opacity-70">
+                  · {feedbackCount} heute
+                </span>
+              )}
             </button>
           )}
           {canEdit && hasBulkable && (
@@ -2771,6 +2824,101 @@ function AttendeesRutscheCard({
         </tbody>
       </table>
     </div>
+  );
+}
+
+// ── Feedback-ins-Archiv-Modal ────────────────────────────────────────
+
+function ArchiveFeedbackModal({
+  feedbackCount,
+  isArchiving,
+  result,
+  onCancel,
+  onConfirm,
+}: {
+  feedbackCount: number;
+  isArchiving: boolean;
+  result: { archived: number; eligible: number } | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ModalShell title="Feedback ins Archiv übertragen" onClose={onCancel}>
+      <div className="p-5 space-y-4">
+        {result === null ? (
+          <>
+            <p className="text-sm" style={{ color: "hsl(var(--foreground))" }}>
+              Alle Vorstellungen mit Feedback werden ins{" "}
+              <strong>Lern-Archiv</strong> kopiert. Die Vorstellungen selbst und ihre
+              Feedback-Einträge bleiben unangetastet.
+            </p>
+            <div
+              className="rounded-xl p-3 text-xs flex items-start gap-2"
+              style={{
+                background: "hsl(var(--primary) / 0.08)",
+                border: "1px solid hsl(var(--primary) / 0.25)",
+                color: "hsl(var(--foreground))",
+              }}
+            >
+              <Brain size={14} className="shrink-0 mt-0.5" style={{ color: "hsl(var(--primary))" }} />
+              <div>
+                <p className="font-semibold mb-1">Wozu das?</p>
+                <p>
+                  Sobald ein Datensatz im Archiv ist, übersteht er „Alle löschen" — die KI behält
+                  ihn dauerhaft als Lern-Anker. Falls die selbe Vorstellung schon im Archiv liegt,
+                  wird der Eintrag mit den aktuellen Werten überschrieben (keine Duplikate).
+                </p>
+              </div>
+            </div>
+            {feedbackCount > 0 && (
+              <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                Im aktuell sichtbaren Tag liegen {feedbackCount}{" "}
+                {feedbackCount === 1 ? "Feedback-Eintrag" : "Feedback-Einträge"} — die Aktion
+                betrifft jedoch <em>alle</em> Vorstellungen mit Feedback in der Datenbank.
+              </p>
+            )}
+            <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={isArchiving}
+                className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={onConfirm}
+                disabled={isArchiving}
+                className="brand-button inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg disabled:opacity-50"
+              >
+                <Brain size={14} />
+                {isArchiving ? "Übertrage…" : "Jetzt übertragen"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-2 text-center">
+            <CheckCircle2 size={32} style={{ color: "hsl(142 70% 45%)" }} />
+            <p className="text-sm font-medium" style={{ color: "hsl(var(--foreground))" }}>
+              {result.archived} {result.archived === 1 ? "Eintrag" : "Einträge"} ins Archiv
+              übertragen
+            </p>
+            {result.eligible !== result.archived && (
+              <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                Von {result.eligible} eligible Vorstellungen
+              </p>
+            )}
+            <button
+              onClick={onCancel}
+              className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg"
+            >
+              Fertig
+            </button>
+          </div>
+        )}
+      </div>
+    </ModalShell>
   );
 }
 

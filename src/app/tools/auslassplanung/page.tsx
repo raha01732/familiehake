@@ -24,6 +24,7 @@ import {
   createShowsFromFupAction,
   updateAttendeesAction,
   estimateAttendeesAction,
+  archiveFeedbackAction,
   saveFeedbackAction,
 } from "./actions";
 import {
@@ -145,6 +146,7 @@ export default async function AuslassplanungPage({
         createShowsFromFupAction={createShowsFromFupAction}
         updateAttendeesAction={updateAttendeesAction}
         estimateAttendeesAction={estimateAttendeesAction}
+        archiveFeedbackAction={archiveFeedbackAction}
         saveFeedbackAction={saveFeedbackAction}
       />
     </RoleGate>
