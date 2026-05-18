@@ -1,4 +1,4 @@
-﻿// /workspace/familiehake/src/app/tools/auslassplanung/actions.ts
+// /workspace/familiehake/src/app/tools/auslassplanung/actions.ts
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -27,21 +27,6 @@ import {
 } from "@/lib/auslassplanung/attendees-ai";
 import { generateShowCode } from "@/lib/auslassplanung/show-code";
 
-// Hilfsfunktion: erzeugt einen eindeutigen public_id-Code fÃ¼r cinema_cleaning_shows.
-// 32^7 Kollisionen sind extrem unwahrscheinlich; nach max. 5 Versuchen wird ein
-// Fehler geworfen.
-async function generateUniquePublicId(sb: SupabaseAdmin): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const code = generateShowCode();
-    const { count } = await sb
-      .from("cinema_cleaning_shows")
-      .select("*", { count: "exact", head: true })
-      .eq("public_id", code);
-    if ((count ?? 0) === 0) return code;
-  }
-  throw new Error("Konnte keinen eindeutigen Show-Code generieren.");
-}
-
 const PLAN_PATH = "/tools/auslassplanung";
 
 async function assertCallerHasCinemaAccess() {
@@ -67,7 +52,22 @@ function normalizeTimeInput(value: string): string | null {
   return `${String(h).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
 }
 
-// â”€â”€ Staff CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Erzeugt einen eindeutigen public_id-Code für cinema_cleaning_shows.
+// 32^7 Kollisionen sind extrem unwahrscheinlich; nach max. 5 Versuchen wird
+// ein Fehler geworfen.
+async function generateUniquePublicId(sb: SupabaseAdmin): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = generateShowCode();
+    const { count } = await sb
+      .from("cinema_cleaning_shows")
+      .select("*", { count: "exact", head: true })
+      .eq("public_id", code);
+    if ((count ?? 0) === 0) return code;
+  }
+  throw new Error("Konnte keinen eindeutigen Show-Code generieren.");
+}
+
+// ── Staff CRUD ────────────────────────────────────────────────────────
 
 export async function createStaffAction(formData: FormData) {
   await assertCallerHasCinemaAccess();
@@ -151,8 +151,8 @@ export async function deleteStaffAction(formData: FormData) {
 }
 
 // Tauscht sort_order mit dem direkten Nachbarn innerhalb derselben
-// PrÃ¤ferenz-Gruppe (preferred / backup). direction = "up" | "down".
-// Niedrigere sort_order = hÃ¶here PrioritÃ¤t in der Allokation.
+// Präferenz-Gruppe (preferred / backup). direction = "up" | "down".
+// Niedrigere sort_order = höhere Priorität in der Allokation.
 export async function moveStaffAction(formData: FormData) {
   await assertCallerHasCinemaAccess();
   const id = Number(formData.get("id"));
@@ -180,7 +180,7 @@ export async function moveStaffAction(formData: FormData) {
   if (targetIdx < 0 || targetIdx >= sameGroup.length) return;
 
   const target = sameGroup[targetIdx];
-  // sort_order tauschen â€” wenn beide gleich sind (alte DB), explizit neue Werte vergeben
+  // sort_order tauschen — wenn beide gleich sind (alte DB), explizit neue Werte vergeben
   if (current.sort_order === target.sort_order) {
     const lower = direction === "up" ? current.sort_order : current.sort_order + 1;
     const higher = direction === "up" ? current.sort_order + 1 : current.sort_order;
@@ -193,7 +193,7 @@ export async function moveStaffAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
-// â”€â”€ Show CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Show CRUD ─────────────────────────────────────────────────────────
 
 export async function createShowAction(formData: FormData) {
   const user = await assertCallerHasCinemaAccess();
@@ -288,13 +288,13 @@ export async function deleteShowAction(formData: FormData) {
   if (!id) return;
   const sb = createAdminClient();
   // Feedback (falls vorhanden) ins Archiv kopieren, damit die KI dieses
-  // Lernen behÃ¤lt.
+  // Lernen behält.
   await archiveShowsByIds(sb, [id]);
   await sb.from("cinema_cleaning_shows").delete().eq("id", id);
   revalidatePath(PLAN_PATH);
 }
 
-// LÃ¶scht ALLE Vorstellungen â€” Feedback-EintrÃ¤ge werden vorher ins Lern-Archiv
+// Löscht ALLE Vorstellungen — Feedback-Einträge werden vorher ins Lern-Archiv
 // kopiert, damit die KI das Wissen nicht verliert.
 export async function deleteAllShowsAction(formData: FormData): Promise<{
   deleted: number;
@@ -316,15 +316,15 @@ export async function deleteAllShowsAction(formData: FormData): Promise<{
     .filter((n) => Number.isFinite(n));
   const archived = await archiveShowsByIds(sb, idsToArchive);
 
-  // Postgrest verlangt eine WHERE-Klausel â€” id > 0 trifft alle echten Rows.
+  // Postgrest verlangt eine WHERE-Klausel — id > 0 trifft alle echten Rows.
   await sb.from("cinema_cleaning_shows").delete().gt("id", 0);
   revalidatePath(PLAN_PATH);
   return { deleted: before ?? 0, archived };
 }
 
-// ÃœbertrÃ¤gt alle Feedback-EintrÃ¤ge ins Lern-Archiv, ohne die Vorstellungen
-// zu lÃ¶schen. Idempotent â€” wiederholtes Aufrufen erzeugt keine Duplikate
-// (archiveShowsByIds entfernt vorher bestehende Archiv-EintrÃ¤ge fÃ¼r die
+// Überträgt alle Feedback-Einträge ins Lern-Archiv, ohne die Vorstellungen
+// zu löschen. Idempotent — wiederholtes Aufrufen erzeugt keine Duplikate
+// (archiveShowsByIds entfernt vorher bestehende Archiv-Einträge für die
 // gleichen Show-IDs). Optional kann show_id[] mitgegeben werden, um nur
 // bestimmte Vorstellungen zu archivieren.
 export async function archiveFeedbackAction(
@@ -361,7 +361,7 @@ export async function archiveFeedbackAction(
   return { archived, eligible: candidateIds.length };
 }
 
-// â”€â”€ Planung â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Planung ───────────────────────────────────────────────────────────
 
 type PlanResult = {
   showId: number;
@@ -398,10 +398,10 @@ function windowsOverlap(a: ShowWindowInput, b: ShowWindowInput): boolean {
   return wa.startMs < wb.endMs && wb.startMs < wa.endMs;
 }
 
-// Welche MA sind in zur Vorstellung Ã¼berlappenden Reinigungsfenstern
-// (anderer Saal, gleiche Zeit) bereits eingeteilt? Wird als WEICHE PrÃ¤ferenz
-// behandelt: erst MA ohne Ãœberschneidung wÃ¤hlen, sonst trotzdem zuteilen â€”
-// MA dÃ¼rfen vorzeitig aus einem Auslass raus.
+// Welche MA sind in zur Vorstellung überlappenden Reinigungsfenstern
+// (anderer Saal, gleiche Zeit) bereits eingeteilt? Wird als WEICHE Präferenz
+// behandelt: erst MA ohne Überschneidung wählen, sonst trotzdem zuteilen —
+// MA dürfen vorzeitig aus einem Auslass raus.
 async function getExternalBusy(
   sb: SupabaseAdmin,
   show: { id: number } & ShowWindowInput,
@@ -450,14 +450,13 @@ async function getExternalBusy(
   return { busy, conflictHallNumbers };
 }
 
-// WÃ¤hlt aus dem Pool den gÃ¼nstigsten Kandidaten:
-//   1. Bevorzuge nicht-Ã¼berlappende MA,
-//   2. dann den mit den wenigsten bisherigen Zuweisungen im Batch,
-//   3. Tiebreak: sort_order.
-// Wenn ALLE Kandidaten bereits in einem Ã¼berlappenden Auslass eingeplant sind,
-// wird trotzdem einer zurÃ¼ckgegeben â€” mit Flag `overlap=true`.
-// availabilityFilter: harter Filter (z.B. Arbeitszeit) â€” MA, die nicht erfÃ¼llen,
-// werden komplett ausgeschlossen.
+// STRIKT: gibt nur einen Kandidaten zurück, der NICHT in einem überlappenden
+// Auslass eingeteilt ist. Bei Konflikten => null. Der Aufrufer probiert dann
+// einen anderen Pool (z.B. Backup), bevor er auf die Overlap-Variante zurückfällt.
+//   - excludeIds: schon in dieser Vorstellung eingeteilt
+//   - softBusy: in einer parallelen Vorstellung im Batch zugewiesen
+//   - usageCount / sort_order: Tiebreaker für gleichberechtigte Kandidaten
+//   - availabilityFilter: harter Arbeitszeit-Filter
 function pickFromPool(
   pool: CleaningStaff[],
   excludeIds: ReadonlySet<number>,
@@ -469,18 +468,65 @@ function pickFromPool(
   if (availabilityFilter) candidates = candidates.filter(availabilityFilter);
   if (candidates.length === 0) return null;
   const nonOverlapping = candidates.filter((s) => !softBusy.has(s.id));
-  const pickFrom = nonOverlapping.length > 0 ? nonOverlapping : candidates;
-  const best = pickFrom.reduce((acc, c) => {
+  if (nonOverlapping.length === 0) return null;
+  const best = nonOverlapping.reduce((acc, c) => {
     const cUse = usageCount.get(c.id) ?? 0;
     const aUse = usageCount.get(acc.id) ?? 0;
     if (cUse !== aUse) return cUse < aUse ? c : acc;
     return c.sort_order < acc.sort_order ? c : acc;
   });
-  return { staff: best, overlap: nonOverlapping.length === 0 };
+  return { staff: best, overlap: false };
 }
 
-// Liefert eine VerfÃ¼gbarkeits-Funktion fÃ¼r eine bestimmte Vorstellung.
-// BerÃ¼cksichtigt die Arbeitszeit-Fenster pro MA.
+// SOFT: nur als allerletzter Ausweg verwenden. Erlaubt explizit, dass der
+// gewählte MA in einer parallelen Vorstellung schon eingeteilt ist. Tut sein
+// Bestes, Überlapps zu vermeiden, kann sie aber nicht ausschließen.
+function pickFromPoolAllowOverlap(
+  pool: CleaningStaff[],
+  excludeIds: ReadonlySet<number>,
+  softBusy: ReadonlySet<number>,
+  usageCount: ReadonlyMap<number, number>,
+  availabilityFilter?: (s: CleaningStaff) => boolean,
+): { staff: CleaningStaff; overlap: boolean } | null {
+  let candidates = pool.filter((s) => !excludeIds.has(s.id));
+  if (availabilityFilter) candidates = candidates.filter(availabilityFilter);
+  if (candidates.length === 0) return null;
+  const best = candidates.reduce((acc, c) => {
+    // Tiebreaker: lieber jemand wählen, der NICHT überlappt
+    const cOverlap = softBusy.has(c.id);
+    const aOverlap = softBusy.has(acc.id);
+    if (cOverlap !== aOverlap) return cOverlap ? acc : c;
+    const cUse = usageCount.get(c.id) ?? 0;
+    const aUse = usageCount.get(acc.id) ?? 0;
+    if (cUse !== aUse) return cUse < aUse ? c : acc;
+    return c.sort_order < acc.sort_order ? c : acc;
+  });
+  return { staff: best, overlap: softBusy.has(best.id) };
+}
+
+// Helper: probiert die strikten Pools erst durch, dann die Overlap-Varianten.
+// Reihenfolge: preferred-strict → backup-strict → preferred-soft → backup-soft.
+function pickByPriority(
+  preferredPool: CleaningStaff[],
+  backupPool: CleaningStaff[],
+  excludeIds: ReadonlySet<number>,
+  softBusy: ReadonlySet<number>,
+  usageCount: ReadonlyMap<number, number>,
+  availabilityFilter?: (s: CleaningStaff) => boolean,
+): { staff: CleaningStaff; overlap: boolean; isPreferred: boolean } | null {
+  const p1 = pickFromPool(preferredPool, excludeIds, softBusy, usageCount, availabilityFilter);
+  if (p1) return { ...p1, isPreferred: true };
+  const p2 = pickFromPool(backupPool, excludeIds, softBusy, usageCount, availabilityFilter);
+  if (p2) return { ...p2, isPreferred: false };
+  const p3 = pickFromPoolAllowOverlap(preferredPool, excludeIds, softBusy, usageCount, availabilityFilter);
+  if (p3) return { ...p3, isPreferred: true };
+  const p4 = pickFromPoolAllowOverlap(backupPool, excludeIds, softBusy, usageCount, availabilityFilter);
+  if (p4) return { ...p4, isPreferred: false };
+  return null;
+}
+
+// Liefert eine Verfügbarkeits-Funktion für eine bestimmte Vorstellung.
+// Berücksichtigt die Arbeitszeit-Fenster pro MA.
 function makeAvailabilityFilter(
   show: { end_time: string; cleanup_minutes: number },
 ): (s: CleaningStaff) => boolean {
@@ -512,9 +558,9 @@ type LearningEntry = {
 type LearningEntryWithDate = LearningEntry & { _sortKey: string };
 
 /** Archiviert die Feedback-Daten der angegebenen Vorstellungen ins Lern-Archiv.
- *  Idempotent: bestehende Archiv-EintrÃ¤ge fÃ¼r dieselbe Show-ID werden vorher
+ *  Idempotent: bestehende Archiv-Einträge für dieselbe Show-ID werden vorher
  *  entfernt, damit derselbe Datensatz nicht doppelt der KI vorgesetzt wird.
- *  RÃ¼ckgabe: Anzahl der neu eingefÃ¼gten EintrÃ¤ge.
+ *  Rückgabe: Anzahl der neu eingefügten Einträge.
  */
 async function archiveShowsByIds(sb: SupabaseAdmin, showIds: number[]): Promise<number> {
   if (showIds.length === 0) return 0;
@@ -552,7 +598,7 @@ async function archiveShowsByIds(sb: SupabaseAdmin, showIds: number[]): Promise<
     });
   }
   if (toArchive.length === 0) return 0;
-  // Idempotent: bestehende EintrÃ¤ge zu denselben Show-IDs vorher entfernen
+  // Idempotent: bestehende Einträge zu denselben Show-IDs vorher entfernen
   await sb
     .from("cinema_cleaning_learning_archive")
     .delete()
@@ -588,8 +634,8 @@ async function loadLearningData(
   const pastRows = pastRowsResult.data;
   const archiveRows = archiveRowsResult.data;
 
-  // Show-IDs, die bereits im Archiv stehen â€” diese Shows aus dem aktiven Pool
-  // ausschlieÃŸen, sonst sÃ¤he die KI denselben Datensatz doppelt.
+  // Show-IDs, die bereits im Archiv stehen — diese Shows aus dem aktiven Pool
+  // ausschließen, sonst sähe die KI denselben Datensatz doppelt.
   const archivedShowIds = new Set<number>();
   for (const row of (archiveRows ?? []) as any[]) {
     const id = row.archived_from_show_id;
@@ -693,17 +739,17 @@ function reasonForPickedSlot(
 ): string {
   const parts: string[] = [];
   if (isPreferred) {
-    parts.push(isFirstSlot ? "Bevorzugt (primÃ¤rer Slot)" : "Bevorzugt");
+    parts.push(isFirstSlot ? "Bevorzugt (primärer Slot)" : "Bevorzugt");
   } else {
-    parts.push("Aushilfe (ErgÃ¤nzung)");
+    parts.push("Aushilfe (Ergänzung)");
   }
   if (overlap) {
     const hallList = overlapHalls && overlapHalls.size > 0
       ? ` mit Saal ${Array.from(overlapHalls).sort((a, b) => a - b).join(", ")}`
       : "";
-    parts.push(`auch zur selben Zeit eingeteilt${hallList} â€” wechselt vorzeitig`);
+    parts.push(`auch zur selben Zeit eingeteilt${hallList} — wechselt vorzeitig`);
   }
-  return parts.join(" Â· ");
+  return parts.join(" · ");
 }
 
 async function performPlanForShow(
@@ -739,7 +785,7 @@ async function performPlanForShow(
 
   const availabilityFilter = makeAvailabilityFilter(show);
 
-  // Existierende Zuweisungen laden â€” manuelle bleiben unangetastet
+  // Existierende Zuweisungen laden — manuelle bleiben unangetastet
   const { data: existing } = await sb
     .from("cinema_cleaning_assignments")
     .select("staff_id, assigned_by, reason")
@@ -750,7 +796,7 @@ async function performPlanForShow(
     (m) => staffById.get(m.staff_id)?.preference === "preferred",
   );
 
-  // Externe Belegung (weiche PrÃ¤ferenz)
+  // Externe Belegung (weiche Präferenz)
   const { busy: externalBusy, conflictHallNumbers } = await getExternalBusy(
     sb,
     show,
@@ -765,7 +811,7 @@ async function performPlanForShow(
     .filter((s) => s.preference === "backup" && !manualStaffIds.has(s.id))
     .sort((a, b) => a.sort_order - b.sort_order);
 
-  // KI-Empfehlung fÃ¼r recommended_count (AI wÃ¤hlt nur die Anzahl + notes)
+  // KI-Empfehlung für recommended_count (AI wählt nur die Anzahl + notes)
   const learning = await loadLearningData(sb, new Set([showId]));
   const { count: recommendedCount, aiNote, source } = await computeRecommendedCount(
     show,
@@ -773,7 +819,7 @@ async function performPlanForShow(
     learning,
   );
 
-  // Wie viele zusÃ¤tzliche Slots braucht es noch (Ã¼ber manuelle hinaus)?
+  // Wie viele zusätzliche Slots braucht es noch (über manuelle hinaus)?
   const additionalNeeded = Math.max(0, recommendedCount - manuals.length);
 
   const usageCount = new Map<number, number>();
@@ -782,28 +828,32 @@ async function performPlanForShow(
   let preferredAddedHere = manualHasPreferred ? 1 : 0;
 
   for (let i = 0; i < additionalNeeded; i++) {
-    // Slot 1: bevorzuge preferred, damit Regel "1Ã— bevorzugt pro Vorstellung" erfÃ¼llt wird
-    let picked = pickFromPool(preferredPool, exclude, externalBusy, usageCount, availabilityFilter);
-    let isPreferred = true;
-    if (!picked) {
-      picked = pickFromPool(backupPool, exclude, externalBusy, usageCount, availabilityFilter);
-      isPreferred = false;
-    }
+    // Priorität: preferred-strict → backup-strict → preferred-soft → backup-soft.
+    // So vermeiden wir, dass derselbe MA in mehreren parallelen Sälen landet, solange
+    // ein Backup ohne Konflikt verfügbar ist.
+    const picked = pickByPriority(
+      preferredPool,
+      backupPool,
+      exclude,
+      externalBusy,
+      usageCount,
+      availabilityFilter,
+    );
     if (!picked) break;
     const isFirstAiSlot = preferredAddedHere === 0;
-    const reason = reasonForPickedSlot(isPreferred, isFirstAiSlot, picked.overlap, conflictHallNumbers);
+    const reason = reasonForPickedSlot(picked.isPreferred, isFirstAiSlot, picked.overlap, conflictHallNumbers);
     aiAdditional.push({ staff_id: picked.staff.id, reason });
     exclude.add(picked.staff.id);
-    if (isPreferred) preferredAddedHere++;
+    if (picked.isPreferred) preferredAddedHere++;
   }
 
   // KI-Note + Konflikt-Hinweis zusammensetzen
   const conflictNote =
     conflictHallNumbers.size > 0
-      ? `Ãœberschneidung mit Saal ${Array.from(conflictHallNumbers).sort((a, b) => a - b).join(", ")} (weicher Konflikt â€” MA kann vorzeitig wechseln)`
+      ? `Überschneidung mit Saal ${Array.from(conflictHallNumbers).sort((a, b) => a - b).join(", ")} (weicher Konflikt — MA kann vorzeitig wechseln)`
       : null;
   const finalNote =
-    aiNote && conflictNote ? `${aiNote} Â· ${conflictNote}` : aiNote ?? conflictNote;
+    aiNote && conflictNote ? `${aiNote} · ${conflictNote}` : aiNote ?? conflictNote;
 
   // Persistieren: nur KI-Zuweisungen entfernen, manuelle bleiben
   await sb
@@ -835,7 +885,7 @@ async function performPlanForShow(
 
   const unmetParts: string[] = [];
   if (totalAssigned < recommendedCount) {
-    unmetParts.push(`Nur ${totalAssigned} von ${recommendedCount} empfohlenen PlÃ¤tzen besetzt.`);
+    unmetParts.push(`Nur ${totalAssigned} von ${recommendedCount} empfohlenen Plätzen besetzt.`);
   }
   const totalPreferred =
     (manualHasPreferred ? manuals.filter((m) => staffById.get(m.staff_id)?.preference === "preferred").length : 0) +
@@ -939,7 +989,7 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
   const preferredPool = allActive.filter((s) => s.preference === "preferred");
   const backupPool = allActive.filter((s) => s.preference === "backup");
 
-  // Bestehende Zuweisungen fÃ¼r alle Batch-Vorstellungen laden
+  // Bestehende Zuweisungen für alle Batch-Vorstellungen laden
   const { data: existingAll } = await sb
     .from("cinema_cleaning_assignments")
     .select("show_id, staff_id, assigned_by, reason")
@@ -1000,7 +1050,7 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
     }),
   );
 
-  // Usage-Map fÃ¼r Spreading
+  // Usage-Map für Spreading
   const usageCount = new Map<number, number>();
   for (const it of items) {
     for (const sid of it.currentStaffIds) {
@@ -1031,7 +1081,11 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
     return halls;
   }
 
-  // Phase 1: jede Vorstellung bekommt 1 preferred (wenn noch keiner manuell vorhanden)
+  // Phase 1: jede Vorstellung bekommt 1 preferred OHNE Konflikt (wenn möglich).
+  // Wenn alle preferred bereits in parallelen Sälen sind, überlassen wir das
+  // Auffüllen Phase 2 — die nutzt dann erst Backup-strikt, bevor sie auf Overlap
+  // zurückgreift. So vermeiden wir, denselben preferred MA in mehrere überlappende
+  // Sale zu stapeln, solange Alternativen existieren.
   for (const it of items) {
     if (it.currentPreferredCount > 0) continue;
     if (it.currentStaffIds.size >= it.recommendedCount) continue;
@@ -1046,23 +1100,29 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
     usageCount.set(picked.staff.id, (usageCount.get(picked.staff.id) ?? 0) + 1);
   }
 
-  // Phase 2: restliche Slots auffÃ¼llen (preferred first, dann backup)
+  // Phase 2: restliche Slots auffüllen. Priorität:
+  //   1. preferred ohne Konflikt
+  //   2. backup ohne Konflikt
+  //   3. preferred mit Konflikt (Notfall — MA wechselt vorzeitig)
+  //   4. backup mit Konflikt (letzter Ausweg)
   for (const it of items) {
     const availability = makeAvailabilityFilter(it.show);
     while (it.currentStaffIds.size < it.recommendedCount) {
       const softBusy = softBusyForItem(it);
-      let picked = pickFromPool(preferredPool, it.currentStaffIds, softBusy, usageCount, availability);
-      let isPreferred = true;
-      if (!picked) {
-        picked = pickFromPool(backupPool, it.currentStaffIds, softBusy, usageCount, availability);
-        isPreferred = false;
-      }
+      const picked = pickByPriority(
+        preferredPool,
+        backupPool,
+        it.currentStaffIds,
+        softBusy,
+        usageCount,
+        availability,
+      );
       if (!picked) break;
       const isFirstAi = it.newAssignments.length === 0 && it.manualEntries.length === 0;
-      const reason = reasonForPickedSlot(isPreferred, isFirstAi, picked.overlap, overlapHallsForItem(it));
+      const reason = reasonForPickedSlot(picked.isPreferred, isFirstAi, picked.overlap, overlapHallsForItem(it));
       it.newAssignments.push({ staff_id: picked.staff.id, reason });
       it.currentStaffIds.add(picked.staff.id);
-      if (isPreferred) it.currentPreferredCount++;
+      if (picked.isPreferred) it.currentPreferredCount++;
       usageCount.set(picked.staff.id, (usageCount.get(picked.staff.id) ?? 0) + 1);
     }
   }
@@ -1086,10 +1146,10 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
     const totalAssigned = it.currentStaffIds.size;
     const conflictNote =
       it.conflictHallNumbers.size > 0
-        ? `Ãœberschneidung mit Saal ${Array.from(it.conflictHallNumbers).sort((a, b) => a - b).join(", ")} (weicher Konflikt)`
+        ? `Überschneidung mit Saal ${Array.from(it.conflictHallNumbers).sort((a, b) => a - b).join(", ")} (weicher Konflikt)`
         : null;
     const finalNote =
-      it.aiNote && conflictNote ? `${it.aiNote} Â· ${conflictNote}` : it.aiNote ?? conflictNote;
+      it.aiNote && conflictNote ? `${it.aiNote} · ${conflictNote}` : it.aiNote ?? conflictNote;
     await sb
       .from("cinema_cleaning_shows")
       .update({
@@ -1109,7 +1169,7 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
       unmetParts.push(`Nur ${totalAssigned} von ${it.recommendedCount}.`);
     }
     if (it.currentPreferredCount === 0 && totalAssigned > 0) {
-      unmetParts.push("Kein bevorzugter MA verfÃ¼gbar.");
+      unmetParts.push("Kein bevorzugter MA verfügbar.");
     }
 
     summary.results.push({
@@ -1129,11 +1189,11 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
   return summary;
 }
 
-// â”€â”€ Manuelle Zuweisungen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Manuelle Zuweisungen ──────────────────────────────────────────────
 
-// Setzt die manuellen Zuweisungen fÃ¼r eine Vorstellung exakt auf die Ã¼bergebene
-// Mitarbeiter-Liste. Bestehende KI-Zuweisungen werden entfernt â€” der Nutzer hat
-// damit volle Kontrolle und kann anschlieÃŸend mit "KI-Plan" auffÃ¼llen lassen.
+// Setzt die manuellen Zuweisungen für eine Vorstellung exakt auf die übergebene
+// Mitarbeiter-Liste. Bestehende KI-Zuweisungen werden entfernt — der Nutzer hat
+// damit volle Kontrolle und kann anschließend mit "KI-Plan" auffüllen lassen.
 export async function setManualAssignmentsAction(formData: FormData) {
   await assertCallerHasCinemaAccess();
   const showId = Number(formData.get("show_id"));
@@ -1146,7 +1206,7 @@ export async function setManualAssignmentsAction(formData: FormData) {
   ));
 
   const sb = createAdminClient();
-  // Alle bisherigen Zuweisungen wegrÃ¤umen (manuelle und KI)
+  // Alle bisherigen Zuweisungen wegräumen (manuelle und KI)
   await sb.from("cinema_cleaning_assignments").delete().eq("show_id", showId);
 
   if (staffIds.length > 0) {
@@ -1182,7 +1242,7 @@ export async function removeAssignmentAction(formData: FormData) {
     .delete()
     .eq("show_id", showId)
     .eq("staff_id", staffId);
-  // Wenn dadurch keine Zuweisung mehr Ã¼brig ist, plan_status auf "open" zurÃ¼cksetzen
+  // Wenn dadurch keine Zuweisung mehr übrig ist, plan_status auf "open" zurücksetzen
   const { count } = await sb
     .from("cinema_cleaning_assignments")
     .select("*", { count: "exact", head: true })
@@ -1201,16 +1261,16 @@ export async function removeAssignmentAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
-// LÃ¶scht EintrÃ¤ge aus dem Lerndaten-Archiv. StandardmÃ¤ÃŸig nur mit Datumsfilter
-// erlaubt â€” fÃ¼r "alle lÃ¶schen" muss explicit scope=all gesetzt sein. Erfordert
-// immer die exakte BestÃ¤tigungs-Phrase "ARCHIV LEEREN".
+// Löscht Einträge aus dem Lerndaten-Archiv. Standardmäßig nur mit Datumsfilter
+// erlaubt — für "alle löschen" muss explicit scope=all gesetzt sein. Erfordert
+// immer die exakte Bestätigungs-Phrase "ARCHIV LEEREN".
 export async function clearArchiveAction(
   formData: FormData,
 ): Promise<{ deleted: number; error?: string }> {
   await assertCallerHasCinemaAccess();
   const phrase = String(formData.get("confirm") || "").trim();
   if (phrase !== "ARCHIV LEEREN") {
-    return { deleted: 0, error: "BestÃ¤tigungs-Phrase fehlt oder falsch." };
+    return { deleted: 0, error: "Bestätigungs-Phrase fehlt oder falsch." };
   }
   const dateFrom = String(formData.get("date_from") || "").trim();
   const dateTo = String(formData.get("date_to") || "").trim();
@@ -1220,12 +1280,12 @@ export async function clearArchiveAction(
 
   // Sicherheit: entweder Datumsfilter ODER explicit scope=all
   if (!validFrom && !validTo && scope !== "all") {
-    return { deleted: 0, error: "Bitte Zeitraum wÃ¤hlen oder 'Alle EintrÃ¤ge' markieren." };
+    return { deleted: 0, error: "Bitte Zeitraum wählen oder 'Alle Einträge' markieren." };
   }
 
   const sb = createAdminClient();
 
-  // Treffer-Anzahl ermitteln (fÃ¼r die RÃ¼ckgabe)
+  // Treffer-Anzahl ermitteln (für die Rückgabe)
   let countQ = sb
     .from("cinema_cleaning_learning_archive")
     .select("*", { count: "exact", head: true });
@@ -1245,7 +1305,7 @@ export async function clearArchiveAction(
   return { deleted: count ?? 0 };
 }
 
-// Entfernt alle Zuweisungen (manuell + KI) fÃ¼r eine Vorstellung.
+// Entfernt alle Zuweisungen (manuell + KI) für eine Vorstellung.
 export async function clearAssignmentsAction(formData: FormData) {
   await assertCallerHasCinemaAccess();
   const showId = Number(formData.get("show_id"));
@@ -1264,7 +1324,7 @@ export async function clearAssignmentsAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
-// â”€â”€ FÃœP-Import â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── FÜP-Import ────────────────────────────────────────────────────────
 
 export type FupParseActionResult =
   | { ok: true; result: FupParseResult }
@@ -1273,7 +1333,7 @@ export type FupParseActionResult =
 export async function parseFupAction(formData: FormData): Promise<FupParseActionResult> {
   await assertCallerHasCinemaAccess();
   if (!fupImportEnabled()) {
-    return { ok: false, error: "GEMINI_API_KEY ist nicht gesetzt â€” FÃœP-Import nicht verfÃ¼gbar." };
+    return { ok: false, error: "GEMINI_API_KEY ist nicht gesetzt — FÜP-Import nicht verfügbar." };
   }
   const file = formData.get("image");
   if (!(file instanceof File) || file.size === 0) {
@@ -1281,7 +1341,7 @@ export async function parseFupAction(formData: FormData): Promise<FupParseAction
   }
   // Sicherheit: max ~6MB (Server-Action body limit greift davor)
   if (file.size > 6 * 1024 * 1024) {
-    return { ok: false, error: "Bild zu groÃŸ (max 6 MB). Bitte kleiner skalieren." };
+    return { ok: false, error: "Bild zu groß (max 6 MB). Bitte kleiner skalieren." };
   }
   const buf = Buffer.from(await file.arrayBuffer());
   const mime = file.type && file.type.startsWith("image/") ? file.type : "image/jpeg";
@@ -1291,10 +1351,10 @@ export async function parseFupAction(formData: FormData): Promise<FupParseAction
     const result = await analyzeFupImage({ dataUri });
     return { ok: true, result };
   } catch (e) {
-    console.error("[auslassplanung] FÃœP parse failed", e);
+    console.error("[auslassplanung] FÜP parse failed", e);
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "FÃœP konnte nicht ausgewertet werden.",
+      error: e instanceof Error ? e.message : "FÜP konnte nicht ausgewertet werden.",
     };
   }
 }
@@ -1354,23 +1414,10 @@ export async function createShowsFromFupAction(formData: FormData): Promise<{ cr
 
   if (inserts.length === 0) return { created: 0 };
 
-  // Pro Zeile einen eindeutigen public_id-Code erzeugen (sequenziell, da
-  // generateUniquePublicId gegen die DB checked und wir bei Bulk-Import die
-  // schon vergebenen Codes noch nicht in der DB sehen).
+  // Pro Zeile einen eindeutigen public_id-Code erzeugen
   const codes: string[] = [];
-  const taken = new Set<string>();
   for (let i = 0; i < inserts.length; i++) {
-    let attempt = 0;
-    let code = "";
-    while (attempt < 5) {
-      code = (await generateUniquePublicId(sb));
-      if (!taken.has(code)) {
-        taken.add(code);
-        break;
-      }
-      attempt++;
-    }
-    codes.push(code);
+    codes.push(await generateUniquePublicId(sb));
   }
 
   await sb.from("cinema_cleaning_shows").insert(
@@ -1384,7 +1431,7 @@ export async function createShowsFromFupAction(formData: FormData): Promise<{ cr
       cleanup_minutes: r.cleanup_minutes,
       intensity: r.intensity,
       movie_title: r.movie_title,
-      notes: "Aus FÃœP-Import",
+      notes: "Aus FÜP-Import",
       plan_status: "open" as const,
       created_by: user.id,
     })),
@@ -1394,7 +1441,7 @@ export async function createShowsFromFupAction(formData: FormData): Promise<{ cr
   return { created: inserts.length };
 }
 
-// â”€â”€ Besucherzahlen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Besucherzahlen ────────────────────────────────────────────────────
 
 export async function updateAttendeesAction(formData: FormData): Promise<{ updated: number }> {
   await assertCallerHasCinemaAccess();
@@ -1437,13 +1484,13 @@ export async function estimateAttendeesAction(
 ): Promise<AttendeesEstimateActionResult> {
   await assertCallerHasCinemaAccess();
   if (!attendeesAiEnabled()) {
-    return { ok: false, error: "GEMINI_API_KEY ist nicht gesetzt â€” KI-SchÃ¤tzung nicht verfÃ¼gbar." };
+    return { ok: false, error: "GEMINI_API_KEY ist nicht gesetzt — KI-Schätzung nicht verfügbar." };
   }
   const ids = formData
     .getAll("show_id")
     .map((v) => Number(v))
     .filter((n) => Number.isFinite(n) && n > 0);
-  if (ids.length === 0) return { ok: false, error: "Keine Vorstellungen ausgewÃ¤hlt." };
+  if (ids.length === 0) return { ok: false, error: "Keine Vorstellungen ausgewählt." };
 
   const sb = createAdminClient();
   const { data: showRows } = await sb
@@ -1455,7 +1502,7 @@ export async function estimateAttendeesAction(
   }
 
   // Lerndaten: vergangene Vorstellungen mit attendees > 0 (echte Werte)
-  // â€” kombiniert aus aktiven Shows und dem Archiv.
+  // — kombiniert aus aktiven Shows und dem Archiv.
   const [{ data: pastShows }, { data: pastArchive }] = await Promise.all([
     sb
       .from("cinema_cleaning_shows")
@@ -1521,12 +1568,12 @@ export async function estimateAttendeesAction(
     console.error("[auslassplanung] attendees estimate failed", e);
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "KI-SchÃ¤tzung fehlgeschlagen.",
+      error: e instanceof Error ? e.message : "KI-Schätzung fehlgeschlagen.",
     };
   }
 }
 
-// â”€â”€ Feedback (Lerndaten) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Feedback (Lerndaten) ──────────────────────────────────────────────
 
 export async function saveFeedbackAction(formData: FormData) {
   const user = await assertCallerHasCinemaAccess();

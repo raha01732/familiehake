@@ -25,7 +25,9 @@
       "Bash(git commit *)",
       "PowerShell(npm run *)",
       "Bash(grep *)",
-      "PowerShell(npm test *)"
+      "PowerShell(npm test *)",
+      "Bash(git checkout *)",
+      "Bash(sed -n '440,442p' src/app/tools/auslassplanung/actions.ts)"
     ]
   }
 }
