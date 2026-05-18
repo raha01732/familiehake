@@ -732,8 +732,19 @@ function EarlyLeavePromptModal({
   const [reason, setReason] = useState("");
   const [releasedAt, setReleasedAt] = useState("");
   return createPortal(
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div className="feature-card max-w-md w-full p-5 flex flex-col gap-3">
+    <div
+      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="max-w-md w-full rounded-xl shadow-2xl p-5 flex flex-col gap-3"
+        style={{
+          background: "hsl(var(--card))",
+          border: "1px solid hsl(var(--border))",
+          color: "hsl(var(--foreground))",
+        }}
+      >
         <h3 className="text-base font-semibold" style={{ color: "hsl(var(--foreground))" }}>
           {currentlyEarly
             ? `Early-Leave für ${staffName} aufheben?`
@@ -797,7 +808,14 @@ function RutscheNoticeBanner({
 }) {
   return createPortal(
     <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
-      <div className="feature-card max-w-xl w-full p-4 flex items-start gap-3">
+      <div
+        className="max-w-xl w-full p-4 flex items-start gap-3 rounded-xl shadow-2xl"
+        style={{
+          background: "hsl(var(--card))",
+          border: "1px solid hsl(var(--border))",
+          color: "hsl(var(--foreground))",
+        }}
+      >
         <Sparkles size={16} style={{ color: "hsl(var(--primary))" }} className="mt-0.5" />
         <div className="flex-1 text-sm">
           <div className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>
@@ -1421,6 +1439,7 @@ function ShowCard({
   onFeedback: (show: CleaningShow) => void;
 }) {
   const status = STATUS_LABELS[show.plan_status];
+  const [aiNotesOpen, setAiNotesOpen] = useState(false);
   const recommended =
     show.ai_recommended_staff_count ?? recommendStaffCount(show.attendees, show.intensity);
   const dateLabel = new Date(`${show.show_date}T00:00:00Z`).toLocaleDateString("de-DE", {
@@ -1569,9 +1588,14 @@ function ShowCard({
                   )}
 
                   {show.ai_notes && (
-                    <p className="text-[11px] italic" style={{ color: "hsl(var(--muted-foreground))" }}>
-                      KI: {show.ai_notes}
-                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setAiNotesOpen(true)}
+                      className="inline-flex items-center gap-1 self-start text-[11px] font-medium px-2 py-0.5 rounded-md border border-[hsl(var(--primary)/0.3)] bg-[hsl(var(--primary)/0.08)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.15)]"
+                      title="KI-Begründung für diese Zuteilung anzeigen"
+                    >
+                      <Brain size={11} /> KI-Begründung
+                    </button>
                   )}
                 </div>
 
@@ -1592,7 +1616,79 @@ function ShowCard({
                     </button>
                   )}
                 </div>
+                {aiNotesOpen && show.ai_notes && (
+                  <AiNotesModal
+                    show={show}
+                    onClose={() => setAiNotesOpen(false)}
+                  />
+                )}
               </div>
+  );
+}
+
+function AiNotesModal({
+  show,
+  onClose,
+}: {
+  show: CleaningShow;
+  onClose: () => void;
+}) {
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="max-w-lg w-full rounded-xl shadow-2xl flex flex-col gap-3 p-5"
+        style={{
+          background: "hsl(var(--card))",
+          border: "1px solid hsl(var(--border))",
+          color: "hsl(var(--foreground))",
+        }}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-0.5">
+            <div className="inline-flex items-center gap-2">
+              <Brain size={14} style={{ color: "hsl(var(--primary))" }} />
+              <h3 className="text-base font-semibold">KI-Begründung</h3>
+            </div>
+            <div className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Saal {show.hall_number}
+              {show.hall_label ? ` – ${show.hall_label}` : ""}
+              {show.movie_title ? ` · „${show.movie_title}"` : ""}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded-md text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))]"
+            aria-label="Schließen"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div
+          className="text-sm leading-relaxed whitespace-pre-wrap rounded-lg p-3"
+          style={{
+            background: "hsl(var(--secondary))",
+            border: "1px solid hsl(var(--border))",
+          }}
+        >
+          {show.ai_notes}
+        </div>
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))]"
+          >
+            Schließen
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
