@@ -1294,6 +1294,25 @@ begin
   ) then
     alter table cinema_cleaning_shows add column movie_title text;
   end if;
+
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'cinema_cleaning_shows'
+      and column_name = 'ai_recommended_staff_count'
+  ) then
+    alter table cinema_cleaning_shows
+      add column ai_recommended_staff_count integer;
+  end if;
+
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'cinema_cleaning_shows'
+      and column_name = 'ai_notes'
+  ) then
+    alter table cinema_cleaning_shows add column ai_notes text;
+  end if;
 end $$;
 
 -- room_clear_time + 'locked' plan_status nachziehen für ältere DBs
