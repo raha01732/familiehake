@@ -2,7 +2,7 @@
 
 export type CleaningPreference = "preferred" | "backup";
 export type ShowIntensity = "light" | "standard" | "intense";
-export type ShowPlanStatus = "open" | "planned" | "completed" | "cancelled";
+export type ShowPlanStatus = "open" | "planned" | "locked" | "completed" | "cancelled";
 
 export type CleaningHall = {
   id: number;
@@ -35,6 +35,8 @@ export type CleaningShow = {
   hall_number: number;
   hall_label: string | null;
   end_time: string;
+  /** "Ende" aus FÜP — Zeitpunkt, an dem der Saal komplett leer ist. */
+  room_clear_time: string | null;
   attendees: number;
   cleanup_minutes: number;
   intensity: ShowIntensity;
@@ -51,7 +53,28 @@ export type CleaningAssignment = {
   staff_id: number;
   assigned_by: "manual" | "ai" | "override";
   reason: string | null;
+  early_leave: boolean;
+  released_at: string | null;
+  early_leave_reason: string | null;
   created_at: string;
+};
+
+export type PlanRevision = {
+  id: number;
+  show_id: number;
+  kind:
+    | "add"
+    | "remove"
+    | "early_leave"
+    | "late_join"
+    | "count_change"
+    | "reschedule";
+  staff_id: number | null;
+  reason: string | null;
+  prev_value: unknown;
+  new_value: unknown;
+  changed_by: string | null;
+  changed_at: string;
 };
 
 export type CleaningFeedback = {

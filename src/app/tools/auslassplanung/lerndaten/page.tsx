@@ -13,6 +13,7 @@ type CombinedLearningEntry = {
   show_date: string;
   hall_number: number;
   end_time: string | null;
+  room_clear_time: string | null;
   attendees: number;
   cleanup_minutes: number;
   intensity: string;
@@ -22,6 +23,9 @@ type CombinedLearningEntry = {
   actual_duration_minutes: number | null;
   rating: number | null;
   notes: string | null;
+  was_locked: boolean;
+  revisions: Array<{ kind: string; staff_id: number | null; reason: string | null }>;
+  early_leaves: Array<{ staff_id: number; reason: string | null }>;
 };
 
 type NoFeedbackEntry = {
@@ -46,9 +50,11 @@ export default async function LerndatenPage() {
   const { data: activeRows } = await sb
     .from("cinema_cleaning_shows")
     .select(`
-      id, public_id, show_date, hall_number, end_time, attendees, cleanup_minutes,
-      intensity, movie_title, ai_recommended_staff_count,
-      cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes )
+      id, public_id, show_date, hall_number, end_time, room_clear_time, attendees, cleanup_minutes,
+      intensity, movie_title, plan_status, ai_recommended_staff_count,
+      cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes ),
+      cinema_cleaning_plan_revisions ( kind, staff_id, reason ),
+      cinema_cleaning_assignments ( staff_id, early_leave, early_leave_reason )
     `)
     .order("show_date", { ascending: false })
     .limit(500);
@@ -57,7 +63,7 @@ export default async function LerndatenPage() {
   const { data: archiveRows } = await sb
     .from("cinema_cleaning_learning_archive")
     .select(
-      "show_date, hall_number, end_time, attendees, cleanup_minutes, intensity, movie_title, ai_recommended_staff_count, actual_staff_count, actual_duration_minutes, rating, feedback_notes, archived_show_public_id",
+      "show_date, hall_number, end_time, room_clear_time, attendees, cleanup_minutes, intensity, movie_title, ai_recommended_staff_count, actual_staff_count, actual_duration_minutes, rating, feedback_notes, was_locked, revisions, early_leaves, archived_show_public_id",
     )
     .order("show_date", { ascending: false })
     .limit(500);
@@ -78,12 +84,28 @@ export default async function LerndatenPage() {
       ? row.cinema_cleaning_feedback[0]
       : row.cinema_cleaning_feedback;
     if (!fb) continue;
+    const revisions = Array.isArray(row.cinema_cleaning_plan_revisions)
+      ? row.cinema_cleaning_plan_revisions.map((r: any) => ({
+          kind: String(r.kind ?? ""),
+          staff_id: (r.staff_id as number | null) ?? null,
+          reason: (r.reason as string | null) ?? null,
+        }))
+      : [];
+    const earlyLeaves = Array.isArray(row.cinema_cleaning_assignments)
+      ? row.cinema_cleaning_assignments
+          .filter((a: any) => a.early_leave === true)
+          .map((a: any) => ({
+            staff_id: a.staff_id as number,
+            reason: (a.early_leave_reason as string | null) ?? null,
+          }))
+      : [];
     combined.push({
       source: "active",
       public_id: row.public_id ?? null,
       show_date: row.show_date,
       hall_number: row.hall_number,
       end_time: row.end_time,
+      room_clear_time: row.room_clear_time ?? null,
       attendees: row.attendees,
       cleanup_minutes: row.cleanup_minutes,
       intensity: row.intensity,
@@ -93,15 +115,32 @@ export default async function LerndatenPage() {
       actual_duration_minutes: fb.actual_duration_minutes,
       rating: fb.rating,
       notes: fb.notes,
+      was_locked: row.plan_status === "locked" || row.plan_status === "completed",
+      revisions,
+      early_leaves: earlyLeaves,
     });
   }
   for (const row of (archiveRows ?? []) as any[]) {
+    const revisions = Array.isArray(row.revisions)
+      ? row.revisions.map((r: any) => ({
+          kind: String(r.kind ?? ""),
+          staff_id: (r.staff_id as number | null) ?? null,
+          reason: (r.reason as string | null) ?? null,
+        }))
+      : [];
+    const earlyLeaves = Array.isArray(row.early_leaves)
+      ? row.early_leaves.map((e: any) => ({
+          staff_id: Number(e.staff_id) || 0,
+          reason: (e.reason as string | null) ?? null,
+        }))
+      : [];
     combined.push({
       source: "archive",
       public_id: row.archived_show_public_id ?? null,
       show_date: row.show_date,
       hall_number: row.hall_number,
       end_time: row.end_time,
+      room_clear_time: row.room_clear_time ?? null,
       attendees: row.attendees,
       cleanup_minutes: row.cleanup_minutes,
       intensity: row.intensity,
@@ -111,6 +150,9 @@ export default async function LerndatenPage() {
       actual_duration_minutes: row.actual_duration_minutes,
       rating: row.rating,
       notes: row.feedback_notes,
+      was_locked: Boolean(row.was_locked),
+      revisions,
+      early_leaves: earlyLeaves,
     });
   }
   combined.sort((a, b) => b.show_date.localeCompare(a.show_date));
@@ -155,8 +197,9 @@ export default async function LerndatenPage() {
     .sort((a, b) => a[1] - b[1])
     .map(([hall, count]) => ({ hall, count }));
 
-  // Latest 100 entries — was die KI bei einem Plan effektiv "sieht"
-  const visibleToAi = combined.slice(0, 100);
+  // Latest 25 Detail-Einträge — das ist exakt das LEARNING-Array im KI-Prompt
+  // (zusätzlich werden Aggregat-Statistiken über die restlichen Einträge gesendet).
+  const visibleToAi = combined.slice(0, 25);
 
   return (
     <RoleGate routeKey="tools/auslassplanung">
@@ -323,7 +366,7 @@ export default async function LerndatenPage() {
           <div className="flex items-center gap-2">
             <Database size={14} style={{ color: "hsl(var(--primary))" }} />
             <h2 className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
-              Letzte {visibleToAi.length} Einträge (das LEARNING-Array im Prompt)
+              Letzte {visibleToAi.length} Detail-Einträge (LEARNING-Array im Prompt) + Aggregat-Statistik
             </h2>
           </div>
           <div className="overflow-auto max-h-[60vh] border border-[hsl(var(--border))] rounded-xl">
@@ -345,6 +388,7 @@ export default async function LerndatenPage() {
                   <th className="p-2 text-[10px] font-semibold uppercase tracking-[0.15em]">Dauer-Ist</th>
                   <th className="p-2 text-[10px] font-semibold uppercase tracking-[0.15em]">★</th>
                   <th className="p-2 text-[10px] font-semibold uppercase tracking-[0.15em]">Notiz</th>
+                  <th className="p-2 text-[10px] font-semibold uppercase tracking-[0.15em]">Δ Revisionen</th>
                   <th className="p-2 text-[10px] font-semibold uppercase tracking-[0.15em]">Quelle</th>
                 </tr>
               </thead>
@@ -397,6 +441,36 @@ export default async function LerndatenPage() {
                     <td className="p-2">{e.rating !== null ? `${e.rating}★` : "—"}</td>
                     <td className="p-2 max-w-[180px] truncate italic" style={{ color: "hsl(var(--muted-foreground))" }}>
                       {e.notes ?? "—"}
+                    </td>
+                    <td className="p-2 max-w-[200px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      {e.revisions.length === 0 && e.early_leaves.length === 0 ? (
+                        e.was_locked ? (
+                          <span className="text-[10px] italic">final, keine Δ</span>
+                        ) : (
+                          <span className="text-[10px] italic">—</span>
+                        )
+                      ) : (
+                        <div className="flex flex-col gap-0.5 text-[10px]">
+                          {e.revisions.slice(0, 3).map((r, ri) => (
+                            <span key={ri} title={r.reason ?? ""}>
+                              {r.kind}
+                              {r.staff_id ? ` MA#${r.staff_id}` : ""}
+                              {r.reason ? ` — ${r.reason.slice(0, 40)}` : ""}
+                            </span>
+                          ))}
+                          {e.early_leaves.slice(0, 2).map((el, ei) => (
+                            <span key={`el-${ei}`} title={el.reason ?? ""}>
+                              → früher MA#{el.staff_id}
+                              {el.reason ? ` — ${el.reason.slice(0, 40)}` : ""}
+                            </span>
+                          ))}
+                          {e.revisions.length + e.early_leaves.length > 5 && (
+                            <span className="italic">
+                              … +{e.revisions.length + e.early_leaves.length - 5}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="p-2">
                       <span

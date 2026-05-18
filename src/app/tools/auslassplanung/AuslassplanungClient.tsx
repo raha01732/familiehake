@@ -85,6 +85,28 @@ type BulkPlanSummary = {
 
 type PlanManyFn = (_fd: FormData) => Promise<BulkPlanSummary>;
 
+type RutschenPlanResult = {
+  total: number;
+  planned: number;
+  empty: number;
+  results: Array<{
+    showId: number;
+    hallNumber: number;
+    recommendedCount: number;
+    assignedCount: number;
+    earlyLeaves: Array<{ staff_id: number; moves_to_hall: number | null }>;
+    note?: string;
+  }>;
+  rutscheNote?: string;
+  source: "ai" | "heuristic";
+};
+type PlanRutscheFn = (_fd: FormData) => Promise<RutschenPlanResult>;
+type LockFn = (_fd: FormData) => Promise<{ locked: number }>;
+type UnlockFn = (_fd: FormData) => Promise<{ unlocked: number }>;
+type EarlyLeaveFn = (
+  _fd: FormData,
+) => Promise<{ ok: true } | { ok: false; error: string }>;
+
 type ParsedFupShow = {
   hall_number: number;
   credit_offset: string;
@@ -136,6 +158,10 @@ type Props = {
   deleteAllShowsAction: (_fd: FormData) => Promise<{ deleted: number }>;
   planShowAction: PlanFn;
   planManyShowsAction: PlanManyFn;
+  planRutscheAction: PlanRutscheFn;
+  lockShowsAction: LockFn;
+  unlockShowsAction: UnlockFn;
+  setEarlyLeaveAction: EarlyLeaveFn;
   setManualAssignmentsAction: ActionFn;
   removeAssignmentAction: ActionFn;
   clearAssignmentsAction: ActionFn;
@@ -153,6 +179,7 @@ type Tab = "shows" | "staff" | "halls";
 const STATUS_LABELS: Record<ShowPlanStatus, { label: string; cls: string }> = {
   open:       { label: "Offen",     cls: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
   planned:    { label: "Geplant",   cls: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
+  locked:     { label: "Final",     cls: "bg-violet-500/15 text-violet-600 border-violet-500/30" },
   completed:  { label: "Erledigt",  cls: "bg-sky-500/15 text-sky-600 border-sky-500/30" },
   cancelled:  { label: "Abgesagt",  cls: "bg-zinc-500/15 text-zinc-600 border-zinc-500/30" },
 };
@@ -191,6 +218,10 @@ export default function AuslassplanungClient({
   deleteAllShowsAction,
   planShowAction,
   planManyShowsAction,
+  planRutscheAction,
+  lockShowsAction,
+  unlockShowsAction,
+  setEarlyLeaveAction,
   setManualAssignmentsAction,
   removeAssignmentAction,
   clearAssignmentsAction,
@@ -338,6 +369,60 @@ export default function AuslassplanungClient({
     });
   }
 
+  const [planningRutscheKey, setPlanningRutscheKey] = useState<string | null>(null);
+  const [isRutschePlanning, startRutschePlanning] = useTransition();
+  const [rutscheNotice, setRutscheNotice] = useState<RutschenPlanResult | null>(null);
+  const [isLocking, startLocking] = useTransition();
+  const [earlyLeavePrompt, setEarlyLeavePrompt] = useState<
+    | { showId: number; staffId: number; staffName: string; currentlyEarly: boolean }
+    | null
+  >(null);
+
+  function handlePlanRutsche(rutscheKey: string, showIds: number[]) {
+    if (showIds.length === 0) return;
+    setPlanningRutscheKey(rutscheKey);
+    startRutschePlanning(async () => {
+      try {
+        const fd = new FormData();
+        for (const id of showIds) fd.append("show_id", String(id));
+        const res = await planRutscheAction(fd);
+        setRutscheNotice(res);
+        router.refresh();
+      } finally {
+        setPlanningRutscheKey(null);
+      }
+    });
+  }
+
+  function handleToggleLock(showIds: number[], rutscheKey: string, currentlyLocked: boolean) {
+    if (showIds.length === 0) return;
+    startLocking(async () => {
+      const fd = new FormData();
+      for (const id of showIds) fd.append("show_id", String(id));
+      if (currentlyLocked) {
+        await unlockShowsAction(fd);
+      } else {
+        fd.set("rutsche_key", rutscheKey);
+        await lockShowsAction(fd);
+      }
+      router.refresh();
+    });
+  }
+
+  function handleEarlyLeaveConfirm(reason: string, releasedAt: string) {
+    if (!earlyLeavePrompt) return;
+    const fd = new FormData();
+    fd.set("show_id", String(earlyLeavePrompt.showId));
+    fd.set("staff_id", String(earlyLeavePrompt.staffId));
+    fd.set("early_leave", earlyLeavePrompt.currentlyEarly ? "false" : "true");
+    if (!earlyLeavePrompt.currentlyEarly) {
+      if (reason) fd.set("reason", reason);
+      if (releasedAt) fd.set("released_at", releasedAt);
+    }
+    setEarlyLeavePrompt(null);
+    void setEarlyLeaveAction(fd).then(() => router.refresh());
+  }
+
   function handleArchiveFeedback() {
     startArchivingFeedback(async () => {
       const fd = new FormData();
@@ -444,6 +529,14 @@ export default function AuslassplanungClient({
           onRemoveAssignment={handleRemoveAssignment}
           onClearAllAssignments={requestClearAll}
           onClearRutscheAssignments={requestClearRutsche}
+          onPlanRutsche={handlePlanRutsche}
+          onToggleLock={handleToggleLock}
+          onRequestEarlyLeave={(showId, staffId, staffName, currentlyEarly) =>
+            setEarlyLeavePrompt({ showId, staffId, staffName, currentlyEarly })
+          }
+          planningRutscheKey={planningRutscheKey}
+          isRutschePlanning={isRutschePlanning}
+          isLocking={isLocking}
           onBulkPlanOpen={() => setBulkPickerOpen(true)}
           onFupOpen={() => setFupModalOpen(true)}
           onDeleteAllOpen={() => setConfirmDeleteAll(true)}
@@ -603,9 +696,139 @@ export default function AuslassplanungClient({
         />
       )}
 
+      {earlyLeavePrompt && (
+        <EarlyLeavePromptModal
+          staffName={earlyLeavePrompt.staffName}
+          currentlyEarly={earlyLeavePrompt.currentlyEarly}
+          onCancel={() => setEarlyLeavePrompt(null)}
+          onConfirm={handleEarlyLeaveConfirm}
+        />
+      )}
+
+      {rutscheNotice && (
+        <RutscheNoticeBanner
+          notice={rutscheNotice}
+          onDismiss={() => setRutscheNotice(null)}
+        />
+      )}
+
       {/* overrideAction ist als Prop verfügbar — reserviert für ein
           späteres manuelles Override-UI. Aktuell nicht in der UI angeboten. */}
     </div>
+  );
+}
+
+function EarlyLeavePromptModal({
+  staffName,
+  currentlyEarly,
+  onCancel,
+  onConfirm,
+}: {
+  staffName: string;
+  currentlyEarly: boolean;
+  onCancel: () => void;
+  onConfirm: (reason: string, releasedAt: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [releasedAt, setReleasedAt] = useState("");
+  return createPortal(
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+      <div className="feature-card max-w-md w-full p-5 flex flex-col gap-3">
+        <h3 className="text-base font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+          {currentlyEarly
+            ? `Early-Leave für ${staffName} aufheben?`
+            : `${staffName} früher gehen lassen?`}
+        </h3>
+        {!currentlyEarly && (
+          <>
+            <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Markiert den/die MA als „verlässt diesen Saal früher" — z. B. um in einen
+              anderen Saal der Rutsche zu wechseln. Lerndaten enthalten Grund + Zeit.
+            </p>
+            <label className="text-xs flex flex-col gap-1" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Frei ab (HH:MM, optional)
+              <input
+                type="time"
+                value={releasedAt}
+                onChange={(e) => setReleasedAt(e.target.value)}
+                className={inputCls}
+              />
+            </label>
+            <label className="text-xs flex flex-col gap-1" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Grund (optional, hilft der KI zu lernen)
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                rows={3}
+                placeholder="z. B. niedrige Auslastung — wechselt nach Saal 5"
+                className={inputCls}
+              />
+            </label>
+          </>
+        )}
+        <div className="flex items-center justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
+          >
+            Abbrechen
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirm(reason.trim(), releasedAt)}
+            className="brand-button text-xs font-semibold px-3 py-1.5 rounded-lg"
+          >
+            {currentlyEarly ? "Aufheben" : "Markieren"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function RutscheNoticeBanner({
+  notice,
+  onDismiss,
+}: {
+  notice: RutschenPlanResult;
+  onDismiss: () => void;
+}) {
+  return createPortal(
+    <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+      <div className="feature-card max-w-xl w-full p-4 flex items-start gap-3">
+        <Sparkles size={16} style={{ color: "hsl(var(--primary))" }} className="mt-0.5" />
+        <div className="flex-1 text-sm">
+          <div className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+            Rutsche geplant — {notice.planned}/{notice.total} besetzt
+            {notice.source === "ai" ? " (KI)" : " (Heuristik)"}
+          </div>
+          {notice.rutscheNote && (
+            <div className="text-xs mt-1" style={{ color: "hsl(var(--muted-foreground))" }}>
+              {notice.rutscheNote}
+            </div>
+          )}
+          {notice.results.some((r) => r.earlyLeaves.length > 0) && (
+            <div className="text-xs mt-1" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Early-Leave-Slots:{" "}
+              {notice.results
+                .filter((r) => r.earlyLeaves.length > 0)
+                .map((r) => `Saal ${r.hallNumber} (${r.earlyLeaves.length})`)
+                .join(" · ")}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-xs font-medium text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+        >
+          <X size={14} />
+        </button>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -657,6 +880,12 @@ function ShowsTab({
   onRemoveAssignment,
   onClearAllAssignments,
   onClearRutscheAssignments,
+  onPlanRutsche,
+  onToggleLock,
+  onRequestEarlyLeave,
+  planningRutscheKey,
+  isRutschePlanning,
+  isLocking,
   onBulkPlanOpen,
   onFupOpen,
   onDeleteAllOpen,
@@ -686,6 +915,17 @@ function ShowsTab({
   onRemoveAssignment: (showId: number, staffId: number) => void;
   onClearAllAssignments: () => void;
   onClearRutscheAssignments: (showIds: number[], label: string) => void;
+  onPlanRutsche: (rutscheKey: string, showIds: number[]) => void;
+  onToggleLock: (showIds: number[], rutscheKey: string, currentlyLocked: boolean) => void;
+  onRequestEarlyLeave: (
+    showId: number,
+    staffId: number,
+    staffName: string,
+    currentlyEarly: boolean,
+  ) => void;
+  planningRutscheKey: string | null;
+  isRutschePlanning: boolean;
+  isLocking: boolean;
   onBulkPlanOpen: () => void;
   onFupOpen: () => void;
   onDeleteAllOpen: () => void;
@@ -801,6 +1041,12 @@ function ShowsTab({
           onClear={onClear}
           onRemoveAssignment={onRemoveAssignment}
           onClearRutscheAssignments={onClearRutscheAssignments}
+          onPlanRutsche={onPlanRutsche}
+          onToggleLock={onToggleLock}
+          onRequestEarlyLeave={onRequestEarlyLeave}
+          planningRutscheKey={planningRutscheKey}
+          isRutschePlanning={isRutschePlanning}
+          isLocking={isLocking}
           onFeedback={onFeedback}
         />
       )}
@@ -826,6 +1072,12 @@ function RutschenSections({
   onClear,
   onRemoveAssignment,
   onClearRutscheAssignments,
+  onPlanRutsche,
+  onToggleLock,
+  onRequestEarlyLeave,
+  planningRutscheKey,
+  isRutschePlanning,
+  isLocking,
   onFeedback,
 }: {
   shows: CleaningShow[];
@@ -843,6 +1095,17 @@ function RutschenSections({
   onClear: (show: CleaningShow) => void;
   onRemoveAssignment: (showId: number, staffId: number) => void;
   onClearRutscheAssignments: (showIds: number[], label: string) => void;
+  onPlanRutsche: (rutscheKey: string, showIds: number[]) => void;
+  onToggleLock: (showIds: number[], rutscheKey: string, currentlyLocked: boolean) => void;
+  onRequestEarlyLeave: (
+    showId: number,
+    staffId: number,
+    staffName: string,
+    currentlyEarly: boolean,
+  ) => void;
+  planningRutscheKey: string | null;
+  isRutschePlanning: boolean;
+  isLocking: boolean;
   onFeedback: (show: CleaningShow) => void;
 }) {
   // Wir berechnen Rutschen pro show_date getrennt, damit eine Rutsche nicht
@@ -883,27 +1146,38 @@ function RutschenSections({
                 {rutschen.reduce((acc, r) => acc + r.shows.length, 0)} Vorstellungen
               </span>
             </div>
-            {rutschen.map((r) => (
-              <RutscheBlock
-                key={`${date}-${r.index}`}
-                rutsche={r}
-                staffById={staffById}
-                assignmentsByShow={assignmentsByShow}
-                feedbackByShow={feedbackByShow}
-                canEdit={canEdit}
-                aiEnabled={aiEnabled}
-                isPlanning={isPlanning}
-                isBulkPlanning={isBulkPlanning}
-                planningShowId={planningShowId}
-                onEdit={onEdit}
-                onPlan={onPlan}
-                onAssign={onAssign}
-                onClear={onClear}
-                onRemoveAssignment={onRemoveAssignment}
-                onClearRutscheAssignments={onClearRutscheAssignments}
-                onFeedback={onFeedback}
-              />
-            ))}
+            {rutschen.map((r) => {
+              const rutscheKey = `${date}#${r.index}`;
+              return (
+                <RutscheBlock
+                  key={rutscheKey}
+                  rutsche={r}
+                  rutscheKey={rutscheKey}
+                  staffById={staffById}
+                  assignmentsByShow={assignmentsByShow}
+                  feedbackByShow={feedbackByShow}
+                  canEdit={canEdit}
+                  aiEnabled={aiEnabled}
+                  isPlanning={isPlanning}
+                  isBulkPlanning={isBulkPlanning}
+                  planningShowId={planningShowId}
+                  onEdit={onEdit}
+                  onPlan={onPlan}
+                  onAssign={onAssign}
+                  onClear={onClear}
+                  onRemoveAssignment={onRemoveAssignment}
+                  onClearRutscheAssignments={onClearRutscheAssignments}
+                  onPlanRutsche={onPlanRutsche}
+                  onToggleLock={onToggleLock}
+                  onRequestEarlyLeave={onRequestEarlyLeave}
+                  isThisRutschePlanning={
+                    isRutschePlanning && planningRutscheKey === rutscheKey
+                  }
+                  isLocking={isLocking}
+                  onFeedback={onFeedback}
+                />
+              );
+            })}
           </section>
         );
       })}
@@ -913,6 +1187,7 @@ function RutschenSections({
 
 function RutscheBlock({
   rutsche,
+  rutscheKey,
   staffById,
   assignmentsByShow,
   feedbackByShow,
@@ -927,9 +1202,15 @@ function RutscheBlock({
   onClear,
   onRemoveAssignment,
   onClearRutscheAssignments,
+  onPlanRutsche,
+  onToggleLock,
+  onRequestEarlyLeave,
+  isThisRutschePlanning,
+  isLocking,
   onFeedback,
 }: {
   rutsche: Rutsche;
+  rutscheKey: string;
   staffById: Map<number, CleaningStaff>;
   assignmentsByShow: Map<number, CleaningAssignment[]>;
   feedbackByShow: Map<number, CleaningFeedback>;
@@ -944,6 +1225,16 @@ function RutscheBlock({
   onClear: (show: CleaningShow) => void;
   onRemoveAssignment: (showId: number, staffId: number) => void;
   onClearRutscheAssignments: (showIds: number[], label: string) => void;
+  onPlanRutsche: (rutscheKey: string, showIds: number[]) => void;
+  onToggleLock: (showIds: number[], rutscheKey: string, currentlyLocked: boolean) => void;
+  onRequestEarlyLeave: (
+    showId: number,
+    staffId: number,
+    staffName: string,
+    currentlyEarly: boolean,
+  ) => void;
+  isThisRutschePlanning: boolean;
+  isLocking: boolean;
   onFeedback: (show: CleaningShow) => void;
 }) {
   const hasAnyAssignments = rutsche.shows.some(
@@ -953,9 +1244,12 @@ function RutscheBlock({
   const statusCounts = {
     open: rutsche.shows.filter((s) => s.plan_status === "open").length,
     planned: rutsche.shows.filter((s) => s.plan_status === "planned").length,
+    locked: rutsche.shows.filter((s) => s.plan_status === "locked").length,
     completed: rutsche.shows.filter((s) => s.plan_status === "completed").length,
     cancelled: rutsche.shows.filter((s) => s.plan_status === "cancelled").length,
   };
+  const allLocked =
+    rutsche.shows.length > 0 && rutsche.shows.every((s) => s.plan_status === "locked");
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2 flex-wrap">
@@ -987,6 +1281,11 @@ function RutscheBlock({
               {statusCounts.planned} geplant
             </span>
           )}
+          {statusCounts.locked > 0 && (
+            <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${STATUS_LABELS.locked.cls}`}>
+              {statusCounts.locked} final
+            </span>
+          )}
           {statusCounts.completed > 0 && (
             <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${STATUS_LABELS.completed.cls}`}>
               {statusCounts.completed} erledigt
@@ -996,6 +1295,49 @@ function RutscheBlock({
             <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${STATUS_LABELS.cancelled.cls}`}>
               {statusCounts.cancelled} abgesagt
             </span>
+          )}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() =>
+                onPlanRutsche(
+                  rutscheKey,
+                  rutsche.shows.filter((s) => s.plan_status !== "locked").map((s) => s.id),
+                )
+              }
+              disabled={isThisRutschePlanning || isBulkPlanning || allLocked}
+              className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg border border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.18)] disabled:opacity-50"
+              title="Diese Rutsche als Paket planen — KI verteilt MA über alle Säle"
+            >
+              <Sparkles size={11} />
+              {isThisRutschePlanning ? "Plane…" : "Rutsche planen"}
+            </button>
+          )}
+          {canEdit && hasAnyAssignments && (
+            <button
+              type="button"
+              onClick={() =>
+                onToggleLock(
+                  rutsche.shows.map((s) => s.id),
+                  rutscheKey,
+                  allLocked,
+                )
+              }
+              disabled={isLocking}
+              className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg border disabled:opacity-50 ${
+                allLocked
+                  ? "border-[hsl(var(--border))] bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]"
+                  : "border-violet-500/30 bg-violet-500/10 text-violet-600 hover:bg-violet-500/20"
+              }`}
+              title={
+                allLocked
+                  ? "Lock aufheben — Plan wieder bearbeitbar"
+                  : "Plan einfrieren — spätere Änderungen werden als Revisionen aufgezeichnet"
+              }
+            >
+              <Lock size={11} />
+              {allLocked ? "Lock lösen" : "Final markieren"}
+            </button>
           )}
           {canEdit && hasAnyAssignments && (
             <button
@@ -1031,6 +1373,7 @@ function RutscheBlock({
             onAssign={onAssign}
             onClear={onClear}
             onRemoveAssignment={onRemoveAssignment}
+            onRequestEarlyLeave={onRequestEarlyLeave}
             onFeedback={onFeedback}
           />
         ))}
@@ -1053,6 +1396,7 @@ function ShowCard({
   onAssign,
   onClear,
   onRemoveAssignment,
+  onRequestEarlyLeave,
   onFeedback,
 }: {
   show: CleaningShow;
@@ -1068,6 +1412,12 @@ function ShowCard({
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
   onRemoveAssignment: (showId: number, staffId: number) => void;
+  onRequestEarlyLeave: (
+    showId: number,
+    staffId: number,
+    staffName: string,
+    currentlyEarly: boolean,
+  ) => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
   const status = STATUS_LABELS[show.plan_status];
@@ -1112,6 +1462,15 @@ function ShowCard({
                     <div className="mt-1 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
                       {dateLabel} · {formatTimeRange(show.end_time, show.cleanup_minutes)}
                     </div>
+                    {show.room_clear_time && (
+                      <div
+                        className="mt-0.5 text-[11px]"
+                        style={{ color: "hsl(var(--muted-foreground))" }}
+                        title="FÜP-Spalte Ende: ab hier ist der Saal komplett leer und kann gereinigt werden"
+                      >
+                        Saal frei ab {show.room_clear_time.slice(0, 5)}
+                      </div>
+                    )}
                     {show.movie_title && (
                       <div className="mt-0.5 text-xs italic" style={{ color: "hsl(var(--muted-foreground))" }}>
                         „{show.movie_title}"
@@ -1187,8 +1546,22 @@ function ShowCard({
                             staff={staff}
                             isManual={isManual}
                             reason={a.reason}
+                            earlyLeave={a.early_leave}
+                            releasedAt={a.released_at}
+                            earlyLeaveReason={a.early_leave_reason}
                             canRemove={canEdit}
                             onRemove={() => onRemoveAssignment(show.id, staff.id)}
+                            onToggleEarlyLeave={
+                              canEdit
+                                ? () =>
+                                    onRequestEarlyLeave(
+                                      show.id,
+                                      staff.id,
+                                      staff.name,
+                                      a.early_leave,
+                                    )
+                                : undefined
+                            }
                           />
                         );
                       })}
@@ -1360,14 +1733,22 @@ function AssignmentChip({
   staff,
   isManual,
   reason,
+  earlyLeave,
+  releasedAt,
+  earlyLeaveReason,
   canRemove,
   onRemove,
+  onToggleEarlyLeave,
 }: {
   staff: CleaningStaff;
   isManual: boolean;
   reason: string | null;
+  earlyLeave: boolean;
+  releasedAt: string | null;
+  earlyLeaveReason: string | null;
   canRemove: boolean;
   onRemove: () => void;
+  onToggleEarlyLeave?: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -1380,6 +1761,16 @@ function AssignmentChip({
     onRemove();
   }
 
+  const tooltipParts: string[] = [];
+  if (reason) tooltipParts.push(reason);
+  if (isManual) tooltipParts.push("(Manuell — KI überschreibt nicht)");
+  if (earlyLeave) {
+    const at = releasedAt ? releasedAt.slice(0, 5) : null;
+    tooltipParts.push(
+      `Geht früher${at ? ` ab ${at}` : ""}${earlyLeaveReason ? ` — ${earlyLeaveReason}` : ""}`,
+    );
+  }
+
   return (
     <span
       onMouseEnter={() => setHovered(true)}
@@ -1388,10 +1779,11 @@ function AssignmentChip({
       style={{
         backgroundColor: `${staff.color}1f`,
         color: staff.color,
-        border: `1px solid ${staff.color}${isManual ? "aa" : "55"}`,
+        border: `1px dashed ${staff.color}${isManual ? "aa" : "55"}`,
+        borderStyle: earlyLeave ? "dashed" : "solid",
         opacity: removing ? 0.4 : 1,
       }}
-      title={`${reason ?? ""}${isManual ? " (Manuell — KI überschreibt nicht)" : ""}`.trim()}
+      title={tooltipParts.join(" · ")}
     >
       <span
         className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
@@ -1400,10 +1792,38 @@ function AssignmentChip({
         {getInitials(staff.name)}
       </span>
       <span>{staff.name}</span>
+      {earlyLeave && (
+        <span
+          className="text-[9px] font-semibold uppercase tracking-wide"
+          title={`Geht früher${releasedAt ? ` ab ${releasedAt.slice(0, 5)}` : ""}`}
+        >
+          → früher
+        </span>
+      )}
       {isManual ? (
         <Lock size={9} style={{ opacity: 0.85 }} aria-label="Manuell" />
       ) : (
         <Brush size={9} style={{ opacity: 0.6 }} aria-label="KI" />
+      )}
+      {onToggleEarlyLeave && hovered && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleEarlyLeave();
+          }}
+          aria-label={
+            earlyLeave
+              ? `${staff.name}: Early-Leave aufheben`
+              : `${staff.name}: früher gehen lassen`
+          }
+          className="ml-0.5 w-4 h-4 rounded-full flex items-center justify-center text-white hover:scale-110 transition-transform text-[10px]"
+          style={{ backgroundColor: staff.color }}
+          title={earlyLeave ? "Early-Leave aufheben" : "Früher gehen lassen"}
+        >
+          {earlyLeave ? "↺" : "→"}
+        </button>
       )}
       {canRemove && hovered && (
         <button

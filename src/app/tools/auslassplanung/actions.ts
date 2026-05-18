@@ -14,7 +14,11 @@ import {
 } from "./utils";
 import {
   generateCleaningPlanWithAi,
+  generateRutschenPlanWithAi,
+  buildLearningAggregates,
   auslassplanungAiEnabled,
+  type AiLearningEntry,
+  type AiLearningAggregate,
 } from "@/lib/auslassplanung/ai";
 import {
   analyzeFupImage,
@@ -254,6 +258,7 @@ export async function createShowAction(formData: FormData) {
   const hallNumber = Number(formData.get("hall_number") || 0);
   const hallLabel = String(formData.get("hall_label") || "").trim() || null;
   const endTime = normalizeTimeInput(String(formData.get("end_time") || ""));
+  const roomClearTime = normalizeTimeInput(String(formData.get("room_clear_time") || ""));
   const attendees = Math.max(0, Number(formData.get("attendees") || 0));
   const cleanupMinutes = Math.max(1, Number(formData.get("cleanup_minutes") || 15));
   const rawIntensity = String(formData.get("intensity") || "standard");
@@ -272,6 +277,7 @@ export async function createShowAction(formData: FormData) {
     hall_number: hallNumber,
     hall_label: hallLabel,
     end_time: endTime,
+    room_clear_time: roomClearTime,
     attendees,
     cleanup_minutes: cleanupMinutes,
     intensity,
@@ -305,6 +311,10 @@ export async function updateShowAction(formData: FormData) {
     const normalized = normalizeTimeInput(endTime);
     if (normalized) updates.end_time = normalized;
   }
+  const roomClearTime = formData.get("room_clear_time");
+  if (typeof roomClearTime === "string") {
+    updates.room_clear_time = roomClearTime.trim() === "" ? null : normalizeTimeInput(roomClearTime);
+  }
   const attendees = formData.get("attendees");
   if (attendees !== null) updates.attendees = Math.max(0, Number(attendees) || 0);
 
@@ -324,7 +334,7 @@ export async function updateShowAction(formData: FormData) {
 
   const planStatus = formData.get("plan_status");
   if (typeof planStatus === "string") {
-    const allowed = ["open", "planned", "completed", "cancelled"];
+    const allowed = ["open", "planned", "locked", "completed", "cancelled"];
     if (allowed.includes(planStatus)) updates.plan_status = planStatus;
   }
 
@@ -569,19 +579,7 @@ function isManualAssignment(a: { assigned_by: string }): boolean {
   return a.assigned_by === "manual" || a.assigned_by === "override";
 }
 
-type LearningEntry = {
-  hall_number: number;
-  attendees: number;
-  seat_count: number | null;
-  cleanup_minutes: number;
-  intensity: string;
-  movie_title: string | null;
-  actual_staff_count: number;
-  actual_duration_minutes: number | null;
-  rating: number | null;
-  notes: string | null;
-};
-type LearningEntryWithDate = LearningEntry & { _sortKey: string };
+type LearningEntryWithDate = AiLearningEntry & { _sortKey: string };
 
 /** Archiviert die Feedback-Daten der angegebenen Vorstellungen ins Lern-Archiv.
  *  Idempotent: bestehende Archiv-Einträge für dieselbe Show-ID werden vorher
@@ -593,32 +591,60 @@ async function archiveShowsByIds(sb: SupabaseAdmin, showIds: number[]): Promise<
   const { data: rows } = await sb
     .from("cinema_cleaning_shows")
     .select(`
-      id, public_id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes,
-      intensity, movie_title, notes, ai_recommended_staff_count,
-      cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes )
+      id, public_id, show_date, hall_number, hall_label, end_time, room_clear_time,
+      attendees, cleanup_minutes, intensity, movie_title, notes, plan_status,
+      ai_recommended_staff_count,
+      cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes ),
+      cinema_cleaning_plan_revisions ( kind, staff_id, reason, prev_value, new_value, changed_at ),
+      cinema_cleaning_assignments ( staff_id, early_leave, released_at, early_leave_reason )
     `)
     .in("id", showIds);
   const toArchive: Record<string, unknown>[] = [];
-  for (const r of (rows ?? []) as any[]) {
-    const fb = Array.isArray(r.cinema_cleaning_feedback)
-      ? r.cinema_cleaning_feedback[0]
-      : r.cinema_cleaning_feedback;
+  for (const r of (rows ?? []) as Array<Record<string, unknown>>) {
+    const fbRaw = r.cinema_cleaning_feedback;
+    const fb = Array.isArray(fbRaw) ? fbRaw[0] : fbRaw;
     if (!fb) continue;
+    const fbAny = fb as Record<string, unknown>;
+    const revisions = Array.isArray(r.cinema_cleaning_plan_revisions)
+      ? (r.cinema_cleaning_plan_revisions as Array<Record<string, unknown>>).map((x) => ({
+          kind: String(x.kind ?? ""),
+          staff_id: (x.staff_id as number | null) ?? null,
+          reason: (x.reason as string | null) ?? null,
+          prev: x.prev_value ?? null,
+          new: x.new_value ?? null,
+          at: (x.changed_at as string | null) ?? null,
+        }))
+      : [];
+    const earlyLeaves = Array.isArray(r.cinema_cleaning_assignments)
+      ? (r.cinema_cleaning_assignments as Array<Record<string, unknown>>)
+          .filter((a) => a.early_leave === true)
+          .map((a) => ({
+            staff_id: a.staff_id as number,
+            released_at: (a.released_at as string | null) ?? null,
+            reason: (a.early_leave_reason as string | null) ?? null,
+          }))
+      : [];
+    const wasLocked =
+      r.plan_status === "locked" || r.plan_status === "completed";
     toArchive.push({
       show_date: r.show_date,
       hall_number: r.hall_number,
       hall_label: r.hall_label,
       end_time: r.end_time,
+      room_clear_time: r.room_clear_time ?? null,
       attendees: r.attendees,
       cleanup_minutes: r.cleanup_minutes,
       intensity: r.intensity,
       movie_title: r.movie_title,
       show_notes: r.notes,
       ai_recommended_staff_count: r.ai_recommended_staff_count,
-      actual_staff_count: fb.actual_staff_count,
-      actual_duration_minutes: fb.actual_duration_minutes,
-      rating: fb.rating,
-      feedback_notes: fb.notes,
+      actual_staff_count: fbAny.actual_staff_count,
+      actual_duration_minutes: fbAny.actual_duration_minutes,
+      rating: fbAny.rating,
+      feedback_notes: fbAny.notes,
+      was_locked: wasLocked,
+      revisions,
+      early_leaves: earlyLeaves,
       archived_from_show_id: r.id,
       archived_show_public_id: r.public_id ?? null,
     });
@@ -633,53 +659,76 @@ async function archiveShowsByIds(sb: SupabaseAdmin, showIds: number[]): Promise<
   return toArchive.length;
 }
 
+// Detail-Einträge im LEARNING-Array — kleiner als früher (Token-Budget), weil
+// jeder Eintrag jetzt Revisions + Early-Leaves enthält. Der Rest fließt als
+// Aggregat (siehe LEARNING_AGGREGATE_POOL).
+const LEARNING_DETAIL_LIMIT = 25;
+// Aggregat-Berechnung darf auf einem größeren Pool sitzen — wir lesen so
+// viele Lerndaten ein, wie sinnvoll für Bucket-Statistik ist.
+const LEARNING_AGGREGATE_POOL = 500;
+// Für den Attendees-Schätzer behalten wir die alte 100er-Grenze
 const LEARNING_LIMIT = 100;
+
+type LearningData = {
+  detail: AiLearningEntry[];
+  aggregates: AiLearningAggregate[];
+};
 
 async function loadLearningData(
   sb: SupabaseAdmin,
   excludeShowIds: ReadonlySet<number>,
   seatMap?: ReadonlyMap<number, number>,
-): Promise<LearningEntry[]> {
-  // Falls kein seatMap übergeben wurde: laden, damit historische Auslastung
-  // berechnet werden kann.
+): Promise<LearningData> {
   const effectiveSeatMap = seatMap ?? (await loadHallSeatMap(sb));
-  // 1) Archiv parallel zu aktiven Shows laden
+  // 1) Aktive Shows mit Feedback + Revisions; Archiv parallel
   const [pastRowsResult, archiveRowsResult] = await Promise.all([
     sb
       .from("cinema_cleaning_shows")
       .select(`
         id, show_date, hall_number, attendees, cleanup_minutes, intensity, movie_title,
-        cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes )
+        plan_status, ai_recommended_staff_count,
+        cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes ),
+        cinema_cleaning_plan_snapshots ( recommended_count, snapshot_assignments ),
+        cinema_cleaning_plan_revisions ( kind, staff_id, reason, prev_value, new_value, changed_at ),
+        cinema_cleaning_assignments ( staff_id, early_leave, early_leave_reason )
       `)
       .order("show_date", { ascending: false })
-      .limit(LEARNING_LIMIT * 4),
+      .limit(LEARNING_AGGREGATE_POOL),
     sb
       .from("cinema_cleaning_learning_archive")
       .select(
-        "show_date, hall_number, attendees, cleanup_minutes, intensity, movie_title, actual_staff_count, actual_duration_minutes, rating, feedback_notes, archived_from_show_id",
+        "show_date, hall_number, attendees, cleanup_minutes, intensity, movie_title, ai_recommended_staff_count, actual_staff_count, actual_duration_minutes, rating, feedback_notes, was_locked, revisions, early_leaves, archived_from_show_id",
       )
       .order("show_date", { ascending: false })
-      .limit(LEARNING_LIMIT),
+      .limit(LEARNING_AGGREGATE_POOL),
   ]);
   const pastRows = pastRowsResult.data;
   const archiveRows = archiveRowsResult.data;
 
-  // Show-IDs, die bereits im Archiv stehen — diese Shows aus dem aktiven Pool
-  // ausschließen, sonst sähe die KI denselben Datensatz doppelt.
   const archivedShowIds = new Set<number>();
-  for (const row of (archiveRows ?? []) as any[]) {
+  for (const row of (archiveRows ?? []) as Array<{ archived_from_show_id?: unknown }>) {
     const id = row.archived_from_show_id;
     if (typeof id === "number") archivedShowIds.add(id);
   }
 
   const activeOut: LearningEntryWithDate[] = [];
-  for (const row of (pastRows ?? []) as any[]) {
-    if (excludeShowIds.has(row.id as number)) continue;
-    if (archivedShowIds.has(row.id as number)) continue;
-    const fb = Array.isArray(row.cinema_cleaning_feedback)
-      ? row.cinema_cleaning_feedback[0]
-      : row.cinema_cleaning_feedback;
+  for (const row of (pastRows ?? []) as Array<Record<string, unknown>>) {
+    const showId = row.id as number;
+    if (excludeShowIds.has(showId)) continue;
+    if (archivedShowIds.has(showId)) continue;
+    const fbRaw = row.cinema_cleaning_feedback;
+    const fb = Array.isArray(fbRaw) ? fbRaw[0] : fbRaw;
     if (!fb) continue;
+    const snapRaw = row.cinema_cleaning_plan_snapshots;
+    const snap = Array.isArray(snapRaw) ? snapRaw[0] : snapRaw;
+    const revisionsRaw = Array.isArray(row.cinema_cleaning_plan_revisions)
+      ? (row.cinema_cleaning_plan_revisions as Array<Record<string, unknown>>)
+      : [];
+    const assignmentsRaw = Array.isArray(row.cinema_cleaning_assignments)
+      ? (row.cinema_cleaning_assignments as Array<Record<string, unknown>>)
+      : [];
+    const fbAny = fb as Record<string, unknown>;
+    const snapAny = (snap ?? null) as Record<string, unknown> | null;
     activeOut.push({
       hall_number: row.hall_number as number,
       attendees: row.attendees as number,
@@ -687,36 +736,81 @@ async function loadLearningData(
       cleanup_minutes: row.cleanup_minutes as number,
       intensity: row.intensity as string,
       movie_title: (row.movie_title as string | null) ?? null,
-      actual_staff_count: fb.actual_staff_count as number,
-      actual_duration_minutes: (fb.actual_duration_minutes as number | null) ?? null,
-      rating: (fb.rating as number | null) ?? null,
-      notes: (fb.notes as string | null) ?? null,
+      ai_recommended_staff_count:
+        (row.ai_recommended_staff_count as number | null) ?? null,
+      actual_staff_count: fbAny.actual_staff_count as number,
+      actual_duration_minutes: (fbAny.actual_duration_minutes as number | null) ?? null,
+      rating: (fbAny.rating as number | null) ?? null,
+      notes: (fbAny.notes as string | null) ?? null,
+      was_locked:
+        row.plan_status === "locked" ||
+        row.plan_status === "completed" ||
+        snapAny !== null,
+      locked_count: snapAny ? (snapAny.recommended_count as number | null) ?? null : null,
+      revisions: revisionsRaw.map((r) => ({
+        kind: String(r.kind ?? ""),
+        staff_id: (r.staff_id as number | null) ?? null,
+        reason: (r.reason as string | null) ?? null,
+      })),
+      early_leaves: assignmentsRaw
+        .filter((a) => a.early_leave === true)
+        .map((a) => ({
+          staff_id: a.staff_id as number,
+          reason: (a.early_leave_reason as string | null) ?? null,
+        })),
       _sortKey: row.show_date as string,
     });
   }
 
-  const archiveOut: LearningEntryWithDate[] = (archiveRows ?? []).map((row: any) => ({
-    hall_number: row.hall_number as number,
-    attendees: row.attendees as number,
-    seat_count: effectiveSeatMap.get(row.hall_number as number) ?? null,
-    cleanup_minutes: row.cleanup_minutes as number,
-    intensity: row.intensity as string,
-    movie_title: (row.movie_title as string | null) ?? null,
-    actual_staff_count: row.actual_staff_count as number,
-    actual_duration_minutes: (row.actual_duration_minutes as number | null) ?? null,
-    rating: (row.rating as number | null) ?? null,
-    notes: (row.feedback_notes as string | null) ?? null,
-    _sortKey: row.show_date as string,
-  }));
+  const archiveOut: LearningEntryWithDate[] = (archiveRows ?? []).map(
+    (row: Record<string, unknown>) => {
+      const revs = Array.isArray(row.revisions)
+        ? (row.revisions as Array<Record<string, unknown>>)
+        : [];
+      const earlies = Array.isArray(row.early_leaves)
+        ? (row.early_leaves as Array<Record<string, unknown>>)
+        : [];
+      return {
+        hall_number: row.hall_number as number,
+        attendees: row.attendees as number,
+        seat_count: effectiveSeatMap.get(row.hall_number as number) ?? null,
+        cleanup_minutes: row.cleanup_minutes as number,
+        intensity: row.intensity as string,
+        movie_title: (row.movie_title as string | null) ?? null,
+        ai_recommended_staff_count:
+          (row.ai_recommended_staff_count as number | null) ?? null,
+        actual_staff_count: row.actual_staff_count as number,
+        actual_duration_minutes: (row.actual_duration_minutes as number | null) ?? null,
+        rating: (row.rating as number | null) ?? null,
+        notes: (row.feedback_notes as string | null) ?? null,
+        was_locked: Boolean(row.was_locked),
+        locked_count: null,
+        revisions: revs.map((r) => ({
+          kind: String(r.kind ?? ""),
+          staff_id: (r.staff_id as number | null) ?? null,
+          reason: (r.reason as string | null) ?? null,
+        })),
+        early_leaves: earlies.map((e) => ({
+          staff_id: Number(e.staff_id) || 0,
+          reason: (e.reason as string | null) ?? null,
+        })),
+        _sortKey: row.show_date as string,
+      };
+    },
+  );
 
-  // 2) Mergen, nach show_date desc sortieren, auf LIMIT slicen, Sort-Key strippen
-  return [...activeOut, ...archiveOut]
-    .sort((a, b) => b._sortKey.localeCompare(a._sortKey))
-    .slice(0, LEARNING_LIMIT)
-    .map(({ _sortKey, ...rest }) => {
-      void _sortKey;
-      return rest;
-    });
+  const merged = [...activeOut, ...archiveOut].sort((a, b) =>
+    b._sortKey.localeCompare(a._sortKey),
+  );
+  const stripped = merged.map(({ _sortKey, ...rest }) => {
+    void _sortKey;
+    return rest;
+  });
+
+  return {
+    detail: stripped.slice(0, LEARNING_DETAIL_LIMIT),
+    aggregates: buildLearningAggregates(stripped),
+  };
 }
 
 async function loadHallSeatMap(sb: SupabaseAdmin): Promise<Map<number, number>> {
@@ -733,7 +827,7 @@ async function loadHallSeatMap(sb: SupabaseAdmin): Promise<Map<number, number>> 
 async function computeRecommendedCount(
   show: CleaningShow,
   poolForAi: CleaningStaff[],
-  learning: Awaited<ReturnType<typeof loadLearningData>>,
+  learning: LearningData,
   seatCount: number | null,
 ): Promise<{ count: number; aiNote: string | null; source: "ai" | "heuristic" }> {
   let count = recommendStaffCount(show.attendees, show.intensity, seatCount);
@@ -750,6 +844,7 @@ async function computeRecommendedCount(
         hall_number: show.hall_number,
         hall_label: show.hall_label,
         end_time: show.end_time,
+        room_clear_time: show.room_clear_time,
         attendees: show.attendees,
         seat_count: seatCount,
         cleanup_minutes: show.cleanup_minutes,
@@ -763,7 +858,8 @@ async function computeRecommendedCount(
         preference: s.preference,
         notes: s.notes,
       })),
-      learning,
+      learning: learning.detail,
+      aggregates: learning.aggregates,
     });
     if (aiResult) {
       count = aiResult.recommended_staff_count;
@@ -803,7 +899,7 @@ async function performPlanForShow(
 ): Promise<PlanResult | null> {
   const { data: showRow } = await sb
     .from("cinema_cleaning_shows")
-    .select("id, public_id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes, intensity, movie_title, notes")
+    .select("id, public_id, show_date, hall_number, hall_label, end_time, room_clear_time, attendees, cleanup_minutes, intensity, movie_title, notes, plan_status, ai_recommended_staff_count, ai_notes")
     .eq("id", showId)
     .maybeSingle();
   if (!showRow) return null;
@@ -1001,7 +1097,7 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
   // Chronologisch laden
   const { data: showRows } = await sb
     .from("cinema_cleaning_shows")
-    .select("id, public_id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes, intensity, movie_title, notes")
+    .select("id, public_id, show_date, hall_number, hall_label, end_time, room_clear_time, attendees, cleanup_minutes, intensity, movie_title, notes, plan_status, ai_recommended_staff_count, ai_notes")
     .in("id", showIds)
     .order("show_date", { ascending: true })
     .order("end_time", { ascending: true });
@@ -1247,13 +1343,70 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
 
 // ── Manuelle Zuweisungen ──────────────────────────────────────────────
 
+// Hilfsfunktion: ist die Show gelockt? Wir lesen den plan_status und das
+// Snapshot-Vorhandensein. Ohne Lock werden Revisions NICHT geschrieben — das
+// hält die Datenbank schlank und vermeidet Rauschen vor dem "Final"-Punkt.
+async function getLockState(
+  sb: SupabaseAdmin,
+  showId: number,
+): Promise<{ isLocked: boolean; previousStaffIds: number[] }> {
+  const { data: showRow } = await sb
+    .from("cinema_cleaning_shows")
+    .select("plan_status")
+    .eq("id", showId)
+    .maybeSingle();
+  const status = (showRow?.plan_status as string | undefined) ?? "open";
+  const isLocked = status === "locked" || status === "completed";
+  if (!isLocked) return { isLocked: false, previousStaffIds: [] };
+  const { data: currentAssignments } = await sb
+    .from("cinema_cleaning_assignments")
+    .select("staff_id")
+    .eq("show_id", showId);
+  return {
+    isLocked: true,
+    previousStaffIds: (currentAssignments ?? []).map(
+      (r) => (r as { staff_id: number }).staff_id,
+    ),
+  };
+}
+
+async function writeRevision(
+  sb: SupabaseAdmin,
+  params: {
+    showId: number;
+    kind:
+      | "add"
+      | "remove"
+      | "early_leave"
+      | "late_join"
+      | "count_change"
+      | "reschedule";
+    staffId?: number | null;
+    reason?: string | null;
+    prevValue?: unknown;
+    newValue?: unknown;
+    changedBy?: string | null;
+  },
+): Promise<void> {
+  await sb.from("cinema_cleaning_plan_revisions").insert({
+    show_id: params.showId,
+    kind: params.kind,
+    staff_id: params.staffId ?? null,
+    reason: params.reason ?? null,
+    prev_value: params.prevValue ?? null,
+    new_value: params.newValue ?? null,
+    changed_by: params.changedBy ?? null,
+  });
+}
+
 // Setzt die manuellen Zuweisungen für eine Vorstellung exakt auf die übergebene
 // Mitarbeiter-Liste. Bestehende KI-Zuweisungen werden entfernt — der Nutzer hat
 // damit volle Kontrolle und kann anschließend mit "KI-Plan" auffüllen lassen.
 export async function setManualAssignmentsAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const showId = Number(formData.get("show_id"));
   if (!showId) return;
+  const reason = String(formData.get("reason") || "").trim() || null;
   const staffIds = Array.from(new Set(
     formData
       .getAll("staff_id")
@@ -1262,6 +1415,7 @@ export async function setManualAssignmentsAction(formData: FormData) {
   ));
 
   const sb = createAdminClient();
+  const lockState = await getLockState(sb, showId);
   // Alle bisherigen Zuweisungen wegräumen (manuelle und KI)
   await sb.from("cinema_cleaning_assignments").delete().eq("show_id", showId);
 
@@ -1276,34 +1430,86 @@ export async function setManualAssignmentsAction(formData: FormData) {
     );
   }
 
-  await sb
-    .from("cinema_cleaning_shows")
-    .update({
-      plan_status: staffIds.length > 0 ? "planned" : "open",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", showId);
+  // Revisions schreiben (Diff zur vorherigen Zuweisung), wenn gelockt
+  if (lockState.isLocked) {
+    const prev = new Set(lockState.previousStaffIds);
+    const next = new Set(staffIds);
+    const removed = [...prev].filter((id) => !next.has(id));
+    const added = [...next].filter((id) => !prev.has(id));
+    for (const id of removed) {
+      await writeRevision(sb, {
+        showId,
+        kind: "remove",
+        staffId: id,
+        reason,
+        prevValue: { staff_id: id },
+        newValue: null,
+        changedBy: user.id,
+      });
+    }
+    for (const id of added) {
+      await writeRevision(sb, {
+        showId,
+        kind: "add",
+        staffId: id,
+        reason,
+        prevValue: null,
+        newValue: { staff_id: id },
+        changedBy: user.id,
+      });
+    }
+  }
+
+  // Status: gelockte Show bleibt gelockt, sonst planned/open
+  if (!lockState.isLocked) {
+    await sb
+      .from("cinema_cleaning_shows")
+      .update({
+        plan_status: staffIds.length > 0 ? "planned" : "open",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", showId);
+  } else {
+    await sb
+      .from("cinema_cleaning_shows")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", showId);
+  }
   revalidatePath(PLAN_PATH);
 }
 
 // Entfernt eine einzelne Zuweisung (Mitarbeiter aus einer Vorstellung).
 export async function removeAssignmentAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const showId = Number(formData.get("show_id"));
   const staffId = Number(formData.get("staff_id"));
+  const reason = String(formData.get("reason") || "").trim() || null;
   if (!showId || !staffId) return;
   const sb = createAdminClient();
+  const lockState = await getLockState(sb, showId);
   await sb
     .from("cinema_cleaning_assignments")
     .delete()
     .eq("show_id", showId)
     .eq("staff_id", staffId);
+  if (lockState.isLocked && lockState.previousStaffIds.includes(staffId)) {
+    await writeRevision(sb, {
+      showId,
+      kind: "remove",
+      staffId,
+      reason,
+      prevValue: { staff_id: staffId },
+      newValue: null,
+      changedBy: user.id,
+    });
+  }
   // Wenn dadurch keine Zuweisung mehr übrig ist, plan_status auf "open" zurücksetzen
   const { count } = await sb
     .from("cinema_cleaning_assignments")
     .select("*", { count: "exact", head: true })
     .eq("show_id", showId);
-  if ((count ?? 0) === 0) {
+  // Gelockte Show bleibt gelockt, auch wenn keine Zuweisungen mehr da sind
+  if (!lockState.isLocked && (count ?? 0) === 0) {
     await sb
       .from("cinema_cleaning_shows")
       .update({ plan_status: "open", updated_at: new Date().toISOString() })
@@ -1444,6 +1650,7 @@ export async function parseFupAction(formData: FormData): Promise<FupParseAction
 export type FupCreateRow = {
   hall_number: number;
   end_time: string;
+  room_clear_time: string | null;
   cleanup_minutes: number;
   movie_title: string | null;
   intensity: "light" | "standard" | "intense";
@@ -1483,9 +1690,15 @@ export async function createShowsFromFupAction(formData: FormData): Promise<{ cr
       const intensity: "light" | "standard" | "intense" =
         intensityRaw === "light" || intensityRaw === "intense" ? intensityRaw : "standard";
       const attendees = Math.max(0, Math.round(Number(row.attendees ?? 0) || 0));
+      const endClearRaw = String(row.room_clear_time ?? row.end_clear ?? "");
+      const ecm = endClearRaw.match(/^(\d{1,2}):(\d{2})/);
+      const roomClearTime = ecm
+        ? `${String(Number(ecm[1])).padStart(2, "0")}:${ecm[2]}`
+        : null;
       return {
         hall_number: Math.round(hall),
         end_time: endTime,
+        room_clear_time: roomClearTime,
         cleanup_minutes: cleanup,
         movie_title: movieTitle,
         intensity,
@@ -1509,6 +1722,7 @@ export async function createShowsFromFupAction(formData: FormData): Promise<{ cr
       hall_number: r.hall_number,
       hall_label: null,
       end_time: r.end_time,
+      room_clear_time: r.room_clear_time,
       attendees: r.attendees,
       cleanup_minutes: r.cleanup_minutes,
       intensity: r.intensity,
@@ -1690,4 +1904,410 @@ export async function saveFeedbackAction(formData: FormData) {
     .update({ plan_status: "completed", updated_at: new Date().toISOString() })
     .eq("id", showId);
   revalidatePath(PLAN_PATH);
+}
+
+// ── Lock / Unlock / Early-Leave ──────────────────────────────────────
+
+/** Markiert eine oder mehrere Vorstellungen (typischerweise eine ganze
+ *  Rutsche) als "final" — friert den aktuellen Plan ein und legt einen
+ *  Snapshot an. Ab jetzt werden Änderungen als Revisions protokolliert. */
+export async function lockShowsAction(
+  formData: FormData,
+): Promise<{ locked: number }> {
+  const user = await assertCallerHasCinemaAccess();
+  const showIds = Array.from(
+    new Set(
+      formData
+        .getAll("show_id")
+        .map((v) => Number(v))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  );
+  if (showIds.length === 0) return { locked: 0 };
+  const rutscheKey = String(formData.get("rutsche_key") || "").trim() || null;
+
+  const sb = createAdminClient();
+  const { data: shows } = await sb
+    .from("cinema_cleaning_shows")
+    .select(
+      "id, plan_status, ai_recommended_staff_count, ai_notes, cinema_cleaning_assignments ( staff_id, assigned_by, reason, early_leave, released_at, early_leave_reason )",
+    )
+    .in("id", showIds);
+
+  for (const row of (shows ?? []) as Array<Record<string, unknown>>) {
+    const sid = Number(row.id);
+    const assignments = Array.isArray(row.cinema_cleaning_assignments)
+      ? row.cinema_cleaning_assignments
+      : [];
+    // Snapshot anlegen (upsert via delete-then-insert für Idempotenz)
+    await sb.from("cinema_cleaning_plan_snapshots").delete().eq("show_id", sid);
+    await sb.from("cinema_cleaning_plan_snapshots").insert({
+      show_id: sid,
+      rutsche_key: rutscheKey,
+      recommended_count: (row.ai_recommended_staff_count as number | null) ?? null,
+      ai_notes: (row.ai_notes as string | null) ?? null,
+      snapshot_assignments: assignments,
+      captured_by: user.id,
+    });
+    await sb
+      .from("cinema_cleaning_shows")
+      .update({ plan_status: "locked", updated_at: new Date().toISOString() })
+      .eq("id", sid);
+  }
+
+  revalidatePath(PLAN_PATH);
+  return { locked: showIds.length };
+}
+
+/** Hebt den Lock-Status auf (z.B. wenn ein Plan komplett neu gemacht werden
+ *  muss). Der Snapshot bleibt erhalten und kann als Lerndaten dienen. */
+export async function unlockShowsAction(
+  formData: FormData,
+): Promise<{ unlocked: number }> {
+  await assertCallerHasCinemaAccess();
+  const showIds = Array.from(
+    new Set(
+      formData
+        .getAll("show_id")
+        .map((v) => Number(v))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  );
+  if (showIds.length === 0) return { unlocked: 0 };
+  const sb = createAdminClient();
+  // Plan-Status zurück auf "planned" wenn Zuweisungen existieren, sonst "open"
+  for (const sid of showIds) {
+    const { count } = await sb
+      .from("cinema_cleaning_assignments")
+      .select("*", { count: "exact", head: true })
+      .eq("show_id", sid);
+    await sb
+      .from("cinema_cleaning_shows")
+      .update({
+        plan_status: (count ?? 0) > 0 ? "planned" : "open",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", sid);
+  }
+  revalidatePath(PLAN_PATH);
+  return { unlocked: showIds.length };
+}
+
+/** Markiert eine Zuweisung als "geht früher". Schreibt bei gelockter Show
+ *  auch eine Revision. Wenn early_leave=false übergeben wird, wird das Flag
+ *  zurückgenommen. */
+export async function setEarlyLeaveAction(
+  formData: FormData,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await assertCallerHasCinemaAccess();
+  const showId = Number(formData.get("show_id"));
+  const staffId = Number(formData.get("staff_id"));
+  if (!showId || !staffId) return { ok: false, error: "show_id/staff_id fehlt" };
+  const earlyLeave = String(formData.get("early_leave") || "true") !== "false";
+  const releasedAt = normalizeTimeInput(String(formData.get("released_at") || ""));
+  const reason = String(formData.get("reason") || "").trim() || null;
+
+  const sb = createAdminClient();
+  const lockState = await getLockState(sb, showId);
+
+  // Vorherige Werte holen für Revision-Diff
+  const { data: prevRow } = await sb
+    .from("cinema_cleaning_assignments")
+    .select("early_leave, released_at, early_leave_reason")
+    .eq("show_id", showId)
+    .eq("staff_id", staffId)
+    .maybeSingle();
+  if (!prevRow) return { ok: false, error: "Zuweisung nicht gefunden" };
+
+  await sb
+    .from("cinema_cleaning_assignments")
+    .update({
+      early_leave: earlyLeave,
+      released_at: earlyLeave ? releasedAt : null,
+      early_leave_reason: earlyLeave ? reason : null,
+    })
+    .eq("show_id", showId)
+    .eq("staff_id", staffId);
+
+  if (lockState.isLocked) {
+    await writeRevision(sb, {
+      showId,
+      kind: "early_leave",
+      staffId,
+      reason,
+      prevValue: prevRow,
+      newValue: {
+        early_leave: earlyLeave,
+        released_at: earlyLeave ? releasedAt : null,
+        early_leave_reason: earlyLeave ? reason : null,
+      },
+      changedBy: user.id,
+    });
+  }
+
+  await sb
+    .from("cinema_cleaning_shows")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", showId);
+
+  revalidatePath(PLAN_PATH);
+  return { ok: true };
+}
+
+// ── Rutschen-Planung als Paket ───────────────────────────────────────
+
+export type RutschenPlanResult = {
+  total: number;
+  planned: number;
+  empty: number;
+  results: Array<{
+    showId: number;
+    hallNumber: number;
+    recommendedCount: number;
+    assignedCount: number;
+    earlyLeaves: Array<{ staff_id: number; moves_to_hall: number | null }>;
+    note?: string;
+  }>;
+  rutscheNote?: string;
+  source: "ai" | "heuristic";
+};
+
+/** Plant eine gesamte Rutsche (Liste von Show-IDs) als ein Paket. Verteilt
+ *  MA über die Säle, markiert ggf. Early-Leave-Slots für effiziente Wechsel.
+ *  Bestehende manuelle Zuweisungen bleiben unangetastet. */
+export async function planRutscheAction(
+  formData: FormData,
+): Promise<RutschenPlanResult> {
+  await assertCallerHasCinemaAccess();
+  const showIds = Array.from(
+    new Set(
+      formData
+        .getAll("show_id")
+        .map((v) => Number(v))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  );
+  const empty: RutschenPlanResult = {
+    total: 0,
+    planned: 0,
+    empty: 0,
+    results: [],
+    source: "heuristic",
+  };
+  if (showIds.length === 0) return empty;
+
+  const sb = createAdminClient();
+
+  // Shows + Staff + bestehende Zuweisungen laden
+  const { data: showRows } = await sb
+    .from("cinema_cleaning_shows")
+    .select(
+      "id, public_id, show_date, hall_number, hall_label, end_time, room_clear_time, attendees, cleanup_minutes, intensity, movie_title, notes, plan_status, ai_recommended_staff_count, ai_notes",
+    )
+    .in("id", showIds);
+  const shows = (showRows ?? []) as CleaningShow[];
+  if (shows.length === 0) return empty;
+
+  // Gelockte Shows nicht überplanen — nur Vorschlag generieren, ohne zu schreiben?
+  // Pragmatisch: gelockte Shows ausschließen.
+  const planableShows = shows.filter((s) => s.plan_status !== "locked");
+  if (planableShows.length === 0) {
+    return {
+      ...empty,
+      total: shows.length,
+      results: shows.map((s) => ({
+        showId: s.id,
+        hallNumber: s.hall_number,
+        recommendedCount: s.ai_recommended_staff_count ?? 0,
+        assignedCount: 0,
+        earlyLeaves: [],
+        note: "Final markiert — wird nicht überplant",
+      })),
+    };
+  }
+
+  const { data: staffRows } = await sb
+    .from("cinema_cleaning_staff")
+    .select(
+      "id, name, preference, color, is_active, user_id, notes, sort_order, work_start, work_end",
+    )
+    .eq("is_active", true)
+    .order("sort_order");
+  const allActive = (staffRows ?? []) as CleaningStaff[];
+  if (allActive.length === 0) {
+    return {
+      ...empty,
+      total: planableShows.length,
+      results: planableShows.map((s) => ({
+        showId: s.id,
+        hallNumber: s.hall_number,
+        recommendedCount: 0,
+        assignedCount: 0,
+        earlyLeaves: [],
+        note: "Keine aktiven Mitarbeiter angelegt.",
+      })),
+    };
+  }
+
+  // Lerndaten + Saalkapazitäten
+  const seatMap = await loadHallSeatMap(sb);
+  const planableIds = planableShows.map((s) => s.id);
+  const learning = await loadLearningData(sb, new Set(planableIds), seatMap);
+
+  // Bestehende Zuweisungen — manuelle bleiben.
+  const { data: existing } = await sb
+    .from("cinema_cleaning_assignments")
+    .select("show_id, staff_id, assigned_by, reason")
+    .in("show_id", planableIds);
+  const manualByShow = new Map<number, ExistingAssignment[]>();
+  for (const a of existing ?? []) {
+    const row = a as { show_id: number } & ExistingAssignment;
+    if (!isManualAssignment(row)) continue;
+    if (!manualByShow.has(row.show_id)) manualByShow.set(row.show_id, []);
+    manualByShow.get(row.show_id)!.push(row);
+  }
+
+  // KI-Zuweisungen der Rutsche wegräumen (manuelle bleiben)
+  await sb
+    .from("cinema_cleaning_assignments")
+    .delete()
+    .in("show_id", planableIds)
+    .eq("assigned_by", "ai");
+
+  // KI-Call (oder Fallback)
+  let aiPlan: Awaited<ReturnType<typeof generateRutschenPlanWithAi>> = null;
+  let source: "ai" | "heuristic" = "heuristic";
+  let rutscheNote: string | undefined;
+  if (auslassplanungAiEnabled()) {
+    try {
+      aiPlan = await generateRutschenPlanWithAi({
+        shows: planableShows.map((s) => ({
+          id: s.id,
+          show_date: s.show_date,
+          hall_number: s.hall_number,
+          hall_label: s.hall_label,
+          end_time: s.end_time,
+          room_clear_time: s.room_clear_time,
+          attendees: s.attendees,
+          seat_count: seatMap.get(s.hall_number) ?? null,
+          cleanup_minutes: s.cleanup_minutes,
+          intensity: s.intensity,
+          movie_title: s.movie_title,
+          notes: s.notes,
+        })),
+        staff: allActive.map((s) => ({
+          id: s.id,
+          name: s.name,
+          preference: s.preference,
+          notes: s.notes,
+        })),
+        learning: learning.detail,
+        aggregates: learning.aggregates,
+      });
+      if (aiPlan) {
+        source = "ai";
+        rutscheNote = aiPlan.notes;
+      }
+    } catch (e) {
+      console.error("[auslassplanung] rutsche plan failed", e);
+    }
+  }
+
+  // Pro Show schreiben: KI-Empfehlung + Assignments (manuelle haben Vorrang)
+  const results: RutschenPlanResult["results"] = [];
+  for (const show of planableShows) {
+    const manuals = manualByShow.get(show.id) ?? [];
+    const manualStaffIds = new Set(manuals.map((m) => m.staff_id));
+    const aiShow = aiPlan?.shows.find((s) => s.show_id === show.id);
+
+    // Fallback: einfache Heuristik pro Show
+    const fallbackCount = recommendStaffCount(
+      show.attendees,
+      show.intensity,
+      seatMap.get(show.hall_number) ?? null,
+    );
+    const recommended = aiShow?.recommended_staff_count ?? fallbackCount;
+
+    const additions: Array<{
+      staff_id: number;
+      reason: string;
+      early_leave: boolean;
+      moves_to_hall: number | null;
+    }> = [];
+    if (aiShow) {
+      for (const a of aiShow.assignments) {
+        if (manualStaffIds.has(a.staff_id)) continue;
+        if (additions.some((x) => x.staff_id === a.staff_id)) continue;
+        additions.push({
+          staff_id: a.staff_id,
+          reason: a.reason ?? "KI-Vorschlag (Rutsche)",
+          early_leave: Boolean(a.early_leave),
+          moves_to_hall: a.moves_to_hall ?? null,
+        });
+      }
+    } else {
+      // Fallback: aus preferred/backup-Pool auffüllen (ohne Cross-Saal-Logik)
+      const preferred = allActive.filter(
+        (s) => s.preference === "preferred" && !manualStaffIds.has(s.id),
+      );
+      const backup = allActive.filter(
+        (s) => s.preference === "backup" && !manualStaffIds.has(s.id),
+      );
+      const pool = [...preferred, ...backup];
+      const need = Math.max(0, recommended - manuals.length);
+      for (let i = 0; i < need && i < pool.length; i++) {
+        additions.push({
+          staff_id: pool[i].id,
+          reason: "Heuristik (Rutsche-Fallback)",
+          early_leave: false,
+          moves_to_hall: null,
+        });
+      }
+    }
+
+    if (additions.length > 0) {
+      await sb.from("cinema_cleaning_assignments").insert(
+        additions.map((a) => ({
+          show_id: show.id,
+          staff_id: a.staff_id,
+          assigned_by: "ai" as const,
+          reason: a.reason,
+          early_leave: a.early_leave,
+          early_leave_reason: a.early_leave ? a.reason : null,
+        })),
+      );
+    }
+
+    const total = manuals.length + additions.length;
+    await sb
+      .from("cinema_cleaning_shows")
+      .update({
+        ai_recommended_staff_count: recommended,
+        ai_notes: aiShow?.notes ?? null,
+        plan_status: total > 0 ? "planned" : "open",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", show.id);
+
+    results.push({
+      showId: show.id,
+      hallNumber: show.hall_number,
+      recommendedCount: recommended,
+      assignedCount: total,
+      earlyLeaves: additions
+        .filter((a) => a.early_leave)
+        .map((a) => ({ staff_id: a.staff_id, moves_to_hall: a.moves_to_hall })),
+      note: aiShow?.notes,
+    });
+  }
+
+  revalidatePath(PLAN_PATH);
+  return {
+    total: planableShows.length,
+    planned: results.filter((r) => r.assignedCount > 0).length,
+    empty: results.filter((r) => r.assignedCount === 0).length,
+    results,
+    rutscheNote,
+    source,
+  };
 }

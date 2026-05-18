@@ -20,6 +20,10 @@ import {
   deleteHallAction,
   planShowAction,
   planManyShowsAction,
+  planRutscheAction,
+  lockShowsAction,
+  unlockShowsAction,
+  setEarlyLeaveAction,
   setManualAssignmentsAction,
   removeAssignmentAction,
   clearAssignmentsAction,
@@ -82,7 +86,7 @@ export default async function AuslassplanungPage({
     sb
       .from("cinema_cleaning_shows")
       .select(
-        "id, public_id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes, intensity, movie_title, notes, plan_status, ai_recommended_staff_count, ai_notes",
+        "id, public_id, show_date, hall_number, hall_label, end_time, room_clear_time, attendees, cleanup_minutes, intensity, movie_title, notes, plan_status, ai_recommended_staff_count, ai_notes",
       )
       .eq("show_date", targetDate),
     sb
@@ -105,7 +109,7 @@ export default async function AuslassplanungPage({
       ? await Promise.all([
           sb
             .from("cinema_cleaning_assignments")
-            .select("id, show_id, staff_id, assigned_by, reason, created_at")
+            .select("id, show_id, staff_id, assigned_by, reason, early_leave, released_at, early_leave_reason, created_at")
             .in("show_id", visibleShowIds),
           sb
             .from("cinema_cleaning_feedback")
@@ -153,6 +157,10 @@ export default async function AuslassplanungPage({
         deleteAllShowsAction={deleteAllShowsAction}
         planShowAction={planShowAction}
         planManyShowsAction={planManyShowsAction}
+        planRutscheAction={planRutscheAction}
+        lockShowsAction={lockShowsAction}
+        unlockShowsAction={unlockShowsAction}
+        setEarlyLeaveAction={setEarlyLeaveAction}
         setManualAssignmentsAction={setManualAssignmentsAction}
         removeAssignmentAction={removeAssignmentAction}
         clearAssignmentsAction={clearAssignmentsAction}

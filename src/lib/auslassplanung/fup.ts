@@ -9,6 +9,8 @@ const DEFAULT_MODEL = "gemini-2.5-flash";
 export type ParsedFupShow = {
   hall_number: number;
   credit_offset: string; // "HH:MM" — Beginn des Auslasses
+  /** "Ende" aus FÜP: Saal komplett leer, Reinigung kann beginnen. */
+  end_clear: string | null;
   cleanup_minutes: number; // Reinigungsdauer in Minuten
   movie_title: string | null;
   intensity_hint: "light" | "standard" | "intense";
@@ -30,7 +32,9 @@ Das Bild kann um 90° gedreht erscheinen. Spalten (in dieser Reihenfolge):
 - "Feature-Start": IGNORIEREN
 - "Pause": IGNORIEREN
 - "Credit-Offset": Beginn des Auslasses (Reinigung) im Format HH:MM → "credit_offset"
-- "Ende": IGNORIEREN
+- "Ende": Zeitpunkt, an dem der Saal komplett leer ist (Gäste raus, Reinigung
+  uneingeschränkt möglich) im Format HH:MM → "end_clear". Wenn die Spalte
+  fehlt oder unleserlich ist: null.
 - "Filmtitel" → "movie_title" (bereinige Präfixe wie "2D", "OV:", "ATMOS:" — die Präfixe
   weglassen, aber den eigentlichen Titel behalten. Beispiel: "2D Der Teufel trägt Prada 2" →
   "Der Teufel trägt Prada 2"). Wenn der Titel mehrere Zeilen umfasst, zusammenführen.
@@ -66,6 +70,7 @@ kein erklärender Text außerhalb des JSON:
     {
       "hall_number": 1,
       "credit_offset": "14:55",
+      "end_clear": "15:24",
       "cleanup_minutes": 29,
       "movie_title": "Der Teufel trägt Prada 2 - Abenteuer mit Kranich Klaus",
       "fsk": 0,
@@ -199,9 +204,11 @@ function normalizeFupResult(raw: { date?: unknown; shows?: unknown }): FupParseR
     const fskRaw = row.fsk;
     const fsk = typeof fskRaw === "number" && Number.isFinite(fskRaw) ? fskRaw : null;
     const intensity = normalizeIntensity(row.intensity_hint ?? row.intensityHint);
+    const endClear = normalizeTime(row.end_clear ?? row.endClear ?? row.ende);
     shows.push({
       hall_number: Math.round(hall),
       credit_offset: credit,
+      end_clear: endClear,
       cleanup_minutes: cleanup,
       movie_title,
       fsk,
