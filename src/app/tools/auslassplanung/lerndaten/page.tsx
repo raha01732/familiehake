@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 type CombinedLearningEntry = {
   source: "active" | "archive";
+  public_id: string | null;
   show_date: string;
   hall_number: number;
   end_time: string | null;
@@ -45,7 +46,7 @@ export default async function LerndatenPage() {
   const { data: activeRows } = await sb
     .from("cinema_cleaning_shows")
     .select(`
-      id, show_date, hall_number, end_time, attendees, cleanup_minutes,
+      id, public_id, show_date, hall_number, end_time, attendees, cleanup_minutes,
       intensity, movie_title, ai_recommended_staff_count,
       cinema_cleaning_feedback ( actual_staff_count, actual_duration_minutes, rating, notes )
     `)
@@ -56,7 +57,7 @@ export default async function LerndatenPage() {
   const { data: archiveRows } = await sb
     .from("cinema_cleaning_learning_archive")
     .select(
-      "show_date, hall_number, end_time, attendees, cleanup_minutes, intensity, movie_title, ai_recommended_staff_count, actual_staff_count, actual_duration_minutes, rating, feedback_notes",
+      "show_date, hall_number, end_time, attendees, cleanup_minutes, intensity, movie_title, ai_recommended_staff_count, actual_staff_count, actual_duration_minutes, rating, feedback_notes, archived_show_public_id",
     )
     .order("show_date", { ascending: false })
     .limit(500);
@@ -79,6 +80,7 @@ export default async function LerndatenPage() {
     if (!fb) continue;
     combined.push({
       source: "active",
+      public_id: row.public_id ?? null,
       show_date: row.show_date,
       hall_number: row.hall_number,
       end_time: row.end_time,
@@ -96,6 +98,7 @@ export default async function LerndatenPage() {
   for (const row of (archiveRows ?? []) as any[]) {
     combined.push({
       source: "archive",
+      public_id: row.archived_show_public_id ?? null,
       show_date: row.show_date,
       hall_number: row.hall_number,
       end_time: row.end_time,
@@ -331,6 +334,7 @@ export default async function LerndatenPage() {
                   style={{ color: "hsl(var(--muted-foreground))" }}
                 >
                   <th className="p-2 text-[10px] font-semibold uppercase tracking-[0.15em]">Datum</th>
+                  <th className="p-2 text-[10px] font-semibold uppercase tracking-[0.15em]">Kennung</th>
                   <th className="p-2 text-[10px] font-semibold uppercase tracking-[0.15em]">Saal</th>
                   <th className="p-2 text-[10px] font-semibold uppercase tracking-[0.15em]">Film</th>
                   <th className="p-2 text-[10px] font-semibold uppercase tracking-[0.15em]">Intensität</th>
@@ -353,6 +357,22 @@ export default async function LerndatenPage() {
                   >
                     <td className="p-2" style={{ color: "hsl(var(--muted-foreground))" }}>
                       {formatDateShort(e.show_date)}
+                    </td>
+                    <td className="p-2">
+                      {e.public_id ? (
+                        <code
+                          className="text-[10px] font-mono px-1 py-0.5 rounded"
+                          style={{
+                            background: "hsl(var(--secondary))",
+                            color: "hsl(var(--muted-foreground))",
+                            border: "1px solid hsl(var(--border))",
+                          }}
+                        >
+                          #{e.public_id}
+                        </code>
+                      ) : (
+                        <span style={{ color: "hsl(var(--muted-foreground))" }}>—</span>
+                      )}
                     </td>
                     <td className="p-2 font-semibold" style={{ color: "hsl(var(--foreground))" }}>
                       {e.hall_number}

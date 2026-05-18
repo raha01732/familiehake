@@ -73,7 +73,7 @@ export default async function AuslassplanungPage({
     sb
       .from("cinema_cleaning_shows")
       .select(
-        "id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes, intensity, movie_title, notes, plan_status, ai_recommended_staff_count, ai_notes",
+        "id, public_id, show_date, hall_number, hall_label, end_time, attendees, cleanup_minutes, intensity, movie_title, notes, plan_status, ai_recommended_staff_count, ai_notes",
       )
       .eq("show_date", targetDate),
     sb

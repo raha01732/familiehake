@@ -21,6 +21,8 @@ export type CleaningStaff = {
 
 export type CleaningShow = {
   id: number;
+  /** Lesbare öffentliche Kennung wie "a4t9023" — zusätzlich zur internen ID. */
+  public_id: string | null;
   show_date: string;
   hall_number: number;
   hall_label: string | null;

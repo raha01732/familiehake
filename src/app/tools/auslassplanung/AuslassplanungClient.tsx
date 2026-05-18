@@ -980,6 +980,19 @@ function ShowCard({
                         Saal {show.hall_number}
                         {show.hall_label ? ` – ${show.hall_label}` : ""}
                       </span>
+                      {show.public_id && (
+                        <code
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded-md"
+                          style={{
+                            background: "hsl(var(--secondary))",
+                            color: "hsl(var(--muted-foreground))",
+                            border: "1px solid hsl(var(--border))",
+                          }}
+                          title="Eindeutige Show-Kennung"
+                        >
+                          #{show.public_id}
+                        </code>
+                      )}
                       <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${status.cls}`}>
                         {status.label}
                       </span>
@@ -2171,6 +2184,18 @@ function BulkPlanPickerModal({
                                 Saal {s.hall_number}
                                 {s.hall_label ? ` – ${s.hall_label}` : ""}
                               </span>
+                              {s.public_id && (
+                                <code
+                                  className="text-[10px] font-mono px-1 py-0.5 rounded"
+                                  style={{
+                                    background: "hsl(var(--secondary))",
+                                    color: "hsl(var(--muted-foreground))",
+                                    border: "1px solid hsl(var(--border))",
+                                  }}
+                                >
+                                  #{s.public_id}
+                                </code>
+                              )}
                               <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${status.cls}`}>
                                 {status.label}
                               </span>
