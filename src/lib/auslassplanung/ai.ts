@@ -41,6 +41,11 @@ export type AiStaffInput = {
   name: string;
   preference: "preferred" | "backup";
   notes: string | null;
+  /** Schichtbeginn HH:MM(:SS) — null = keine Begrenzung (24/7 verfügbar). */
+  work_start: string | null;
+  /** Schichtende HH:MM(:SS) — null = keine Begrenzung. Endet vor work_start
+   *  bedeutet, die Schicht reicht über Mitternacht (z.B. 19:00–02:00). */
+  work_end: string | null;
 };
 
 /**
@@ -160,13 +165,20 @@ KEINE festen Schwellen anhand reiner Besucherzahl ("ab 50 immer 2 MA")
 mehr verwenden — die Auslastung im Saal ist relevanter.
 
 STAFF-Zuweisung:
+- ARBEITSZEITEN sind eine HARTE Bedingung. Jeder MA hat work_start /
+  work_end (HH:MM). Ein MA darf nur dann zugewiesen werden, wenn das
+  gesamte Reinigungsfenster [end_time, end_time + cleanup_minutes]
+  innerhalb seiner Schicht [work_start, work_end] liegt. work_end vor
+  work_start = Schicht über Mitternacht. work_start oder work_end = null
+  = keine Begrenzung. NIEMALS einen MA einplanen, dessen Schicht erst
+  nach dem Reinigungsbeginn anfängt oder vor Reinigungsende endet.
 - Bevorzuge Mitarbeiter mit preference="preferred" gegenüber "backup".
   Backup nur, wenn nicht genug Preferred verfügbar oder Lerndaten zeigen,
   dass mehr nötig sind.
 - recommended_staff_count: ganzzahlig, mindestens 1, maximal so viele wie
-  aktive MA im Pool.
+  aktive MA im Pool, die zur Reinigungszeit verfügbar sind.
 - Wähle aus dem STAFF-Pool genau recommended_staff_count Mitarbeiter aus,
-  IDs aus STAFF, keine Duplikate.
+  IDs aus STAFF, keine Duplikate. Nur verfügbare MA (siehe Arbeitszeiten).
 
 WICHTIG: Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt nach
 diesem Schema. Kein Markdown, keine Code-Fences, kein Erklärtext.
@@ -185,20 +197,31 @@ ein Paket. Ziel: jede Vorstellung der Rutsche hat ausreichend MA, und der
 MA-Pool wird **über alle Säle hinweg** optimal verteilt.
 
 Regeln für die Paket-Planung:
-1. PRIMÄR Auslastung (= attendees / seat_count) + Intensität bestimmen die
+1. ARBEITSZEITEN sind eine HARTE Bedingung. Jeder MA in STAFF hat
+   work_start / work_end (HH:MM). Ein MA darf einer Vorstellung nur dann
+   zugewiesen werden, wenn das gesamte Reinigungsfenster
+   [end_time, end_time + cleanup_minutes] vollständig innerhalb seiner
+   Schicht [work_start, work_end] liegt. work_end vor work_start =
+   Schicht über Mitternacht. work_start oder work_end = null = keine
+   Begrenzung. NIEMALS einen MA einplanen, dessen Schicht erst nach
+   Reinigungsbeginn anfängt oder vor Reinigungsende endet — auch nicht
+   "vorab" oder per "moves_to_hall". Wer noch nicht da ist, ist nicht da.
+2. PRIMÄR Auslastung (= attendees / seat_count) + Intensität bestimmen die
    Soll-Anzahl pro Saal (siehe unten).
-2. Ein MA kann NICHT gleichzeitig zwei Säle reinigen. Du musst die Plan-
+3. Ein MA kann NICHT gleichzeitig zwei Säle reinigen. Du musst die Plan-
    überlappung selbst lösen: entweder MA in nur einen Saal stecken, oder
    "early_leave": true setzen — dann verlässt der MA seinen Saal vor dem
    regulären Ende, um in einen anderen Saal zu wechseln. Setze in dem Fall
-   "moves_to_hall" auf die Ziel-Saalnummer.
-3. Bei Saal mit niedriger Auslastung (z.B. <25%) lieber 1 MA und einen
+   "moves_to_hall" auf die Ziel-Saalnummer. early_leave gilt für Wechsel
+   zwischen Sälen, NICHT um Schichtgrenzen zu umgehen.
+4. Bei Saal mit niedriger Auslastung (z.B. <25%) lieber 1 MA und einen
    früher gehen lassen — das ist effizient und entspricht dem realen
    Workflow.
-4. Bevorzuge "preferred" MA. "backup" nur, wenn preferred nicht reichen.
-5. Wenn die Rutsche raumzeitlich zu eng für den Pool ist, schreibe in
-   "notes" einen Hinweis.
-6. LEARNING + LEARNING_AGGREGATES sind STÄRKER als die Heuristik. Achte
+5. Bevorzuge "preferred" MA. "backup" nur, wenn preferred nicht reichen.
+6. Wenn die Rutsche raumzeitlich zu eng für den verfügbaren Pool ist (z.B.
+   weil viele MA erst später Schicht haben), schreibe in "notes" einen
+   Hinweis — lasse die Slots lieber leer, als ungültig zu besetzen.
+7. LEARNING + LEARNING_AGGREGATES sind STÄRKER als die Heuristik. Achte
    besonders auf REVISIONS — die zeigen, was nach dem Final-Lock noch
    nachjustiert wurde und warum.
 
@@ -370,7 +393,9 @@ export async function generateRutschenPlanWithAi(params: {
 
   // Normalisieren
   const allowedStaff = new Set(params.staff.map((s) => s.id));
+  const staffById = new Map(params.staff.map((s) => [s.id, s]));
   const allowedShows = new Set(params.shows.map((s) => s.id));
+  const showById = new Map(params.shows.map((s) => [s.id, s]));
   const hallByShow = new Map(params.shows.map((s) => [s.id, s.hall_number]));
   const allowedHalls = new Set(params.shows.map((s) => s.hall_number));
 
@@ -378,6 +403,7 @@ export async function generateRutschenPlanWithAi(params: {
   for (const row of parsed.shows ?? []) {
     const showId = Number(row.show_id);
     if (!allowedShows.has(showId)) continue;
+    const show = showById.get(showId)!;
     const count = Math.max(
       1,
       Math.min(params.staff.length, Math.round(row.recommended_staff_count ?? 1) || 1),
@@ -387,6 +413,13 @@ export async function generateRutschenPlanWithAi(params: {
     for (const a of row.assignments ?? []) {
       const sid = Number(a.staff_id);
       if (!allowedStaff.has(sid)) continue;
+      const staff = staffById.get(sid)!;
+      // HARTER Schicht-Filter: KI darf keine MA einplanen, deren Schicht
+      // den Reinigungszeitraum nicht abdeckt. Schützt vor KI-Halluzinationen
+      // bei work_start/work_end.
+      if (!cleanupWithinShift(show.end_time, show.cleanup_minutes, staff.work_start, staff.work_end)) {
+        continue;
+      }
       const movesTo =
         typeof a.moves_to_hall === "number" && allowedHalls.has(a.moves_to_hall)
           ? a.moves_to_hall
@@ -412,6 +445,36 @@ export async function generateRutschenPlanWithAi(params: {
     shows: normalizedShows,
     notes: typeof parsed.notes === "string" ? parsed.notes : undefined,
   };
+}
+
+// ── Schicht-Helfer ───────────────────────────────────────────────────────
+// Spiegelt isCleanupWithinShift aus app/tools/auslassplanung/utils.ts —
+// hier dupliziert, weil lib/ nicht aus app/ importieren soll.
+function timeToMinutes(t: string): number {
+  const [h = "0", m = "0"] = t.split(":");
+  return Number(h) * 60 + Number(m);
+}
+
+function cleanupWithinShift(
+  cleanupStartTime: string,
+  cleanupMinutes: number,
+  workStart: string | null,
+  workEnd: string | null,
+): boolean {
+  if (!workStart || !workEnd) return true;
+  const startM = timeToMinutes(cleanupStartTime);
+  const endM = startM + Math.max(0, cleanupMinutes);
+  const wStart = timeToMinutes(workStart);
+  let wEnd = timeToMinutes(workEnd);
+  const crossesMidnight = wEnd <= wStart;
+  if (crossesMidnight) wEnd += 24 * 60;
+  let cStart = startM;
+  let cEnd = endM;
+  if (crossesMidnight && cStart < wStart) {
+    cStart += 24 * 60;
+    cEnd += 24 * 60;
+  }
+  return cStart >= wStart && cEnd <= wEnd;
 }
 
 // ── Aggregat-Helfer ──────────────────────────────────────────────────────

@@ -857,6 +857,8 @@ async function computeRecommendedCount(
         name: s.name,
         preference: s.preference,
         notes: s.notes,
+        work_start: s.work_start,
+        work_end: s.work_end,
       })),
       learning: learning.detail,
       aggregates: learning.aggregates,
@@ -2200,6 +2202,8 @@ export async function planRutscheAction(
           name: s.name,
           preference: s.preference,
           notes: s.notes,
+          work_start: s.work_start,
+          work_end: s.work_end,
         })),
         learning: learning.detail,
         aggregates: learning.aggregates,
@@ -2214,6 +2218,7 @@ export async function planRutscheAction(
   }
 
   // Pro Show schreiben: KI-Empfehlung + Assignments (manuelle haben Vorrang)
+  const staffById = new Map(allActive.map((s) => [s.id, s]));
   const results: RutschenPlanResult["results"] = [];
   for (const show of planableShows) {
     const manuals = manualByShow.get(show.id) ?? [];
@@ -2228,6 +2233,14 @@ export async function planRutscheAction(
     );
     const recommended = aiShow?.recommended_staff_count ?? fallbackCount;
 
+    // Harter Schicht-Filter: MA darf nur ran, wenn das Reinigungsfenster
+    // vollständig in seiner Schicht liegt. Schützt vor KI-Halluzinationen.
+    const isAvailable = (staffId: number) => {
+      const s = staffById.get(staffId);
+      if (!s) return false;
+      return isCleanupWithinShift(show.end_time, show.cleanup_minutes, s.work_start, s.work_end);
+    };
+
     const additions: Array<{
       staff_id: number;
       reason: string;
@@ -2238,6 +2251,7 @@ export async function planRutscheAction(
       for (const a of aiShow.assignments) {
         if (manualStaffIds.has(a.staff_id)) continue;
         if (additions.some((x) => x.staff_id === a.staff_id)) continue;
+        if (!isAvailable(a.staff_id)) continue;
         additions.push({
           staff_id: a.staff_id,
           reason: a.reason ?? "KI-Vorschlag (Rutsche)",
@@ -2245,20 +2259,29 @@ export async function planRutscheAction(
           moves_to_hall: a.moves_to_hall ?? null,
         });
       }
-    } else {
-      // Fallback: aus preferred/backup-Pool auffüllen (ohne Cross-Saal-Logik)
+    }
+
+    // Heuristik-Backfill: wenn KI-Plan fehlt oder durch Schicht-Filter
+    // ausgedünnt wurde, aus dem verfügbaren Pool auffüllen.
+    const needAfterAi = Math.max(0, recommended - manuals.length - additions.length);
+    if (needAfterAi > 0) {
+      const takenIds = new Set<number>([
+        ...manualStaffIds,
+        ...additions.map((a) => a.staff_id),
+      ]);
       const preferred = allActive.filter(
-        (s) => s.preference === "preferred" && !manualStaffIds.has(s.id),
+        (s) => s.preference === "preferred" && !takenIds.has(s.id) && isAvailable(s.id),
       );
       const backup = allActive.filter(
-        (s) => s.preference === "backup" && !manualStaffIds.has(s.id),
+        (s) => s.preference === "backup" && !takenIds.has(s.id) && isAvailable(s.id),
       );
       const pool = [...preferred, ...backup];
-      const need = Math.max(0, recommended - manuals.length);
-      for (let i = 0; i < need && i < pool.length; i++) {
+      for (let i = 0; i < needAfterAi && i < pool.length; i++) {
         additions.push({
           staff_id: pool[i].id,
-          reason: "Heuristik (Rutsche-Fallback)",
+          reason: aiShow
+            ? "Heuristik-Backfill (KI-Vorschlag außerhalb Schicht)"
+            : "Heuristik (Rutsche-Fallback)",
           early_leave: false,
           moves_to_hall: null,
         });
