@@ -15,6 +15,9 @@ import {
   updateStaffAction,
   deleteStaffAction,
   moveStaffAction,
+  createHallAction,
+  updateHallAction,
+  deleteHallAction,
   planShowAction,
   planManyShowsAction,
   setManualAssignmentsAction,
@@ -31,6 +34,7 @@ import {
 import {
   type CleaningAssignment,
   type CleaningFeedback,
+  type CleaningHall,
   type CleaningShow,
   type CleaningStaff,
   compareShowsByCinemaDay,
@@ -65,12 +69,16 @@ export default async function AuslassplanungPage({
   // 3) Liste aller vorhandenen Datümer für den Selector
   const targetDate = requestedDate ?? todayCinema;
 
-  const [staffResult, showsResult, availableDatesResult] = await Promise.all([
+  const [staffResult, hallsResult, showsResult, availableDatesResult] = await Promise.all([
     sb
       .from("cinema_cleaning_staff")
       .select("id, name, preference, color, is_active, user_id, notes, sort_order, work_start, work_end")
       .order("sort_order")
       .order("id"),
+    sb
+      .from("cinema_cleaning_halls")
+      .select("id, hall_number, label, seat_count, notes")
+      .order("hall_number"),
     sb
       .from("cinema_cleaning_shows")
       .select(
@@ -84,6 +92,7 @@ export default async function AuslassplanungPage({
   ]);
 
   const staff = (staffResult.data ?? []) as CleaningStaff[];
+  const halls = (hallsResult.data ?? []) as CleaningHall[];
   const shows = ((showsResult.data ?? []) as CleaningShow[])
     .slice()
     .sort(compareShowsByCinemaDay);
@@ -121,6 +130,7 @@ export default async function AuslassplanungPage({
     <RoleGate routeKey="tools/auslassplanung">
       <AuslassplanungClient
         initialStaff={staff}
+        initialHalls={halls}
         initialShows={shows}
         initialAssignments={assignments}
         initialFeedback={feedback}
@@ -134,6 +144,9 @@ export default async function AuslassplanungPage({
         updateStaffAction={updateStaffAction}
         deleteStaffAction={deleteStaffAction}
         moveStaffAction={moveStaffAction}
+        createHallAction={createHallAction}
+        updateHallAction={updateHallAction}
+        deleteHallAction={deleteHallAction}
         createShowAction={createShowAction}
         updateShowAction={updateShowAction}
         deleteShowAction={deleteShowAction}

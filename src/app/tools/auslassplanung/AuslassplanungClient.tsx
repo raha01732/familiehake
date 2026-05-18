@@ -44,6 +44,7 @@ import {
   formatRutscheRange,
   type CleaningAssignment,
   type CleaningFeedback,
+  type CleaningHall,
   type CleaningPreference,
   type CleaningShow,
   type CleaningStaff,
@@ -112,6 +113,7 @@ type EstimateAttendeesFn = (_fd: FormData) => Promise<EstimateAttendeesResult>;
 
 type Props = {
   initialStaff: CleaningStaff[];
+  initialHalls: CleaningHall[];
   initialShows: CleaningShow[];
   initialAssignments: CleaningAssignment[];
   initialFeedback: CleaningFeedback[];
@@ -125,6 +127,9 @@ type Props = {
   updateStaffAction: ActionFn;
   deleteStaffAction: ActionFn;
   moveStaffAction: ActionFn;
+  createHallAction: ActionFn;
+  updateHallAction: ActionFn;
+  deleteHallAction: ActionFn;
   createShowAction: ActionFn;
   updateShowAction: ActionFn;
   deleteShowAction: ActionFn;
@@ -143,7 +148,7 @@ type Props = {
   saveFeedbackAction: ActionFn;
 };
 
-type Tab = "shows" | "staff";
+type Tab = "shows" | "staff" | "halls";
 
 const STATUS_LABELS: Record<ShowPlanStatus, { label: string; cls: string }> = {
   open:       { label: "Offen",     cls: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
@@ -163,6 +168,7 @@ const inputCls =
 
 export default function AuslassplanungClient({
   initialStaff,
+  initialHalls,
   initialShows,
   initialAssignments,
   initialFeedback,
@@ -176,6 +182,9 @@ export default function AuslassplanungClient({
   updateStaffAction,
   deleteStaffAction,
   moveStaffAction,
+  createHallAction,
+  updateHallAction,
+  deleteHallAction,
   createShowAction,
   updateShowAction,
   deleteShowAction,
@@ -220,6 +229,12 @@ export default function AuslassplanungClient({
   const [archiveFeedbackOpen, setArchiveFeedbackOpen] = useState(false);
   const [isArchivingFeedback, startArchivingFeedback] = useTransition();
   const [archiveResult, setArchiveResult] = useState<{ archived: number; eligible: number } | null>(null);
+  const [hallModal, setHallModal] = useState<CleaningHall | null | undefined>(undefined);
+  const [clearConfirm, setClearConfirm] = useState<
+    | { kind: "all"; showIds: number[]; label: string }
+    | { kind: "rutsche"; showIds: number[]; label: string }
+    | null
+  >(null);
 
   const feedbackCount = initialFeedback.length;
 
@@ -301,11 +316,26 @@ export default function AuslassplanungClient({
     void removeAssignmentAction(fd).then(() => router.refresh());
   }
 
-  function handleClearAssignmentsForShows(showIds: number[]) {
+  function requestClearAll() {
+    if (sortedShows.length === 0) return;
+    setClearConfirm({
+      kind: "all",
+      showIds: sortedShows.map((s) => s.id),
+      label: `Zuweisungen aller ${sortedShows.length} angezeigten Vorstellungen`,
+    });
+  }
+  function requestClearRutsche(showIds: number[], label: string) {
     if (showIds.length === 0) return;
+    setClearConfirm({ kind: "rutsche", showIds, label });
+  }
+  function executeClearConfirmed() {
+    if (!clearConfirm) return;
     const fd = new FormData();
-    for (const id of showIds) fd.append("show_id", String(id));
-    void clearAssignmentsForShowsAction(fd).then(() => router.refresh());
+    for (const id of clearConfirm.showIds) fd.append("show_id", String(id));
+    void clearAssignmentsForShowsAction(fd).then(() => {
+      setClearConfirm(null);
+      router.refresh();
+    });
   }
 
   function handleArchiveFeedback() {
@@ -367,6 +397,10 @@ export default function AuslassplanungClient({
             <Users size={14} aria-hidden /> Mitarbeiter
             <span className="ml-1 text-[10px] opacity-70">{activeStaffCount}</span>
           </TabButton>
+          <TabButton active={tab === "halls"} onClick={() => setTab("halls")}>
+            <Clapperboard size={14} aria-hidden /> Säle
+            <span className="ml-1 text-[10px] opacity-70">{initialHalls.length}</span>
+          </TabButton>
           <Link
             href="/tools/auslassplanung/lerndaten"
             className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
@@ -408,7 +442,8 @@ export default function AuslassplanungClient({
           onAssign={(s) => setAssignmentsModal(s)}
           onClear={(s) => setConfirmClearShow(s)}
           onRemoveAssignment={handleRemoveAssignment}
-          onClearAssignments={handleClearAssignmentsForShows}
+          onClearAllAssignments={requestClearAll}
+          onClearRutscheAssignments={requestClearRutsche}
           onBulkPlanOpen={() => setBulkPickerOpen(true)}
           onFupOpen={() => setFupModalOpen(true)}
           onDeleteAllOpen={() => setConfirmDeleteAll(true)}
@@ -420,13 +455,20 @@ export default function AuslassplanungClient({
           feedbackCount={feedbackCount}
           onFeedback={(s) => setFeedbackShow(s)}
         />
-      ) : (
+      ) : tab === "staff" ? (
         <StaffTab
           staff={initialStaff}
           canEdit={canEdit}
           onAdd={() => setStaffModal(null)}
           onEdit={(s) => setStaffModal(s)}
           moveAction={moveStaffAction}
+        />
+      ) : (
+        <HallsTab
+          halls={initialHalls}
+          canEdit={canEdit}
+          onAdd={() => setHallModal(null)}
+          onEdit={(h) => setHallModal(h)}
         />
       )}
 
@@ -438,6 +480,26 @@ export default function AuslassplanungClient({
           createAction={createStaffAction}
           updateAction={updateStaffAction}
           deleteAction={deleteStaffAction}
+        />
+      )}
+
+      {hallModal !== undefined && (
+        <HallModal
+          hall={hallModal}
+          canEdit={canEdit}
+          onClose={() => setHallModal(undefined)}
+          createAction={createHallAction}
+          updateAction={updateHallAction}
+          deleteAction={deleteHallAction}
+        />
+      )}
+
+      {clearConfirm && (
+        <ConfirmClearAssignmentsModal
+          label={clearConfirm.label}
+          showCount={clearConfirm.showIds.length}
+          onCancel={() => setClearConfirm(null)}
+          onConfirm={executeClearConfirmed}
         />
       )}
 
@@ -593,7 +655,8 @@ function ShowsTab({
   onAssign,
   onClear,
   onRemoveAssignment,
-  onClearAssignments,
+  onClearAllAssignments,
+  onClearRutscheAssignments,
   onBulkPlanOpen,
   onFupOpen,
   onDeleteAllOpen,
@@ -621,7 +684,8 @@ function ShowsTab({
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
   onRemoveAssignment: (showId: number, staffId: number) => void;
-  onClearAssignments: (showIds: number[]) => void;
+  onClearAllAssignments: () => void;
+  onClearRutscheAssignments: (showIds: number[], label: string) => void;
   onBulkPlanOpen: () => void;
   onFupOpen: () => void;
   onDeleteAllOpen: () => void;
@@ -689,7 +753,7 @@ function ShowsTab({
           )}
           {canEdit && shows.length > 0 && (
             <button
-              onClick={() => onClearAssignments(shows.map((s) => s.id))}
+              onClick={onClearAllAssignments}
               className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
               title="Zuweisungen für alle sichtbaren Vorstellungen entfernen — die Vorstellungen selbst bleiben."
             >
@@ -736,7 +800,7 @@ function ShowsTab({
           onAssign={onAssign}
           onClear={onClear}
           onRemoveAssignment={onRemoveAssignment}
-          onClearAssignments={onClearAssignments}
+          onClearRutscheAssignments={onClearRutscheAssignments}
           onFeedback={onFeedback}
         />
       )}
@@ -761,7 +825,7 @@ function RutschenSections({
   onAssign,
   onClear,
   onRemoveAssignment,
-  onClearAssignments,
+  onClearRutscheAssignments,
   onFeedback,
 }: {
   shows: CleaningShow[];
@@ -778,7 +842,7 @@ function RutschenSections({
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
   onRemoveAssignment: (showId: number, staffId: number) => void;
-  onClearAssignments: (showIds: number[]) => void;
+  onClearRutscheAssignments: (showIds: number[], label: string) => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
   // Wir berechnen Rutschen pro show_date getrennt, damit eine Rutsche nicht
@@ -836,7 +900,7 @@ function RutschenSections({
                 onAssign={onAssign}
                 onClear={onClear}
                 onRemoveAssignment={onRemoveAssignment}
-                onClearAssignments={onClearAssignments}
+                onClearRutscheAssignments={onClearRutscheAssignments}
                 onFeedback={onFeedback}
               />
             ))}
@@ -862,7 +926,7 @@ function RutscheBlock({
   onAssign,
   onClear,
   onRemoveAssignment,
-  onClearAssignments,
+  onClearRutscheAssignments,
   onFeedback,
 }: {
   rutsche: Rutsche;
@@ -879,7 +943,7 @@ function RutscheBlock({
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
   onRemoveAssignment: (showId: number, staffId: number) => void;
-  onClearAssignments: (showIds: number[]) => void;
+  onClearRutscheAssignments: (showIds: number[], label: string) => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
   const hasAnyAssignments = rutsche.shows.some(
@@ -936,7 +1000,12 @@ function RutscheBlock({
           {canEdit && hasAnyAssignments && (
             <button
               type="button"
-              onClick={() => onClearAssignments(rutsche.shows.map((s) => s.id))}
+              onClick={() =>
+                onClearRutscheAssignments(
+                  rutsche.shows.map((s) => s.id),
+                  `Rutsche ${rutsche.index} (${formatRutscheRange(rutsche)})`,
+                )
+              }
               className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg border border-[hsl(var(--destructive)/0.3)] bg-[hsl(var(--destructive)/0.08)] text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)/0.16)]"
               title="Alle Zuweisungen dieser Rutsche entfernen"
             >
@@ -3815,6 +3884,295 @@ function FupSuccessStage({ created, onClose }: { created: number; onClose: () =>
         </button>
       </div>
     </div>
+  );
+}
+
+// ── Tab: Säle ────────────────────────────────────────────────────────
+
+function HallsTab({
+  halls,
+  canEdit,
+  onAdd,
+  onEdit,
+}: {
+  halls: CleaningHall[];
+  canEdit: boolean;
+  onAdd: () => void;
+  onEdit: (h: CleaningHall) => void;
+}) {
+  const sorted = useMemo(
+    () => halls.slice().sort((a, b) => a.hall_number - b.hall_number),
+    [halls],
+  );
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          Kapazität pro Saal — die KI nutzt die <strong>Auslastung</strong>{" "}
+          (Besucher ÷ Sitze) als wichtigsten Faktor für die Personalempfehlung
+          statt fester Schwellen.
+        </p>
+        {canEdit && (
+          <button
+            onClick={onAdd}
+            className="brand-button inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold"
+          >
+            <Plus size={14} /> Neuer Saal
+          </button>
+        )}
+      </div>
+      {sorted.length === 0 ? (
+        <div className="feature-card text-center p-8" style={{ color: "hsl(var(--muted-foreground))" }}>
+          Noch keine Säle konfiguriert. Lege deine Säle an, damit die KI die
+          Auslastung in ihre Empfehlung einbeziehen kann.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {sorted.map((h) => (
+            <div
+              key={h.id}
+              className="feature-card p-3 flex items-center gap-3"
+            >
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center text-white text-base font-bold flex-shrink-0"
+                style={{
+                  background:
+                    "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))",
+                }}
+              >
+                {h.hall_number}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold truncate" style={{ color: "hsl(var(--foreground))" }}>
+                  Saal {h.hall_number}
+                  {h.label ? ` – ${h.label}` : ""}
+                </div>
+                <div className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  {h.seat_count > 0
+                    ? `${h.seat_count} Sitze`
+                    : "Sitzanzahl noch nicht gesetzt"}
+                </div>
+                {h.notes && (
+                  <div className="text-[11px] truncate italic" style={{ color: "hsl(var(--muted-foreground))" }}>
+                    {h.notes}
+                  </div>
+                )}
+              </div>
+              {canEdit && (
+                <button
+                  onClick={() => onEdit(h)}
+                  className="p-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+                  title="Bearbeiten"
+                >
+                  <Pencil size={14} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Saal-Modal ───────────────────────────────────────────────────────
+
+function HallModal({
+  hall,
+  canEdit,
+  onClose,
+  createAction,
+  updateAction,
+  deleteAction,
+}: {
+  hall: CleaningHall | null;
+  canEdit: boolean;
+  onClose: () => void;
+  createAction: ActionFn;
+  updateAction: ActionFn;
+  deleteAction: ActionFn;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const isEdit = Boolean(hall);
+
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    startTransition(async () => {
+      if (isEdit && hall) {
+        fd.set("id", String(hall.id));
+        await updateAction(fd);
+      } else {
+        await createAction(fd);
+      }
+      router.refresh();
+      onClose();
+    });
+  }
+
+  function handleDelete() {
+    if (!hall) return;
+    const fd = new FormData();
+    fd.set("id", String(hall.id));
+    startTransition(async () => {
+      await deleteAction(fd);
+      router.refresh();
+      onClose();
+    });
+  }
+
+  return (
+    <ModalShell title={isEdit ? "Saal bearbeiten" : "Neuer Saal"} onClose={onClose}>
+      <form onSubmit={onSubmit} className="p-5 space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+              Saal-Nr. <span className="text-[hsl(var(--destructive))]">*</span>
+            </label>
+            <input
+              type="number"
+              name="hall_number"
+              min={1}
+              required
+              defaultValue={hall?.hall_number ?? ""}
+              className={inputCls}
+              disabled={!canEdit}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+              Sitzanzahl <span className="text-[hsl(var(--destructive))]">*</span>
+            </label>
+            <input
+              type="number"
+              name="seat_count"
+              min={0}
+              required
+              defaultValue={hall?.seat_count ?? 0}
+              className={inputCls}
+              disabled={!canEdit}
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+            Saalname (optional)
+          </label>
+          <input
+            name="label"
+            defaultValue={hall?.label ?? ""}
+            className={inputCls}
+            disabled={!canEdit}
+            placeholder="z.B. Roter Saal, Saal Premium…"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1.5">
+            Notiz (optional)
+          </label>
+          <input
+            name="notes"
+            defaultValue={hall?.notes ?? ""}
+            className={inputCls}
+            disabled={!canEdit}
+          />
+        </div>
+        <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+          {isEdit && canEdit && (
+            confirmDelete ? (
+              <div className="flex gap-1.5 items-center">
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="px-3 py-1.5 bg-[hsl(var(--destructive)/0.15)] border border-[hsl(var(--destructive)/0.4)] text-[hsl(var(--destructive))] text-xs rounded-lg"
+                >
+                  Wirklich löschen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  className="px-3 py-1.5 text-xs rounded-lg bg-[hsl(var(--secondary))]"
+                >
+                  Nein
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="inline-flex items-center gap-1 px-3 py-2 text-sm bg-[hsl(var(--destructive)/0.1)] hover:bg-[hsl(var(--destructive)/0.2)] border border-[hsl(var(--destructive)/0.4)] text-[hsl(var(--destructive))] rounded-lg"
+              >
+                <Trash2 size={14} /> Löschen
+              </button>
+            )
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
+          >
+            Abbrechen
+          </button>
+          {canEdit && (
+            <button
+              type="submit"
+              disabled={isPending}
+              className="px-4 py-2 bg-[hsl(var(--primary))] hover:opacity-90 text-[hsl(var(--primary-foreground))] text-sm font-medium rounded-lg disabled:opacity-50"
+            >
+              {isPending ? "Speichern…" : isEdit ? "Speichern" : "Anlegen"}
+            </button>
+          )}
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// ── Confirm: Bulk-Clear-Zuweisungen ──────────────────────────────────
+
+function ConfirmClearAssignmentsModal({
+  label,
+  showCount,
+  onCancel,
+  onConfirm,
+}: {
+  label: string;
+  showCount: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ModalShell title="Zuweisungen wirklich entfernen?" onClose={onCancel}>
+      <div className="p-5 space-y-4">
+        <p className="text-sm" style={{ color: "hsl(var(--foreground))" }}>
+          Sollen die Zuweisungen für <strong>{label}</strong> entfernt werden?
+        </p>
+        <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+          Betrifft {showCount} {showCount === 1 ? "Vorstellung" : "Vorstellungen"}.
+          Die Vorstellungen selbst und das gespeicherte Feedback bleiben.
+          Manuelle und KI-Zuweisungen werden zurückgesetzt; der Status wechselt
+          wieder auf „Offen".
+        </p>
+        <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="ml-auto px-4 py-2 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-sm rounded-lg"
+          >
+            Abbrechen
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-[hsl(var(--destructive))] hover:opacity-90 text-white text-sm font-medium rounded-lg"
+          >
+            <Eraser size={14} /> Ja, leeren
+          </button>
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 

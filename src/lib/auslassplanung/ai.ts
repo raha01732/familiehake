@@ -19,6 +19,9 @@ export type AiShowInput = {
   hall_label: string | null;
   end_time: string;
   attendees: number;
+  /** Saalkapazität — Auslastung = attendees / seat_count ist der primäre
+   *  Indikator für die KI. null wenn unbekannt. */
+  seat_count: number | null;
   cleanup_minutes: number;
   intensity: "light" | "standard" | "intense";
   movie_title: string | null;
@@ -35,6 +38,8 @@ export type AiStaffInput = {
 export type AiLearningEntry = {
   hall_number: number;
   attendees: number;
+  /** Kapazität des Saals (für Auslastungs-Vergleich). null wenn unbekannt. */
+  seat_count: number | null;
   cleanup_minutes: number;
   intensity: string;
   movie_title: string | null;
@@ -64,24 +69,39 @@ type GeminiResponse = {
 };
 
 const SYSTEM_PROMPT = `Du bist ein Reinigungs-Disponent für ein Kino.
-Aufgabe: schätze für eine einzelne Vorstellung (Saal, Endzeit, Besucher,
-Intensität) die nötige Anzahl Reinigungs-Mitarbeiter und teile passende
-Mitarbeiter aus dem gegebenen Pool zu.
+Aufgabe: schätze für eine einzelne Vorstellung den nötigen Personalbedarf
+("recommended_staff_count") und teile passende Mitarbeiter aus dem Pool zu.
 
-Regeln:
-- "intensity": "light" = kurze schnelle Reinigung, weniger Personal;
-  "standard" = normale Vorstellung; "intense" = mehr Müll/Aufwand,
-  z.B. Familienfilme oder 3D-Vorführungen — mehr Personal nötig.
+PRIMÄRE Faktoren für die Anzahl:
+1. AUSLASTUNG (= attendees / seat_count). Das ist der wichtigste Indikator.
+   Ein Saal mit 250 Plätzen und 30 Besuchern (12%) braucht weniger Personal
+   als ein Saal mit 80 Plätzen und 75 Besuchern (94%).
+   Grobe Anker (auch von den LEARNING-Daten anzupassen):
+   - Auslastung <= 25%: typischerweise 1 MA
+   - Auslastung 25-60%: typischerweise 2 MA
+   - Auslastung > 60%: typischerweise 3 MA oder mehr
+   Bei sehr großen Sälen (>200 Sitzen) und hoher Auslastung lieber +1.
+2. INTENSITÄT: "light" = wenig Aufwand (z.B. Erwachsenenkino am Vormittag,
+   keine Snacks); "standard" = normaler Spielfilm; "intense" = viel Müll
+   (Familienfilm, Animation, Event-Vorstellung) — multipliziert die
+   Basisempfehlung um Faktor 0.8 / 1.0 / 1.3.
+3. LERNDATEN sind STÄRKER als die Heuristik. WICHTIG: die LEARNING-Einträge
+   stammen aus ALLEN Sälen — vergleiche NICHT nach Saal-Nummer, sondern nach
+   Auslastung (attendees/seat_count), Intensität und Filmtyp. Ein Saal mit
+   80 von 100 Plätzen sollte sich am gleichen Auslastungs-Bereich orientieren
+   wie ein anderer Saal mit 200 von 250 Plätzen.
+
+KEINE festen Schwellen anhand reiner Besucherzahl ("ab 50 immer 2 MA")
+mehr verwenden — die Auslastung im Saal ist relevanter.
+
+STAFF-Zuweisung:
 - Bevorzuge Mitarbeiter mit preference="preferred" gegenüber "backup".
-  Mitarbeiter mit preference="backup" nur einplanen, wenn nicht genug
-  "preferred"-MA verfügbar oder Lerndaten zeigen, dass mehr nötig sind.
-- Wenn LEARNING-Daten vorhanden sind, nutze sie um deine Schätzung an
-  bisherigen tatsächlichen Werten zu kalibrieren — vergleichbare Säle,
-  ähnliche Besucherzahlen und Intensität sind ein guter Anker.
-- recommended_staff_count: ganzzahlig, mindestens 1, maximal so viele
-  wie aktive MA im Pool.
-- Wähle aus dem STAFF-Pool genau recommended_staff_count Mitarbeiter
-  aus, IDs aus STAFF, keine Duplikate.
+  Backup nur, wenn nicht genug Preferred verfügbar oder Lerndaten zeigen,
+  dass mehr nötig sind.
+- recommended_staff_count: ganzzahlig, mindestens 1, maximal so viele wie
+  aktive MA im Pool.
+- Wähle aus dem STAFF-Pool genau recommended_staff_count Mitarbeiter aus,
+  IDs aus STAFF, keine Duplikate.
 
 WICHTIG: Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt nach
 diesem Schema. Kein Markdown, keine Code-Fences, kein Erklärtext.

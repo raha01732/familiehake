@@ -67,6 +67,59 @@ async function generateUniquePublicId(sb: SupabaseAdmin): Promise<string> {
   throw new Error("Konnte keinen eindeutigen Show-Code generieren.");
 }
 
+// ── Saal-CRUD ─────────────────────────────────────────────────────────
+
+export async function createHallAction(formData: FormData) {
+  await assertCallerHasCinemaAccess();
+  const hallNumber = Number(formData.get("hall_number") || 0);
+  if (!Number.isFinite(hallNumber) || hallNumber <= 0) return;
+  const label = String(formData.get("label") || "").trim() || null;
+  const seatCount = Math.max(0, Math.round(Number(formData.get("seat_count") || 0)));
+  const notes = String(formData.get("notes") || "").trim() || null;
+  const sb = createAdminClient();
+  await sb.from("cinema_cleaning_halls").insert({
+    hall_number: hallNumber,
+    label,
+    seat_count: seatCount,
+    notes,
+  });
+  revalidatePath(PLAN_PATH);
+}
+
+export async function updateHallAction(formData: FormData) {
+  await assertCallerHasCinemaAccess();
+  const id = Number(formData.get("id"));
+  if (!id) return;
+  const updates: Record<string, unknown> = {};
+  const hallNumber = formData.get("hall_number");
+  if (hallNumber !== null) {
+    const v = Number(hallNumber);
+    if (Number.isFinite(v) && v > 0) updates.hall_number = v;
+  }
+  const label = formData.get("label");
+  if (typeof label === "string") updates.label = label.trim() || null;
+  const seatCount = formData.get("seat_count");
+  if (seatCount !== null) {
+    updates.seat_count = Math.max(0, Math.round(Number(seatCount) || 0));
+  }
+  const notes = formData.get("notes");
+  if (typeof notes === "string") updates.notes = notes.trim() || null;
+  if (Object.keys(updates).length === 0) return;
+  updates.updated_at = new Date().toISOString();
+  const sb = createAdminClient();
+  await sb.from("cinema_cleaning_halls").update(updates).eq("id", id);
+  revalidatePath(PLAN_PATH);
+}
+
+export async function deleteHallAction(formData: FormData) {
+  await assertCallerHasCinemaAccess();
+  const id = Number(formData.get("id"));
+  if (!id) return;
+  const sb = createAdminClient();
+  await sb.from("cinema_cleaning_halls").delete().eq("id", id);
+  revalidatePath(PLAN_PATH);
+}
+
 // ── Staff CRUD ────────────────────────────────────────────────────────
 
 export async function createStaffAction(formData: FormData) {
@@ -519,6 +572,7 @@ function isManualAssignment(a: { assigned_by: string }): boolean {
 type LearningEntry = {
   hall_number: number;
   attendees: number;
+  seat_count: number | null;
   cleanup_minutes: number;
   intensity: string;
   movie_title: string | null;
@@ -584,7 +638,11 @@ const LEARNING_LIMIT = 100;
 async function loadLearningData(
   sb: SupabaseAdmin,
   excludeShowIds: ReadonlySet<number>,
+  seatMap?: ReadonlyMap<number, number>,
 ): Promise<LearningEntry[]> {
+  // Falls kein seatMap übergeben wurde: laden, damit historische Auslastung
+  // berechnet werden kann.
+  const effectiveSeatMap = seatMap ?? (await loadHallSeatMap(sb));
   // 1) Archiv parallel zu aktiven Shows laden
   const [pastRowsResult, archiveRowsResult] = await Promise.all([
     sb
@@ -625,6 +683,7 @@ async function loadLearningData(
     activeOut.push({
       hall_number: row.hall_number as number,
       attendees: row.attendees as number,
+      seat_count: effectiveSeatMap.get(row.hall_number as number) ?? null,
       cleanup_minutes: row.cleanup_minutes as number,
       intensity: row.intensity as string,
       movie_title: (row.movie_title as string | null) ?? null,
@@ -639,6 +698,7 @@ async function loadLearningData(
   const archiveOut: LearningEntryWithDate[] = (archiveRows ?? []).map((row: any) => ({
     hall_number: row.hall_number as number,
     attendees: row.attendees as number,
+    seat_count: effectiveSeatMap.get(row.hall_number as number) ?? null,
     cleanup_minutes: row.cleanup_minutes as number,
     intensity: row.intensity as string,
     movie_title: (row.movie_title as string | null) ?? null,
@@ -659,12 +719,24 @@ async function loadLearningData(
     });
 }
 
+async function loadHallSeatMap(sb: SupabaseAdmin): Promise<Map<number, number>> {
+  const { data } = await sb
+    .from("cinema_cleaning_halls")
+    .select("hall_number, seat_count");
+  const map = new Map<number, number>();
+  for (const row of (data ?? []) as Array<{ hall_number: number; seat_count: number }>) {
+    if (row.seat_count > 0) map.set(row.hall_number, row.seat_count);
+  }
+  return map;
+}
+
 async function computeRecommendedCount(
   show: CleaningShow,
   poolForAi: CleaningStaff[],
-  learning: Awaited<ReturnType<typeof loadLearningData>>
+  learning: Awaited<ReturnType<typeof loadLearningData>>,
+  seatCount: number | null,
 ): Promise<{ count: number; aiNote: string | null; source: "ai" | "heuristic" }> {
-  let count = recommendStaffCount(show.attendees, show.intensity);
+  let count = recommendStaffCount(show.attendees, show.intensity, seatCount);
   let aiNote: string | null = null;
   let source: "ai" | "heuristic" = "heuristic";
   if (!auslassplanungAiEnabled()) {
@@ -679,6 +751,7 @@ async function computeRecommendedCount(
         hall_label: show.hall_label,
         end_time: show.end_time,
         attendees: show.attendees,
+        seat_count: seatCount,
         cleanup_minutes: show.cleanup_minutes,
         intensity: show.intensity,
         movie_title: show.movie_title,
@@ -783,12 +856,16 @@ async function performPlanForShow(
     .filter((s) => s.preference === "backup" && !manualStaffIds.has(s.id))
     .sort((a, b) => a.sort_order - b.sort_order);
 
-  // KI-Empfehlung für recommended_count (AI wählt nur die Anzahl + notes)
-  const learning = await loadLearningData(sb, new Set([showId]));
+  // KI-Empfehlung für recommended_count (AI wählt nur die Anzahl + notes).
+  // Saalkapazität als zusätzlichen Anker durchreichen.
+  const seatMap = await loadHallSeatMap(sb);
+  const learning = await loadLearningData(sb, new Set([showId]), seatMap);
+  const seatCount = seatMap.get(show.hall_number) ?? null;
   const { count: recommendedCount, aiNote, source } = await computeRecommendedCount(
     show,
     allActive,
     learning,
+    seatCount,
   );
 
   // Wie viele zusätzliche Slots braucht es noch (über manuelle hinaus)?
@@ -981,8 +1058,9 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
     .in("show_id", showIds)
     .eq("assigned_by", "ai");
 
-  // Lerndaten einmal laden
-  const learning = await loadLearningData(sb, showIdSet);
+  // Saal-Kapazitäten zuerst — Lerndaten brauchen sie für historische Auslastung
+  const seatMap = await loadHallSeatMap(sb);
+  const learning = await loadLearningData(sb, showIdSet, seatMap);
 
   // Pro Show: empfohlene Anzahl per KI/Heuristik (parallel)
   type Item = {
@@ -1006,7 +1084,13 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
         (m) => staffById.get(m.staff_id)?.preference === "preferred",
       ).length;
       const { busy, conflictHallNumbers } = await getExternalBusy(sb, show, showIdSet);
-      const { count, aiNote, source } = await computeRecommendedCount(show, allActive, learning);
+      const seatCount = seatMap.get(show.hall_number) ?? null;
+      const { count, aiNote, source } = await computeRecommendedCount(
+        show,
+        allActive,
+        learning,
+        seatCount,
+      );
       return {
         show,
         recommendedCount: count,

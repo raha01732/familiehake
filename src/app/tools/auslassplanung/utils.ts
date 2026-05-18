@@ -4,6 +4,14 @@ export type CleaningPreference = "preferred" | "backup";
 export type ShowIntensity = "light" | "standard" | "intense";
 export type ShowPlanStatus = "open" | "planned" | "completed" | "cancelled";
 
+export type CleaningHall = {
+  id: number;
+  hall_number: number;
+  label: string | null;
+  seat_count: number;
+  notes: string | null;
+};
+
 export type CleaningStaff = {
   id: number;
   name: string;
@@ -122,12 +130,37 @@ export function formatTimeRange(end: string, cleanupMinutes: number): string {
 }
 
 /**
- * Heuristik-Fallback, wenn die KI nicht erreichbar ist:
- * Personalbedarf je nach Besucher × Intensität.
+ * Heuristik-Fallback NUR wenn die KI nicht verfügbar ist. Die KI bekommt die
+ * gleichen Inputs (attendees, seat_count, intensity, learning data) und sollte
+ * den Großteil der Empfehlungen liefern — diese Funktion ist nur ein roher
+ * Anker, kein scharfes Regelwerk.
+ *
+ * Idee: Auslastung (= attendees/seat_count) ist der primäre Faktor. Ein 80%
+ * voller Saal mit 30 Plätzen ist anders zu bewerten als ein 80% voller Saal
+ * mit 250 Plätzen — die KI entscheidet, die Heuristik liefert eine grobe
+ * Hausnummer.
  */
-export function recommendStaffCount(attendees: number, intensity: ShowIntensity): number {
-  const factor = intensity === "intense" ? 1.5 : intensity === "light" ? 0.7 : 1;
-  const base = attendees <= 50 ? 1 : attendees <= 150 ? 2 : 3;
+export function recommendStaffCount(
+  attendees: number,
+  intensity: ShowIntensity,
+  seatCount?: number | null,
+): number {
+  const factor = intensity === "intense" ? 1.3 : intensity === "light" ? 0.8 : 1;
+  let base: number;
+  if (seatCount && seatCount > 0) {
+    // Auslastungs-basiert
+    const occupancy = attendees / seatCount;
+    if (occupancy <= 0.3) base = 1;
+    else if (occupancy <= 0.6) base = 2;
+    else base = 3;
+    // Großer Saal mit hoher Auslastung erhöht die Untergrenze leicht
+    if (seatCount >= 200 && occupancy > 0.5) base += 1;
+  } else {
+    // Fallback ohne Kapazität: ganz simple Stufen
+    if (attendees <= 40) base = 1;
+    else if (attendees <= 120) base = 2;
+    else base = 3;
+  }
   return Math.max(1, Math.round(base * factor));
 }
 
