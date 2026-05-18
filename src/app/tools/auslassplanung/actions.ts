@@ -478,34 +478,10 @@ function pickFromPool(
   return { staff: best, overlap: false };
 }
 
-// SOFT: nur als allerletzter Ausweg verwenden. Erlaubt explizit, dass der
-// gewählte MA in einer parallelen Vorstellung schon eingeteilt ist. Tut sein
-// Bestes, Überlapps zu vermeiden, kann sie aber nicht ausschließen.
-function pickFromPoolAllowOverlap(
-  pool: CleaningStaff[],
-  excludeIds: ReadonlySet<number>,
-  softBusy: ReadonlySet<number>,
-  usageCount: ReadonlyMap<number, number>,
-  availabilityFilter?: (s: CleaningStaff) => boolean,
-): { staff: CleaningStaff; overlap: boolean } | null {
-  let candidates = pool.filter((s) => !excludeIds.has(s.id));
-  if (availabilityFilter) candidates = candidates.filter(availabilityFilter);
-  if (candidates.length === 0) return null;
-  const best = candidates.reduce((acc, c) => {
-    // Tiebreaker: lieber jemand wählen, der NICHT überlappt
-    const cOverlap = softBusy.has(c.id);
-    const aOverlap = softBusy.has(acc.id);
-    if (cOverlap !== aOverlap) return cOverlap ? acc : c;
-    const cUse = usageCount.get(c.id) ?? 0;
-    const aUse = usageCount.get(acc.id) ?? 0;
-    if (cUse !== aUse) return cUse < aUse ? c : acc;
-    return c.sort_order < acc.sort_order ? c : acc;
-  });
-  return { staff: best, overlap: softBusy.has(best.id) };
-}
-
-// Helper: probiert die strikten Pools erst durch, dann die Overlap-Varianten.
-// Reihenfolge: preferred-strict → backup-strict → preferred-soft → backup-soft.
+// Helper: probiert die strikten Pools erst durch — NIEMALS Soft-Overlap.
+// Reihenfolge: preferred-strict → backup-strict → null.
+// Wenn nichts passt bleibt der Slot leer; der Aufrufer hängt einen
+// "unmet"-Hinweis an, statt jemanden in zwei parallele Auslässe zu stapeln.
 function pickByPriority(
   preferredPool: CleaningStaff[],
   backupPool: CleaningStaff[],
@@ -518,10 +494,6 @@ function pickByPriority(
   if (p1) return { ...p1, isPreferred: true };
   const p2 = pickFromPool(backupPool, excludeIds, softBusy, usageCount, availabilityFilter);
   if (p2) return { ...p2, isPreferred: false };
-  const p3 = pickFromPoolAllowOverlap(preferredPool, excludeIds, softBusy, usageCount, availabilityFilter);
-  if (p3) return { ...p3, isPreferred: true };
-  const p4 = pickFromPoolAllowOverlap(backupPool, excludeIds, softBusy, usageCount, availabilityFilter);
-  if (p4) return { ...p4, isPreferred: false };
   return null;
 }
 
@@ -1303,6 +1275,32 @@ export async function clearArchiveAction(
   revalidatePath("/tools/auslassplanung/lerndaten");
   revalidatePath(PLAN_PATH);
   return { deleted: count ?? 0 };
+}
+
+// Entfernt alle Zuweisungen für eine Liste von Vorstellungen. Die
+// show_ids werden im FormData unter "show_id" (mehrfach) erwartet.
+// Setzt den plan_status der betroffenen Shows zurück auf "open".
+export async function clearAssignmentsForShowsAction(
+  formData: FormData,
+): Promise<{ cleared: number }> {
+  await assertCallerHasCinemaAccess();
+  const showIds = Array.from(
+    new Set(
+      formData
+        .getAll("show_id")
+        .map((v) => Number(v))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  );
+  if (showIds.length === 0) return { cleared: 0 };
+  const sb = createAdminClient();
+  await sb.from("cinema_cleaning_assignments").delete().in("show_id", showIds);
+  await sb
+    .from("cinema_cleaning_shows")
+    .update({ plan_status: "open", updated_at: new Date().toISOString() })
+    .in("id", showIds);
+  revalidatePath(PLAN_PATH);
+  return { cleared: showIds.length };
 }
 
 // Entfernt alle Zuweisungen (manuell + KI) für eine Vorstellung.

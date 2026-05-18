@@ -134,6 +134,7 @@ type Props = {
   setManualAssignmentsAction: ActionFn;
   removeAssignmentAction: ActionFn;
   clearAssignmentsAction: ActionFn;
+  clearAssignmentsForShowsAction: (_fd: FormData) => Promise<{ cleared: number }>;
   parseFupAction: ParseFupFn;
   createShowsFromFupAction: CreateFromFupFn;
   updateAttendeesAction: UpdateAttendeesFn;
@@ -184,6 +185,7 @@ export default function AuslassplanungClient({
   setManualAssignmentsAction,
   removeAssignmentAction,
   clearAssignmentsAction,
+  clearAssignmentsForShowsAction,
   parseFupAction,
   createShowsFromFupAction,
   updateAttendeesAction,
@@ -299,6 +301,13 @@ export default function AuslassplanungClient({
     void removeAssignmentAction(fd).then(() => router.refresh());
   }
 
+  function handleClearAssignmentsForShows(showIds: number[]) {
+    if (showIds.length === 0) return;
+    const fd = new FormData();
+    for (const id of showIds) fd.append("show_id", String(id));
+    void clearAssignmentsForShowsAction(fd).then(() => router.refresh());
+  }
+
   function handleArchiveFeedback() {
     startArchivingFeedback(async () => {
       const fd = new FormData();
@@ -399,6 +408,7 @@ export default function AuslassplanungClient({
           onAssign={(s) => setAssignmentsModal(s)}
           onClear={(s) => setConfirmClearShow(s)}
           onRemoveAssignment={handleRemoveAssignment}
+          onClearAssignments={handleClearAssignmentsForShows}
           onBulkPlanOpen={() => setBulkPickerOpen(true)}
           onFupOpen={() => setFupModalOpen(true)}
           onDeleteAllOpen={() => setConfirmDeleteAll(true)}
@@ -583,6 +593,7 @@ function ShowsTab({
   onAssign,
   onClear,
   onRemoveAssignment,
+  onClearAssignments,
   onBulkPlanOpen,
   onFupOpen,
   onDeleteAllOpen,
@@ -610,6 +621,7 @@ function ShowsTab({
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
   onRemoveAssignment: (showId: number, staffId: number) => void;
+  onClearAssignments: (showIds: number[]) => void;
   onBulkPlanOpen: () => void;
   onFupOpen: () => void;
   onDeleteAllOpen: () => void;
@@ -677,6 +689,15 @@ function ShowsTab({
           )}
           {canEdit && shows.length > 0 && (
             <button
+              onClick={() => onClearAssignments(shows.map((s) => s.id))}
+              className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
+              title="Zuweisungen für alle sichtbaren Vorstellungen entfernen — die Vorstellungen selbst bleiben."
+            >
+              <Eraser size={14} /> Alle Zuweisungen leeren
+            </button>
+          )}
+          {canEdit && shows.length > 0 && (
+            <button
               onClick={onDeleteAllOpen}
               className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold border border-[hsl(var(--destructive)/0.4)] bg-[hsl(var(--destructive)/0.1)] text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)/0.18)]"
               title="Alle Vorstellungen unwiderruflich löschen"
@@ -715,6 +736,7 @@ function ShowsTab({
           onAssign={onAssign}
           onClear={onClear}
           onRemoveAssignment={onRemoveAssignment}
+          onClearAssignments={onClearAssignments}
           onFeedback={onFeedback}
         />
       )}
@@ -739,6 +761,7 @@ function RutschenSections({
   onAssign,
   onClear,
   onRemoveAssignment,
+  onClearAssignments,
   onFeedback,
 }: {
   shows: CleaningShow[];
@@ -755,6 +778,7 @@ function RutschenSections({
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
   onRemoveAssignment: (showId: number, staffId: number) => void;
+  onClearAssignments: (showIds: number[]) => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
   // Wir berechnen Rutschen pro show_date getrennt, damit eine Rutsche nicht
@@ -812,6 +836,7 @@ function RutschenSections({
                 onAssign={onAssign}
                 onClear={onClear}
                 onRemoveAssignment={onRemoveAssignment}
+                onClearAssignments={onClearAssignments}
                 onFeedback={onFeedback}
               />
             ))}
@@ -837,6 +862,7 @@ function RutscheBlock({
   onAssign,
   onClear,
   onRemoveAssignment,
+  onClearAssignments,
   onFeedback,
 }: {
   rutsche: Rutsche;
@@ -853,8 +879,12 @@ function RutscheBlock({
   onAssign: (show: CleaningShow) => void;
   onClear: (show: CleaningShow) => void;
   onRemoveAssignment: (showId: number, staffId: number) => void;
+  onClearAssignments: (showIds: number[]) => void;
   onFeedback: (show: CleaningShow) => void;
 }) {
+  const hasAnyAssignments = rutsche.shows.some(
+    (s) => (assignmentsByShow.get(s.id) ?? []).length > 0,
+  );
   const totalAttendees = rutsche.shows.reduce((acc, s) => acc + s.attendees, 0);
   const statusCounts = {
     open: rutsche.shows.filter((s) => s.plan_status === "open").length,
@@ -902,6 +932,16 @@ function RutscheBlock({
             <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${STATUS_LABELS.cancelled.cls}`}>
               {statusCounts.cancelled} abgesagt
             </span>
+          )}
+          {canEdit && hasAnyAssignments && (
+            <button
+              type="button"
+              onClick={() => onClearAssignments(rutsche.shows.map((s) => s.id))}
+              className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg border border-[hsl(var(--destructive)/0.3)] bg-[hsl(var(--destructive)/0.08)] text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)/0.16)]"
+              title="Alle Zuweisungen dieser Rutsche entfernen"
+            >
+              <Eraser size={11} /> Rutsche leeren
+            </button>
           )}
         </div>
       </div>
