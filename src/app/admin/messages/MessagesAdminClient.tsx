@@ -446,13 +446,20 @@ export default function MessagesAdminClient({
               <Clock size={14} /> Zeitgesteuert senden
             </label>
             {scheduleEnabled && (
-              <input
-                type="datetime-local"
-                className={inputCls}
-                style={inputStyle}
-                value={scheduledAt}
-                onChange={(e) => setScheduledAt(e.target.value)}
-              />
+              <>
+                <input
+                  type="datetime-local"
+                  className={inputCls}
+                  style={inputStyle}
+                  value={scheduledAt}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                />
+                <p className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  Hinweis: Geplante Nachrichten werden vom täglichen Versandlauf (ca. 04:00 Uhr)
+                  verschickt – sie gehen also frühestens beim nächsten Lauf nach dem gewählten
+                  Zeitpunkt raus.
+                </p>
+              </>
             )}
           </div>
 
