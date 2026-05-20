@@ -39,6 +39,9 @@ const baseSchema = z.object({
   // Fällt auf NOTIFICATION_EMAIL_FROM zurück, wenn nicht gesetzt.
   SYSTEM_MESSAGE_EMAIL_FROM: z.string().min(1).optional(),
   CRON_SECRET: z.string().min(1).optional(),
+  // Aufräumen von Benachrichtigungen (Tage bis zur Archivierung)
+  NOTIFICATIONS_READ_RETENTION_DAYS: z.string().min(1).optional(),
+  NOTIFICATIONS_UNREAD_RETENTION_DAYS: z.string().min(1).optional(),
   // QStash (Upstash) – zeitgenauer Versand geplanter Systemnachrichten
   QSTASH_TOKEN: z.string().min(1).optional(),
   QSTASH_CURRENT_SIGNING_KEY: z.string().min(1).optional(),

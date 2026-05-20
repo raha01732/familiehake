@@ -1132,6 +1132,25 @@ create index if not exists notifications_user_unread_idx
   on notifications(user_id)
   where read_at is null;
 
+-- Archiv für aufgeräumte Benachrichtigungen (gelesene nach 4 Tagen,
+-- ungelesene nach 30 Tagen werden hierher verschoben — nicht gelöscht).
+-- id bleibt identisch zur ursprünglichen Benachrichtigung (Re-Run-sicher).
+create table if not exists notifications_archive (
+  id uuid primary key,
+  user_id text not null,
+  kind text not null,
+  title text not null,
+  body text,
+  link text,
+  read_at timestamptz,
+  created_at timestamptz not null,
+  system_message_id uuid,
+  archived_at timestamptz not null default now()
+);
+
+create index if not exists notifications_archive_user_idx
+  on notifications_archive(user_id, created_at desc);
+
 create table if not exists notification_preferences (
   user_id text primary key,
   email_enabled boolean not null default true,
