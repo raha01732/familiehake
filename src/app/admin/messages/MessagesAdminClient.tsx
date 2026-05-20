@@ -83,6 +83,27 @@ const inputCls =
   "w-full rounded-lg border bg-[hsl(var(--background))] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.4)]";
 const inputStyle = { borderColor: "hsl(var(--border))", color: "hsl(var(--foreground))" } as const;
 
+/**
+ * Wandelt den Wert eines <input type="datetime-local"> (lokale Wanduhrzeit
+ * ohne Zeitzone) in eine echte UTC-ISO-Zeit um. `new Date(value)` interpretiert
+ * den Wert im Browser korrekt in der Zeitzone des Nutzers.
+ */
+function localInputToIso(value: string): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+/** Umgekehrt: UTC-ISO -> lokaler datetime-local-Wert "YYYY-MM-DDTHH:mm". */
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function MessagesAdminClient({
   history,
   directory,
@@ -169,7 +190,7 @@ export default function MessagesAdminClient({
       channels: channels(),
       audience,
       recipientIds,
-      scheduledAt: scheduleEnabled && scheduledAt ? scheduledAt : null,
+      scheduledAt: scheduleEnabled && scheduledAt ? localInputToIso(scheduledAt) : null,
     };
   }
 
@@ -267,8 +288,9 @@ export default function MessagesAdminClient({
     setChannelInApp(item.channels.includes("inapp"));
     setAudience(item.audience);
     setRecipientIds(item.recipientIds);
-    setScheduleEnabled(false);
-    setScheduledAt("");
+    const isScheduled = item.status === "scheduled" && !!item.scheduledAt;
+    setScheduleEnabled(isScheduled);
+    setScheduledAt(isScheduled ? isoToLocalInput(item.scheduledAt) : "");
     setFeedback({ type: "ok", text: "In den Editor geladen." });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -455,9 +477,9 @@ export default function MessagesAdminClient({
                   onChange={(e) => setScheduledAt(e.target.value)}
                 />
                 <p className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
-                  Hinweis: Geplante Nachrichten werden vom täglichen Versandlauf (ca. 04:00 Uhr)
-                  verschickt – sie gehen also frühestens beim nächsten Lauf nach dem gewählten
-                  Zeitpunkt raus.
+                  Zeit in deiner lokalen Zeitzone. Bei aktivem QStash wird minutengenau zum
+                  gewählten Zeitpunkt versendet; ohne QStash beim täglichen Versandlauf
+                  (gegen 04:00 Uhr) nach diesem Zeitpunkt.
                 </p>
               </>
             )}
