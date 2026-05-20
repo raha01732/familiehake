@@ -1,5 +1,6 @@
 import RoleGate from "@/components/RoleGate";
 import NextShiftsTile from "@/components/home/NextShiftsTile";
+import NotificationsTile from "@/components/home/NotificationsTile";
 import TaskSummaryTile from "@/components/home/TaskSummaryTile";
 import WelcomeTileCard, { WelcomeTile } from "@/components/dashboard/WelcomeTileCard";
 import { logAudit } from "@/lib/audit";
@@ -521,6 +522,8 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
             </Link>
           </div>
         </div>
+
+          <NotificationsTile />
 
           <div className="grid gap-5 lg:grid-cols-2">
             <NextShiftsTile />
