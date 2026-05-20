@@ -50,8 +50,7 @@ export default async function HomePage() {
           className="mt-6 max-w-2xl text-base leading-relaxed md:text-lg"
           style={{ color: "hsl(var(--muted-foreground))" }}
         >
-          Dienstplan, Kalender, Dateien — alles in einem sicheren, schnellen
-          Portal. Nur für eingeladene Mitglieder.
+          Nur für eingeladene Mitglieder.
         </p>
 
         {/* CTA */}
