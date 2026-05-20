@@ -1160,10 +1160,25 @@ create table if not exists system_messages (
   email_sent_count integer not null default 0,
   inapp_sent_count integer not null default 0,
   error_message text,
+  -- QStash-Message-ID des geplanten Versand-Jobs (für Storno/Neuplanung)
+  qstash_message_id text,
   created_by text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Idempotenter Backfill, falls die Tabelle ohne qstash_message_id existiert
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'system_messages'
+      and column_name = 'qstash_message_id'
+  ) then
+    alter table system_messages add column qstash_message_id text;
+  end if;
+end $$;
 
 create index if not exists system_messages_status_idx
   on system_messages(status, scheduled_at);

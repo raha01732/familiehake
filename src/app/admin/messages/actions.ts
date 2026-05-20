@@ -14,6 +14,11 @@ import {
   type SystemMessageChannel,
 } from "@/lib/system-messages/blocks";
 import { buildCronStatusReport, listAdminUserIds } from "@/lib/cron-status-report";
+import {
+  qstashEnabled,
+  scheduleSystemMessageJob,
+  cancelSystemMessageJob,
+} from "@/lib/qstash";
 
 const ADMIN_MESSAGES_PATH = "/admin/messages";
 
@@ -74,7 +79,14 @@ async function persistMessage(
   };
 
   if (input.id) {
-    await sb.from("system_messages").update(base).eq("id", input.id);
+    // Etwaigen noch offenen QStash-Job stornieren — Zeitpunkt/Status ändert sich.
+    const { data: existing } = await sb
+      .from("system_messages")
+      .select("qstash_message_id")
+      .eq("id", input.id)
+      .maybeSingle();
+    await cancelSystemMessageJob(existing?.qstash_message_id ?? null);
+    await sb.from("system_messages").update({ ...base, qstash_message_id: null }).eq("id", input.id);
     return input.id;
   }
 
@@ -161,12 +173,26 @@ export async function scheduleSystemMessageAction(
 
   try {
     const id = await persistMessage(session, input, "scheduled", scheduledAt.toISOString());
+
+    // Zeitgenauer Versand via QStash; ohne QStash übernimmt der tägliche Cron.
+    let via: "qstash" | "cron" = "cron";
+    if (qstashEnabled()) {
+      const jobId = await scheduleSystemMessageJob(id, scheduledAt.toISOString());
+      if (jobId) {
+        await createAdminClient()
+          .from("system_messages")
+          .update({ qstash_message_id: jobId })
+          .eq("id", id);
+        via = "qstash";
+      }
+    }
+
     await logAudit({
       action: "system_message_schedule",
       actorUserId: session.userId,
       actorEmail: session.email,
       target: id,
-      detail: { title: input.title.trim(), scheduledAt: scheduledAt.toISOString() },
+      detail: { title: input.title.trim(), scheduledAt: scheduledAt.toISOString(), via },
     });
     revalidatePath(ADMIN_MESSAGES_PATH);
     return { ok: true, id };
@@ -185,9 +211,10 @@ export async function deleteSystemMessageAction(
     const sb = createAdminClient();
     const { data: existing } = await sb
       .from("system_messages")
-      .select("title")
+      .select("title, qstash_message_id")
       .eq("id", id)
       .maybeSingle();
+    await cancelSystemMessageJob(existing?.qstash_message_id ?? null);
     await sb.from("system_messages").delete().eq("id", id);
     await logAudit({
       action: "system_message_delete",

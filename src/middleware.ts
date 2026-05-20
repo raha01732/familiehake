@@ -21,6 +21,9 @@ const isPublicRoute = createRouteMatcher([
 
   // Cron-Routen haben eigene Auth via isAuthorizedCronRequest
   "/api/cron(.*)",
+
+  // QStash-Callbacks: Auth ausschließlich über QStash-Signatur
+  "/api/qstash(.*)",
 ]);
 
 const clerkPublishableKey = getClerkPublishableKey();

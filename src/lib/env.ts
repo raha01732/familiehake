@@ -35,6 +35,10 @@ const baseSchema = z.object({
   RESEND_API_KEY: z.string().min(1).optional(),
   NOTIFICATION_EMAIL_FROM: z.string().email().optional(),
   CRON_SECRET: z.string().min(1).optional(),
+  // QStash (Upstash) – zeitgenauer Versand geplanter Systemnachrichten
+  QSTASH_TOKEN: z.string().min(1).optional(),
+  QSTASH_CURRENT_SIGNING_KEY: z.string().min(1).optional(),
+  QSTASH_NEXT_SIGNING_KEY: z.string().min(1).optional(),
 });
 
 const requiredInProduction = [

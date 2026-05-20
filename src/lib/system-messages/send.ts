@@ -161,6 +161,7 @@ export async function dispatchSystemMessage(messageId: string): Promise<Dispatch
         email_sent_count: emailSent,
         inapp_sent_count: inappSent,
         error_message: null,
+        qstash_message_id: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", row.id);
