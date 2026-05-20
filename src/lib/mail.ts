@@ -6,6 +6,9 @@ type SendEmailInput = {
   subject: string;
   html?: string;
   text?: string;
+  /** Absender überschreiben (z.B. "FamilieHake <info@domain>"). Fällt sonst
+   *  auf NOTIFICATION_EMAIL_FROM zurück. Die Domain muss in Resend verifiziert sein. */
+  from?: string;
 };
 
 export type MailResult =
@@ -38,7 +41,7 @@ export async function resolveUserEmail(userId: string): Promise<string | null> {
  */
 export async function sendEmail(input: SendEmailInput): Promise<MailResult> {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.NOTIFICATION_EMAIL_FROM;
+  const from = input.from || process.env.NOTIFICATION_EMAIL_FROM;
 
   if (!apiKey || !from) {
     console.info(

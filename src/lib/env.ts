@@ -33,7 +33,11 @@ const baseSchema = z.object({
   GEMINI_MODEL: z.string().min(1).optional(),
   TAVILY_API_KEY: z.string().min(1).optional(),
   RESEND_API_KEY: z.string().min(1).optional(),
-  NOTIFICATION_EMAIL_FROM: z.string().email().optional(),
+  // Absender für automatische Mails. Erlaubt reine Adresse oder "Name <adresse>".
+  NOTIFICATION_EMAIL_FROM: z.string().min(1).optional(),
+  // Eigener Absender für Infomails aus dem Systemnachrichten-Tool.
+  // Fällt auf NOTIFICATION_EMAIL_FROM zurück, wenn nicht gesetzt.
+  SYSTEM_MESSAGE_EMAIL_FROM: z.string().min(1).optional(),
   CRON_SECRET: z.string().min(1).optional(),
   // QStash (Upstash) – zeitgenauer Versand geplanter Systemnachrichten
   QSTASH_TOKEN: z.string().min(1).optional(),

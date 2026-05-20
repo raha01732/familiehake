@@ -183,9 +183,11 @@ export async function dispatchSystemMessage(messageId: string): Promise<Dispatch
       }
     }
 
-    // E-Mail: einzeln versenden (kein Adress-Leak) + Tracking pro Empfänger
+    // E-Mail: einzeln versenden (kein Adress-Leak) + Tracking pro Empfänger.
+    // Eigener Absender für Infomails (Fallback: globaler NOTIFICATION_EMAIL_FROM).
     if (wantsEmail) {
       const text = renderPlainText({ title: row.title, blocks });
+      const fromOverride = process.env.SYSTEM_MESSAGE_EMAIL_FROM || undefined;
       for (const m of meta) {
         if (!m.emailWanted || !m.email) continue;
         const html = appBase
@@ -196,7 +198,7 @@ export async function dispatchSystemMessage(messageId: string): Promise<Dispatch
               tracking: { baseUrl: appBase, token: m.token, pixel: m.openTracking },
             })
           : renderEmailHtml({ title: row.title, blocks, appUrl: appBase });
-        const res = await sendEmail({ to: m.email, subject: row.title, html, text });
+        const res = await sendEmail({ to: m.email, subject: row.title, html, text, from: fromOverride });
         if (res.ok) emailSent += 1;
       }
     }
