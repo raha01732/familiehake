@@ -1,5 +1,7 @@
 // src/lib/system-messages/send.ts
-// Serverseitige Versand-Logik für Systemnachrichten (E-Mail + In-App).
+// Serverseitige Versand-Logik für Systemnachrichten (E-Mail + In-App) inkl.
+// Empfänger-Tracking (Öffnungs-Pixel, Klick-Redirect).
+import { randomUUID } from "node:crypto";
 import { clerkClient } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/mail";
@@ -11,6 +13,7 @@ import {
   type SystemMessageBlock,
   type SystemMessageChannel,
 } from "@/lib/system-messages/blocks";
+import { trackedClickUrl } from "@/lib/system-messages/tracking";
 
 export type SystemMessageRow = {
   id: string;
@@ -73,21 +76,30 @@ export async function resolveRecipients(
   return out;
 }
 
-/** User-IDs, die E-Mail-Benachrichtigungen deaktiviert haben. */
-async function emailOptOutSet(
+type Prefs = { emailEnabled: boolean; openTracking: boolean };
+
+/** Lädt Benachrichtigungs-Präferenzen (E-Mail + Öffnungs-Tracking) je Nutzer. */
+async function loadPrefs(
   sb: ReturnType<typeof createAdminClient>,
   userIds: string[]
-): Promise<Set<string>> {
-  if (userIds.length === 0) return new Set();
+): Promise<Map<string, Prefs>> {
+  const map = new Map<string, Prefs>();
+  if (userIds.length === 0) return map;
   const { data } = await sb
     .from("notification_preferences")
-    .select("user_id, email_enabled")
+    .select("user_id, email_enabled, open_tracking_enabled")
     .in("user_id", userIds);
-  const out = new Set<string>();
-  for (const row of (data ?? []) as { user_id: string; email_enabled: boolean }[]) {
-    if (row.email_enabled === false) out.add(row.user_id);
+  for (const row of (data ?? []) as {
+    user_id: string;
+    email_enabled: boolean;
+    open_tracking_enabled: boolean | null;
+  }[]) {
+    map.set(row.user_id, {
+      emailEnabled: row.email_enabled !== false,
+      openTracking: row.open_tracking_enabled !== false,
+    });
   }
-  return out;
+  return map;
 }
 
 /**
@@ -112,23 +124,54 @@ export async function dispatchSystemMessage(messageId: string): Promise<Dispatch
   const channels = (row.channels ?? []) as SystemMessageChannel[];
   const wantsEmail = channels.includes("email");
   const wantsInApp = channels.includes("inapp");
+  const appBase = appUrl();
 
   try {
     const recipients = await resolveRecipients(row.audience, row.recipient_ids ?? []);
-    const recipientIds = recipients.map((r) => r.id);
+    const prefs = await loadPrefs(sb, recipients.map((r) => r.id));
+
+    // Pro Empfänger: Token + Versand-/Tracking-Flags
+    const meta = recipients.map((r) => {
+      const p = prefs.get(r.id);
+      return {
+        userId: r.id,
+        email: r.email,
+        token: randomUUID(),
+        emailWanted: wantsEmail && Boolean(r.email) && (p?.emailEnabled ?? true),
+        inappWanted: wantsInApp,
+        openTracking: p?.openTracking ?? true,
+      };
+    });
+
+    // Empfänger-Tracking-Zeilen frisch anlegen (alte dieser Nachricht entfernen)
+    await sb.from("system_message_recipients").delete().eq("message_id", row.id);
+    if (meta.length > 0) {
+      await sb.from("system_message_recipients").insert(
+        meta.map((m) => ({
+          message_id: row.id,
+          user_id: m.userId,
+          email: m.email,
+          token: m.token,
+          email_sent: m.emailWanted,
+          inapp_sent: m.inappWanted,
+        }))
+      );
+    }
 
     let emailSent = 0;
     let inappSent = 0;
 
-    // In-App: ein Datensatz pro Empfänger (Batch-Insert)
-    if (wantsInApp && recipientIds.length > 0) {
-      const { body, link } = renderInApp(blocks);
-      const rows = recipientIds.map((uid) => ({
-        user_id: uid,
+    // In-App: ein Datensatz pro Empfänger (Batch-Insert), Link über Klick-Tracking
+    if (wantsInApp && meta.length > 0) {
+      const rendered = renderInApp(blocks);
+      const rows = meta.map((m) => ({
+        user_id: m.userId,
         kind: "system" as const,
         title: row.title,
-        body: body || null,
-        link,
+        body: rendered.body || null,
+        link:
+          rendered.link && appBase ? trackedClickUrl(appBase, m.token, rendered.link) : rendered.link,
+        system_message_id: row.id,
       }));
       const { error: insErr, count } = await sb
         .from("notifications")
@@ -140,14 +183,20 @@ export async function dispatchSystemMessage(messageId: string): Promise<Dispatch
       }
     }
 
-    // E-Mail: einzeln versenden (kein Adress-Leak), Opt-out beachten
+    // E-Mail: einzeln versenden (kein Adress-Leak) + Tracking pro Empfänger
     if (wantsEmail) {
-      const optOut = await emailOptOutSet(sb, recipientIds);
-      const html = renderEmailHtml({ title: row.title, blocks, appUrl: appUrl() });
       const text = renderPlainText({ title: row.title, blocks });
-      for (const rcpt of recipients) {
-        if (!rcpt.email || optOut.has(rcpt.id)) continue;
-        const res = await sendEmail({ to: rcpt.email, subject: row.title, html, text });
+      for (const m of meta) {
+        if (!m.emailWanted || !m.email) continue;
+        const html = appBase
+          ? renderEmailHtml({
+              title: row.title,
+              blocks,
+              appUrl: appBase,
+              tracking: { baseUrl: appBase, token: m.token, pixel: m.openTracking },
+            })
+          : renderEmailHtml({ title: row.title, blocks, appUrl: appBase });
+        const res = await sendEmail({ to: m.email, subject: row.title, html, text });
         if (res.ok) emailSent += 1;
       }
     }

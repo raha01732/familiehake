@@ -7,6 +7,7 @@ import { normalizeBlocks, type SystemMessageBlock } from "@/lib/system-messages/
 import MessagesAdminClient, {
   type DirectoryEntry,
   type HistoryItem,
+  type RecipientStat,
 } from "./MessagesAdminClient";
 import { Megaphone } from "lucide-react";
 
@@ -29,7 +30,17 @@ type MessageRow = {
   created_at: string;
 };
 
-async function loadHistory(): Promise<HistoryItem[]> {
+type RecipientRow = {
+  message_id: string;
+  user_id: string;
+  email: string | null;
+  email_sent: boolean;
+  inapp_sent: boolean;
+  opened_at: string | null;
+  clicked_at: string | null;
+};
+
+async function loadHistory(nameMap: Map<string, string>): Promise<HistoryItem[]> {
   const sb = createAdminClient();
   const { data, error } = await sb
     .from("system_messages")
@@ -42,23 +53,73 @@ async function loadHistory(): Promise<HistoryItem[]> {
     console.error("[admin/messages] history load error:", error.message);
     return [];
   }
-  return ((data ?? []) as MessageRow[]).map((row) => ({
-    id: row.id,
-    title: row.title,
-    blocks: normalizeBlocks(row.blocks) as SystemMessageBlock[],
-    channels: (row.channels ?? []) as ("email" | "inapp")[],
-    audience: row.audience === "selected" ? "selected" : "all",
-    recipientIds: row.recipient_ids ?? [],
-    status: (["draft", "scheduled", "sent", "failed"].includes(row.status)
-      ? row.status
-      : "draft") as HistoryItem["status"],
-    scheduledAt: row.scheduled_at,
-    sentAt: row.sent_at,
-    recipientCount: row.recipient_count ?? 0,
-    emailSentCount: row.email_sent_count ?? 0,
-    inappSentCount: row.inapp_sent_count ?? 0,
-    createdAt: row.created_at,
-  }));
+
+  const rows = (data ?? []) as MessageRow[];
+  const ids = rows.map((r) => r.id);
+
+  // Empfänger-Tracking + In-App-Lesestatus gebündelt nachladen
+  const recipientsByMsg = new Map<string, RecipientRow[]>();
+  const readByKey = new Map<string, string>(); // `${messageId}|${userId}` -> read_at
+  if (ids.length > 0) {
+    const [{ data: recs }, { data: reads }] = await Promise.all([
+      sb
+        .from("system_message_recipients")
+        .select("message_id, user_id, email, email_sent, inapp_sent, opened_at, clicked_at")
+        .in("message_id", ids),
+      sb
+        .from("notifications")
+        .select("system_message_id, user_id, read_at")
+        .in("system_message_id", ids),
+    ]);
+    for (const r of (recs ?? []) as RecipientRow[]) {
+      const list = recipientsByMsg.get(r.message_id) ?? [];
+      list.push(r);
+      recipientsByMsg.set(r.message_id, list);
+    }
+    for (const n of (reads ?? []) as {
+      system_message_id: string;
+      user_id: string;
+      read_at: string | null;
+    }[]) {
+      if (n.read_at) readByKey.set(`${n.system_message_id}|${n.user_id}`, n.read_at);
+    }
+  }
+
+  return rows.map((row) => {
+    const stats: RecipientStat[] = (recipientsByMsg.get(row.id) ?? [])
+      .map((r) => ({
+        userId: r.user_id,
+        name: nameMap.get(r.user_id) ?? r.email ?? r.user_id.slice(0, 8),
+        emailSent: r.email_sent,
+        inappSent: r.inapp_sent,
+        openedAt: r.opened_at,
+        clickedAt: r.clicked_at,
+        inappReadAt: readByKey.get(`${row.id}|${r.user_id}`) ?? null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "de"));
+
+    return {
+      id: row.id,
+      title: row.title,
+      blocks: normalizeBlocks(row.blocks) as SystemMessageBlock[],
+      channels: (row.channels ?? []) as ("email" | "inapp")[],
+      audience: row.audience === "selected" ? "selected" : "all",
+      recipientIds: row.recipient_ids ?? [],
+      status: (["draft", "scheduled", "sent", "failed"].includes(row.status)
+        ? row.status
+        : "draft") as HistoryItem["status"],
+      scheduledAt: row.scheduled_at,
+      sentAt: row.sent_at,
+      recipientCount: row.recipient_count ?? 0,
+      emailSentCount: row.email_sent_count ?? 0,
+      inappSentCount: row.inapp_sent_count ?? 0,
+      createdAt: row.created_at,
+      recipientStats: stats,
+      openedCount: stats.filter((s) => s.openedAt).length,
+      clickedCount: stats.filter((s) => s.clickedAt).length,
+      inappReadCount: stats.filter((s) => s.inappReadAt).length,
+    };
+  });
 }
 
 async function loadDirectory(): Promise<DirectoryEntry[]> {
@@ -84,7 +145,9 @@ async function loadDirectory(): Promise<DirectoryEntry[]> {
 }
 
 export default async function AdminMessagesPage() {
-  const [history, directory] = await Promise.all([loadHistory(), loadDirectory()]);
+  const directory = await loadDirectory();
+  const nameMap = new Map(directory.map((d) => [d.id, d.displayName]));
+  const history = await loadHistory(nameMap);
 
   return (
     <RoleGate routeKey="admin/messages">

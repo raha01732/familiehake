@@ -2,9 +2,9 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Mail, Check, Loader2 } from "lucide-react";
+import { Mail, Check, Loader2, Eye } from "lucide-react";
 
-type Prefs = { email_enabled: boolean };
+type Prefs = { email_enabled: boolean; open_tracking_enabled: boolean };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -34,15 +34,16 @@ export default function NotificationSettings() {
     };
   }, []);
 
-  async function toggleEmail(next: boolean) {
+  async function updatePref(field: keyof Prefs, next: boolean) {
+    if (!prefs) return;
     setSaveState("saving");
     const previous = prefs;
-    setPrefs({ email_enabled: next });
+    setPrefs({ ...prefs, [field]: next });
     try {
       const res = await fetch("/api/notifications/preferences", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email_enabled: next }),
+        body: JSON.stringify({ [field]: next }),
       });
       const json = (await res.json()) as { ok: boolean };
       if (!json.ok) throw new Error("patch failed");
@@ -91,7 +92,16 @@ export default function NotificationSettings() {
             title="E-Mail-Benachrichtigungen"
             description="Erhalte wichtige Ereignisse (z. B. neue Aufgaben) zusätzlich per E-Mail. In-App-Benachrichtigungen bleiben immer aktiv."
             checked={prefs.email_enabled}
-            onChange={toggleEmail}
+            onChange={(next) => updatePref("email_enabled", next)}
+            disabled={saveState === "saving"}
+          />
+
+          <PreferenceRow
+            icon={<Eye size={16} aria-hidden />}
+            title="Öffnungs-Tracking in E-Mails"
+            description="Erlaubt, dass Systemnachrichten erkennen, ob du die E-Mail geöffnet hast (unsichtbares Zählpixel). Klick-Bestätigungen auf Buttons bleiben davon unberührt."
+            checked={prefs.open_tracking_enabled}
+            onChange={(next) => updatePref("open_tracking_enabled", next)}
             disabled={saveState === "saving"}
           />
 

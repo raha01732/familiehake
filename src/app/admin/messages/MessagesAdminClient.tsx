@@ -14,6 +14,8 @@ import {
   Bell,
   FileText,
   RefreshCw,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   BLOCK_TYPES,
@@ -34,6 +36,16 @@ import {
 
 export type DirectoryEntry = { id: string; displayName: string };
 
+export type RecipientStat = {
+  userId: string;
+  name: string;
+  emailSent: boolean;
+  inappSent: boolean;
+  openedAt: string | null;
+  clickedAt: string | null;
+  inappReadAt: string | null;
+};
+
 export type HistoryItem = {
   id: string;
   title: string;
@@ -48,6 +60,10 @@ export type HistoryItem = {
   emailSentCount: number;
   inappSentCount: number;
   createdAt: string;
+  recipientStats: RecipientStat[];
+  openedCount: number;
+  clickedCount: number;
+  inappReadCount: number;
 };
 
 const BLOCK_LABELS: Record<SystemMessageBlock["type"], string> = {
@@ -574,58 +590,138 @@ export default function MessagesAdminClient({
           </p>
         ) : (
           <div className="flex flex-col divide-y" style={{ borderColor: "hsl(var(--border))" }}>
-            {history.map((item) => {
-              const meta = STATUS_META[item.status];
-              return (
-                <div key={item.id} className="flex flex-wrap items-center gap-3 py-3">
-                  <span
-                    className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-                    style={{ background: meta.bg, color: meta.color }}
-                  >
-                    {meta.label}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium" style={{ color: "hsl(var(--foreground))" }}>
-                      {item.title || "Ohne Titel"}
-                    </p>
-                    <p className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
-                      {item.channels.includes("email") ? "E-Mail" : ""}
-                      {item.channels.length === 2 ? " + " : ""}
-                      {item.channels.includes("inapp") ? "In-App" : ""}
-                      {" · "}
-                      {item.audience === "all" ? "Alle" : `${item.recipientIds.length} ausgewählt`}
-                      {item.status === "sent" &&
-                        ` · ${item.recipientCount} Empf. (Mail ${item.emailSentCount}/In-App ${item.inappSentCount}) · ${formatDateTime(item.sentAt)}`}
-                      {item.status === "scheduled" && ` · geplant für ${formatDateTime(item.scheduledAt)}`}
-                      {item.status === "draft" && ` · erstellt ${formatDateTime(item.createdAt)}`}
-                      {item.status === "failed" && " · Versand fehlgeschlagen"}
-                    </p>
-                  </div>
-                  {(item.status === "draft" || item.status === "scheduled" || item.status === "failed") && (
-                    <button
-                      type="button"
-                      onClick={() => loadIntoComposer(item)}
-                      className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs transition hover:bg-[hsl(var(--secondary))]"
-                      style={{ borderColor: "hsl(var(--border))", color: "hsl(var(--foreground))" }}
-                    >
-                      <FileText size={11} /> Bearbeiten
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    disabled={isPending}
-                    onClick={() => onDelete(item.id)}
-                    className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs transition hover:bg-[hsl(0_70%_55%/0.1)] disabled:opacity-60"
-                    style={{ borderColor: "hsl(var(--border))", color: "hsl(0 70% 50%)" }}
-                  >
-                    <Trash2 size={11} /> Löschen
-                  </button>
-                </div>
-              );
-            })}
+            {history.map((item) => (
+              <HistoryRow
+                key={item.id}
+                item={item}
+                isPending={isPending}
+                onLoad={loadIntoComposer}
+                onDelete={onDelete}
+              />
+            ))}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Verlauf-Zeile inkl. ausklappbarer Bestätigungen ─────────────────
+
+function HistoryRow({
+  item,
+  isPending,
+  onLoad,
+  onDelete,
+}: {
+  item: HistoryItem;
+  isPending: boolean;
+  onLoad: (item: HistoryItem) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const meta = STATUS_META[item.status];
+  const editable =
+    item.status === "draft" || item.status === "scheduled" || item.status === "failed";
+  const hasStats = item.status === "sent" && item.recipientStats.length > 0;
+
+  return (
+    <div className="py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <span
+          className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+          style={{ background: meta.bg, color: meta.color }}
+        >
+          {meta.label}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium" style={{ color: "hsl(var(--foreground))" }}>
+            {item.title || "Ohne Titel"}
+          </p>
+          <p className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+            {item.channels.includes("email") ? "E-Mail" : ""}
+            {item.channels.length === 2 ? " + " : ""}
+            {item.channels.includes("inapp") ? "In-App" : ""}
+            {" · "}
+            {item.audience === "all" ? "Alle" : `${item.recipientIds.length} ausgewählt`}
+            {item.status === "sent" &&
+              ` · ${item.recipientCount} Empf. (Mail ${item.emailSentCount}/In-App ${item.inappSentCount}) · ${formatDateTime(item.sentAt)}`}
+            {item.status === "scheduled" && ` · geplant für ${formatDateTime(item.scheduledAt)}`}
+            {item.status === "draft" && ` · erstellt ${formatDateTime(item.createdAt)}`}
+            {item.status === "failed" && " · Versand fehlgeschlagen"}
+          </p>
+          {item.status === "sent" && (
+            <p className="mt-0.5 text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+              👁 {item.openedCount} geöffnet · 🔗 {item.clickedCount} geklickt · ✅ {item.inappReadCount} in-app gelesen
+            </p>
+          )}
+        </div>
+        {hasStats && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs transition hover:bg-[hsl(var(--secondary))]"
+            style={{ borderColor: "hsl(var(--border))", color: "hsl(var(--foreground))" }}
+          >
+            {open ? <ChevronUp size={11} /> : <ChevronDown size={11} />} Details
+          </button>
+        )}
+        {editable && (
+          <button
+            type="button"
+            onClick={() => onLoad(item)}
+            className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs transition hover:bg-[hsl(var(--secondary))]"
+            style={{ borderColor: "hsl(var(--border))", color: "hsl(var(--foreground))" }}
+          >
+            <FileText size={11} /> Bearbeiten
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => onDelete(item.id)}
+          className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs transition hover:bg-[hsl(0_70%_55%/0.1)] disabled:opacity-60"
+          style={{ borderColor: "hsl(var(--border))", color: "hsl(0 70% 50%)" }}
+        >
+          <Trash2 size={11} /> Löschen
+        </button>
+      </div>
+
+      {open && hasStats && (
+        <div
+          className="mt-3 overflow-hidden rounded-lg border"
+          style={{ borderColor: "hsl(var(--border))" }}
+        >
+          <table className="w-full text-left text-xs">
+            <thead className="bg-[hsl(var(--secondary))]" style={{ color: "hsl(var(--muted-foreground))" }}>
+              <tr>
+                <th className="px-3 py-1.5 font-medium">Empfänger</th>
+                <th className="px-3 py-1.5 font-medium">E-Mail geöffnet</th>
+                <th className="px-3 py-1.5 font-medium">Klick</th>
+                <th className="px-3 py-1.5 font-medium">In-App gelesen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {item.recipientStats.map((r) => (
+                <tr key={r.userId} className="border-t" style={{ borderColor: "hsl(var(--border))" }}>
+                  <td className="px-3 py-1.5" style={{ color: "hsl(var(--foreground))" }}>
+                    {r.name}
+                  </td>
+                  <td className="px-3 py-1.5" style={{ color: "hsl(var(--muted-foreground))" }}>
+                    {!r.emailSent ? "—" : r.openedAt ? `✓ ${formatDateTime(r.openedAt)}` : "offen"}
+                  </td>
+                  <td className="px-3 py-1.5" style={{ color: "hsl(var(--muted-foreground))" }}>
+                    {r.clickedAt ? `✓ ${formatDateTime(r.clickedAt)}` : "—"}
+                  </td>
+                  <td className="px-3 py-1.5" style={{ color: "hsl(var(--muted-foreground))" }}>
+                    {!r.inappSent ? "—" : r.inappReadAt ? `✓ ${formatDateTime(r.inappReadAt)}` : "ungelesen"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

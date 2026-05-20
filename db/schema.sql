@@ -1185,6 +1185,56 @@ create index if not exists system_messages_status_idx
 create index if not exists system_messages_created_idx
   on system_messages(created_at desc);
 
+-- Pro Empfänger einer Systemnachricht: Versand- und Tracking-Status.
+-- token identifiziert den Empfänger anonym in Tracking-Links/Pixel.
+create table if not exists system_message_recipients (
+  id uuid primary key default gen_random_uuid(),
+  message_id uuid not null references system_messages(id) on delete cascade,
+  user_id text not null,
+  email text,
+  token text not null unique,
+  email_sent boolean not null default false,
+  inapp_sent boolean not null default false,
+  opened_at timestamptz,   -- E-Mail geöffnet (Pixel)
+  clicked_at timestamptz,  -- Button geklickt (Redirect)
+  created_at timestamptz not null default now(),
+  unique (message_id, user_id)
+);
+
+create index if not exists system_message_recipients_message_idx
+  on system_message_recipients(message_id);
+
+-- Verknüpfung In-App-Benachrichtigung -> Systemnachricht (für „gelesen"-Statistik)
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'notifications'
+      and column_name = 'system_message_id'
+  ) then
+    alter table notifications add column system_message_id uuid;
+  end if;
+end $$;
+
+create index if not exists notifications_system_message_idx
+  on notifications(system_message_id)
+  where system_message_id is not null;
+
+-- Opt-out für E-Mail-Öffnungs-Tracking (Default: an)
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'notification_preferences'
+      and column_name = 'open_tracking_enabled'
+  ) then
+    alter table notification_preferences
+      add column open_tracking_enabled boolean not null default true;
+  end if;
+end $$;
+
 -- ─────────────────────────────────────────────
 -- Journal (private Tagebuch-Einträge)
 -- title und content sind AES-256-GCM verschlüsselt: base64(iv).base64(authTag).base64(ciphertext)

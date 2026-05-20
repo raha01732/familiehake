@@ -3,8 +3,12 @@
 // Baustein-Modell für Systemnachrichten + reine Renderer.
 // Bewusst frei von Server-/Framework-Abhängigkeiten, damit es sowohl im
 // Client-Composer (Live-Vorschau) als auch serverseitig (Versand) läuft.
+import { trackedClickUrl, trackingPixelUrl, isHttpUrl } from "@/lib/system-messages/tracking";
 
 export type NoticeTone = "info" | "warn" | "success";
+
+/** Optionales Tracking pro Empfänger (nur beim Versand, nicht in der Vorschau). */
+export type EmailTracking = { baseUrl: string; token: string; pixel: boolean };
 
 export type SystemMessageBlock =
   | { type: "heading"; text: string }
@@ -86,7 +90,7 @@ const NOTICE_STYLES: Record<NoticeTone, { bg: string; border: string; color: str
 
 // ── Block → Email-HTML ────────────────────────────────────────────────
 
-function renderBlockHtml(block: SystemMessageBlock): string {
+function renderBlockHtml(block: SystemMessageBlock, tracking?: EmailTracking): string {
   switch (block.type) {
     case "heading":
       return `<h2 style="margin:24px 0 8px;font-size:19px;line-height:1.3;color:${BRAND.text};font-weight:700">${escapeHtml(
@@ -98,9 +102,13 @@ function renderBlockHtml(block: SystemMessageBlock): string {
         block.text
       )}</p>`;
     case "button": {
-      if (!block.href.trim()) return "";
+      const href = block.href.trim();
+      if (!href) return "";
+      // Klick-Tracking: über Redirect leiten (nur für http(s)-Ziele).
+      const finalHref =
+        tracking && isHttpUrl(href) ? trackedClickUrl(tracking.baseUrl, tracking.token, href) : href;
       return `<p style="margin:8px 0 20px">
-        <a href="${escapeAttr(block.href)}" style="display:inline-block;background:${BRAND.primary};color:#ffffff;padding:11px 22px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px">${escapeHtml(
+        <a href="${escapeAttr(finalHref)}" style="display:inline-block;background:${BRAND.primary};color:#ffffff;padding:11px 22px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px">${escapeHtml(
         block.label || "Öffnen"
       )}</a>
       </p>`;
@@ -131,12 +139,17 @@ export function renderEmailHtml(params: {
   title: string;
   blocks: SystemMessageBlock[];
   appUrl?: string | null;
+  tracking?: EmailTracking;
 }): string {
-  const { title, blocks, appUrl } = params;
-  const body = blocks.map(renderBlockHtml).join("\n");
+  const { title, blocks, appUrl, tracking } = params;
+  const body = blocks.map((b) => renderBlockHtml(b, tracking)).join("\n");
   const footerLink =
     appUrl && appUrl.trim()
       ? `<a href="${escapeAttr(appUrl)}" style="color:${BRAND.primary};text-decoration:none">FamilieHake öffnen</a> · `
+      : "";
+  const pixel =
+    tracking && tracking.pixel
+      ? `<img src="${escapeAttr(trackingPixelUrl(tracking.baseUrl, tracking.token))}" width="1" height="1" alt="" style="display:none;width:1px;height:1px" />`
       : "";
 
   return `<!doctype html>
@@ -150,6 +163,7 @@ export function renderEmailHtml(params: {
     </td></tr>
     <tr><td style="padding:12px 28px 28px">
       ${body}
+      ${pixel}
     </td></tr>
     <tr><td style="padding:18px 28px;border-top:1px solid ${BRAND.border};background:#fafafa">
       <p style="margin:0;color:${BRAND.faint};font-size:11px;line-height:1.5">

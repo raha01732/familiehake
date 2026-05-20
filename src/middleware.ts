@@ -24,6 +24,9 @@ const isPublicRoute = createRouteMatcher([
 
   // QStash-Callbacks: Auth ausschließlich über QStash-Signatur
   "/api/qstash(.*)",
+
+  // Tracking-Pixel/-Redirects: per Token identifiziert, ohne Login erreichbar
+  "/api/track(.*)",
 ]);
 
 const clerkPublishableKey = getClerkPublishableKey();

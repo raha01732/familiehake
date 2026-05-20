@@ -70,3 +70,36 @@ test("createBlock liefert sinnvolle Defaults", () => {
   assert.equal(createBlock("button").type, "button");
   assert.equal(createBlock("notice").type, "notice");
 });
+
+test("renderEmailHtml mit Tracking leitet Buttons über Redirect und fügt Pixel ein", () => {
+  const html = renderEmailHtml({
+    title: "Info",
+    blocks: [{ type: "button", label: "Los", href: "https://example.com/x" }],
+    appUrl: "https://app.example.com",
+    tracking: { baseUrl: "https://app.example.com", token: "tok123", pixel: true },
+  });
+  // Button zeigt auf den Klick-Redirect mit kodiertem Ziel
+  assert.match(html, /\/api\/track\/c\/tok123\?u=https%3A%2F%2Fexample\.com%2Fx/);
+  // Direkter Ziel-Link steht NICHT mehr als href drin
+  assert.ok(!html.includes('href="https://example.com/x"'));
+  // Öffnungs-Pixel vorhanden
+  assert.match(html, /\/api\/track\/o\/tok123/);
+});
+
+test("renderEmailHtml mit pixel=false enthält keinen Pixel", () => {
+  const html = renderEmailHtml({
+    title: "Info",
+    blocks: [{ type: "paragraph", text: "Hi" }],
+    tracking: { baseUrl: "https://app.example.com", token: "tok123", pixel: false },
+  });
+  assert.ok(!html.includes("/api/track/o/"));
+});
+
+test("renderEmailHtml ohne Tracking lässt Button-Links unverändert", () => {
+  const html = renderEmailHtml({
+    title: "Info",
+    blocks: [{ type: "button", label: "Los", href: "https://example.com/x" }],
+  });
+  assert.match(html, /href="https:\/\/example\.com\/x"/);
+  assert.ok(!html.includes("/api/track/"));
+});
