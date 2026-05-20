@@ -103,7 +103,9 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
             </ClerkLoaded>
           </div>
         ) : (
-          <NoAuthBadge />
+          <Link href={signInUrl ?? "/sign-in"}>
+            <SignInBtn />
+          </Link>
         )}
 
         {/* Hamburger (nur Mobile) */}
@@ -219,20 +221,6 @@ function SignInBtn() {
     >
       Anmelden
     </button>
-  );
-}
-
-function NoAuthBadge() {
-  return (
-    <span
-      className="rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wider"
-      style={{
-        border: "1px solid hsl(var(--border))",
-        color: "hsl(var(--muted-foreground))",
-      }}
-    >
-      Auth nicht konfiguriert
-    </span>
   );
 }
 

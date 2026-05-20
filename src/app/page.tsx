@@ -1,47 +1,6 @@
 import HomePageContent from "@/components/home/HomePageContent";
 import { getSessionInfo } from "@/lib/auth";
 import Link from "next/link";
-import {
-  LayoutDashboard,
-  Shield,
-  CalendarClock,
-  Users,
-  Zap,
-  Lock,
-} from "lucide-react";
-
-const FEATURES = [
-  {
-    icon: LayoutDashboard,
-    title: "Dashboard",
-    description: "Konfigurierbare Kacheln für den schnellen Überblick über alles, was zählt.",
-  },
-  {
-    icon: Users,
-    title: "Familienplaner",
-    description: "Schichten, Termine und Aufgaben gemeinsam im Blick — für alle Mitglieder.",
-  },
-  {
-    icon: Shield,
-    title: "Rollen & Rechte",
-    description: "Granulares RBAC — jeder sieht exakt das, was für ihn freigegeben ist.",
-  },
-  {
-    icon: CalendarClock,
-    title: "Dienstplaner",
-    description: "Monatsplanung mit Schichtlogik, Wochenansicht, Überstunden-Tracking und Export.",
-  },
-  {
-    icon: Lock,
-    title: "Privat & sicher",
-    description: "Einladungsbasierter Zugang, keine öffentliche Registrierung möglich.",
-  },
-  {
-    icon: Zap,
-    title: "Blitzschnell",
-    description: "Server Components, Redis-Caching und globales Vercel-Deployment.",
-  },
-];
 
 export default async function HomePage() {
   const session = await getSessionInfo();
@@ -123,35 +82,6 @@ export default async function HomePage() {
             </span>
           </p>
         </div>
-      </div>
-
-      {/* Feature Grid */}
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {FEATURES.map(({ icon: Icon, title, description }) => (
-          <div key={title} className="feature-card flex flex-col gap-3 p-5">
-            <div
-              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl"
-              style={{
-                background: "hsl(var(--primary) / 0.12)",
-                color: "hsl(var(--primary))",
-              }}
-            >
-              <Icon size={19} strokeWidth={2} aria-hidden />
-            </div>
-            <h3
-              className="text-sm font-semibold"
-              style={{ color: "hsl(var(--foreground))" }}
-            >
-              {title}
-            </h3>
-            <p
-              className="text-xs leading-relaxed"
-              style={{ color: "hsl(var(--muted-foreground))" }}
-            >
-              {description}
-            </p>
-          </div>
-        ))}
       </div>
     </section>
   );
