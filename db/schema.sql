@@ -1139,6 +1139,38 @@ create table if not exists notification_preferences (
 );
 
 -- ─────────────────────────────────────────────
+-- Systemnachrichten / Broadcasts (Admin → Mitglieder)
+-- Inhalt wird als Baustein-Liste (blocks) gespeichert und beim Versand
+-- zu themed Email-HTML bzw. In-App-Benachrichtigungen gerendert.
+-- ─────────────────────────────────────────────
+create table if not exists system_messages (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  blocks jsonb not null default '[]'::jsonb,
+  -- Versandkanäle: 'email' und/oder 'inapp'
+  channels text[] not null default array['inapp']::text[],
+  -- Zielgruppe: 'all' (alle Mitglieder) oder 'selected' (recipient_ids)
+  audience text not null default 'all' check (audience in ('all', 'selected')),
+  recipient_ids text[] not null default array[]::text[],
+  status text not null default 'draft'
+    check (status in ('draft', 'scheduled', 'sent', 'failed')),
+  scheduled_at timestamptz,
+  sent_at timestamptz,
+  recipient_count integer not null default 0,
+  email_sent_count integer not null default 0,
+  inapp_sent_count integer not null default 0,
+  error_message text,
+  created_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists system_messages_status_idx
+  on system_messages(status, scheduled_at);
+create index if not exists system_messages_created_idx
+  on system_messages(created_at desc);
+
+-- ─────────────────────────────────────────────
 -- Journal (private Tagebuch-Einträge)
 -- title und content sind AES-256-GCM verschlüsselt: base64(iv).base64(authTag).base64(ciphertext)
 -- Schlüssel: JOURNAL_ENCRYPTION_KEY (eigenständig — kompromittierter Key betrifft nur Journal)

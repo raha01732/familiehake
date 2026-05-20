@@ -222,6 +222,11 @@ const ACTION_LABELS: Record<string, string> = {
   auslass_shows_unlock: "Vorstellungen entsperrt",
   auslass_early_leave_set: "Früher-Schluss gesetzt",
   auslass_rutsche_plan: "Rutsche geplant",
+  system_message_send: "Systemnachricht gesendet",
+  system_message_schedule: "Systemnachricht geplant",
+  system_message_draft_save: "Systemnachricht-Entwurf gespeichert",
+  system_message_delete: "Systemnachricht gelöscht",
+  system_report_resend: "Systemreport erneut gesendet",
   critical_error: "Kritischer Fehler",
 };
 
@@ -440,6 +445,31 @@ export function describeAuditEvent(row: AuditRow, lookups: AuditNameLookups = {}
     case "auslass_rutsche_plan": {
       const planned = num(d, "planned") ?? num(d, "count");
       return `Rutsche geplant${planned != null ? ` (${planned} Vorstellungen)` : ""}`;
+    }
+
+    // ── Systemnachrichten ─────────────────────────────────────────
+    case "system_message_send": {
+      const title = str(d, "title");
+      const recipients = num(d, "recipients") ?? num(d, "recipientCount");
+      const channels = str(d, "channels");
+      return `Systemnachricht${title ? ` „${title}“` : ""} gesendet${recipients != null ? ` an ${recipients} Empfänger` : ""}${channels ? ` (${channels})` : ""}`;
+    }
+    case "system_message_schedule": {
+      const title = str(d, "title");
+      const when = str(d, "scheduledAt");
+      return `Systemnachricht${title ? ` „${title}“` : ""} geplant${when ? ` für ${when}` : ""}`;
+    }
+    case "system_message_draft_save": {
+      const title = str(d, "title");
+      return `Systemnachricht-Entwurf${title ? ` „${title}“` : ""} gespeichert`;
+    }
+    case "system_message_delete": {
+      const title = str(d, "title");
+      return `Systemnachricht${title ? ` „${title}“` : ""} gelöscht`;
+    }
+    case "system_report_resend": {
+      const recipients = num(d, "recipients") ?? num(d, "recipientCount");
+      return `Systemreport (Cron-Status) erneut gesendet${recipients != null ? ` an ${recipients} Empfänger` : ""}`;
     }
 
     // ── Fallback für alle übrigen (bestehenden) Actions ───────────

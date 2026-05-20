@@ -34,6 +34,12 @@ export const ROUTE_DESCRIPTORS: RouteDescriptor[] = [
     defaults: { admin: true },
   },
   {
+    route: "admin/messages",
+    label: "Systemnachrichten",
+    description: "Ankündigungen & Reports an Mitglieder senden.",
+    defaults: { admin: true },
+  },
+  {
     route: "settings",
     label: "Einstellungen",
     description: "Persönliche Einstellungen.",

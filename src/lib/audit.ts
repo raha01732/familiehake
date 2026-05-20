@@ -123,6 +123,13 @@ export const AUDIT_ACTIONS = [
   "auslass_early_leave_set",
   "auslass_rutsche_plan",
 
+  // Systemnachrichten / Broadcasts
+  "system_message_send",
+  "system_message_schedule",
+  "system_message_draft_save",
+  "system_message_delete",
+  "system_report_resend",
+
   // Errors
   "critical_error",
 ] as const;

@@ -2,7 +2,7 @@ import Link from "next/link";
 import RoleGate from "@/components/RoleGate";
 import {
   Users, Settings2, Activity, BarChart2,
-  Monitor, ShieldCheck, type LucideIcon,
+  Monitor, ShieldCheck, Megaphone, type LucideIcon,
 } from "lucide-react";
 
 export const metadata = { title: "Admin" };
@@ -25,6 +25,12 @@ const ADMIN_CARDS: {
     label: "Berechtigungen",
     description: "Module & Zugriffsmatrix konfigurieren (aus DB).",
     icon: Settings2,
+  },
+  {
+    href: "/admin/messages",
+    label: "Systemnachrichten",
+    description: "Ankündigungen & Reports per Mail oder In-App an Mitglieder senden.",
+    icon: Megaphone,
   },
   {
     href: "/monitoring",
