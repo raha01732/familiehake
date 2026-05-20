@@ -5,6 +5,13 @@ import { isAuthorizedCronRequest } from "@/lib/cron-auth";
 import { logCronRun } from "@/lib/cron-jobs";
 import { reportError } from "@/lib/sentry";
 import { sendEmail, resolveUserEmail, escapeHtml } from "@/lib/mail";
+import {
+  describeAuditEvent,
+  summarizeAuditEvents,
+  formatDateDe,
+  type AuditRow,
+  type AuditNameLookups,
+} from "@/lib/audit-format";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -82,7 +89,182 @@ function formatDateBerlin(iso: string | null): string {
   }
 }
 
-function renderHtml(summaries: JobSummary[], windowStart: string, hasFailures: boolean): string {
+function formatTimeBerlin(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("de-DE", {
+      timeZone: "Europe/Berlin",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
+// ── Audit-Log: Laden, Anreichern, Rendern ─────────────────────────────
+
+const AUDIT_LIMIT = 500;
+
+/** Liest die Audit-Events der letzten WINDOW_HOURS in chronologischer Reihenfolge. */
+async function loadAuditEvents(
+  sb: ReturnType<typeof createAdminClient>,
+  windowStart: string
+): Promise<AuditRow[]> {
+  const { data, error } = await sb
+    .from("audit_events")
+    .select("ts, action, actor_email, target, detail")
+    .gte("ts", windowStart)
+    .order("ts", { ascending: true })
+    .limit(AUDIT_LIMIT);
+  if (error) {
+    console.error("[notify-admins-cron-status] audit load error:", error.message);
+    return [];
+  }
+  return (data ?? []) as AuditRow[];
+}
+
+function collectIds(events: AuditRow[], keys: string[]): number[] {
+  const ids = new Set<number>();
+  for (const ev of events) {
+    const d = ev.detail;
+    if (!d) continue;
+    for (const key of keys) {
+      const v = d[key];
+      if (typeof v === "number" && Number.isFinite(v)) ids.add(v);
+      else if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) ids.add(Number(v));
+    }
+  }
+  return Array.from(ids);
+}
+
+/** Lädt Namen für Mitarbeiter/Personal/Vorstellungen, damit IDs lesbar werden. */
+async function buildAuditLookups(
+  sb: ReturnType<typeof createAdminClient>,
+  events: AuditRow[]
+): Promise<AuditNameLookups> {
+  const employeeIds = collectIds(events, ["employeeId", "fromEmployeeId", "toEmployeeId"]);
+  const staffIds = collectIds(events, ["staffId"]);
+  const showIds = collectIds(events, ["showId"]);
+
+  const [employeesRes, staffRes, showsRes] = await Promise.all([
+    employeeIds.length
+      ? sb.from("dienstplan_employees").select("id, name").in("id", employeeIds)
+      : Promise.resolve({ data: [] as { id: number; name: string }[] }),
+    staffIds.length
+      ? sb.from("cinema_cleaning_staff").select("id, name").in("id", staffIds)
+      : Promise.resolve({ data: [] as { id: number; name: string }[] }),
+    showIds.length
+      ? sb
+          .from("cinema_cleaning_shows")
+          .select("id, show_date, hall_number, movie_title")
+          .in("id", showIds)
+      : Promise.resolve({
+          data: [] as { id: number; show_date: string; hall_number: number; movie_title: string | null }[],
+        }),
+  ]);
+
+  const employees = new Map<number, string>();
+  for (const row of (employeesRes.data ?? []) as { id: number; name: string }[]) {
+    employees.set(row.id, row.name);
+  }
+  const staff = new Map<number, string>();
+  for (const row of (staffRes.data ?? []) as { id: number; name: string }[]) {
+    staff.set(row.id, row.name);
+  }
+  const shows = new Map<number, string>();
+  for (const row of (showsRes.data ?? []) as {
+    id: number;
+    show_date: string;
+    hall_number: number;
+    movie_title: string | null;
+  }[]) {
+    const label =
+      row.movie_title?.trim() ||
+      `Saal ${row.hall_number}${row.show_date ? ` (${formatDateDe(row.show_date)})` : ""}`;
+    shows.set(row.id, label);
+  }
+
+  return { employees, staff, shows };
+}
+
+function renderAuditSectionHtml(events: AuditRow[], lookups: AuditNameLookups): string {
+  const heading = `<h2 style="margin:28px 0 4px;color:#18181b;font-size:16px">Aktivitäten (letzte ${WINDOW_HOURS} Std)</h2>`;
+
+  if (events.length === 0) {
+    return `${heading}<p style="margin:0;color:#71717a;font-size:13px">Keine protokollierten Aktivitäten im Zeitraum.</p>`;
+  }
+
+  const summary = summarizeAuditEvents(events);
+  const summaryChips = summary
+    .map(
+      (s) =>
+        `<span style="display:inline-block;margin:0 6px 6px 0;padding:3px 9px;border-radius:9999px;background:#f4f4f5;border:1px solid #e4e4e7;font-size:12px;color:#3f3f46">${escapeHtml(s.label)} <strong style="color:#18181b">${s.count}</strong></span>`
+    )
+    .join("");
+
+  // Neueste zuerst in der Liste
+  const rows = [...events]
+    .reverse()
+    .map((ev) => {
+      const time = formatTimeBerlin(ev.ts);
+      const actor = ev.actor_email ?? "System";
+      const text = describeAuditEvent(ev, lookups);
+      return `
+        <tr style="border-bottom:1px solid #f1f1f3">
+          <td style="padding:7px 10px;font-size:11px;color:#a1a1aa;white-space:nowrap;vertical-align:top">${escapeHtml(time)}</td>
+          <td style="padding:7px 10px;font-size:13px;color:#18181b;vertical-align:top">${escapeHtml(text)}</td>
+          <td style="padding:7px 10px;font-size:11px;color:#71717a;white-space:nowrap;vertical-align:top">${escapeHtml(actor)}</td>
+        </tr>`;
+    })
+    .join("");
+
+  const cappedHint =
+    events.length >= AUDIT_LIMIT
+      ? `<p style="margin:8px 0 0;color:#a1a1aa;font-size:11px">Hinweis: auf die letzten ${AUDIT_LIMIT} Ereignisse begrenzt.</p>`
+      : "";
+
+  return `
+    ${heading}
+    <p style="margin:0 0 8px;color:#52525b;font-size:12px">${events.length} Ereignis(se) insgesamt</p>
+    <div style="margin:0 0 14px">${summaryChips}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e4e4e7;border-radius:8px;overflow:hidden">
+      <thead>
+        <tr style="background:#fafafa">
+          <th align="left" style="padding:8px 10px;font-size:11px;letter-spacing:0.05em;text-transform:uppercase;color:#71717a">Zeit</th>
+          <th align="left" style="padding:8px 10px;font-size:11px;letter-spacing:0.05em;text-transform:uppercase;color:#71717a">Ereignis</th>
+          <th align="left" style="padding:8px 10px;font-size:11px;letter-spacing:0.05em;text-transform:uppercase;color:#71717a">Wer</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${cappedHint}`;
+}
+
+function renderAuditText(events: AuditRow[], lookups: AuditNameLookups): string {
+  const header = `\n\nAktivitäten (letzte ${WINDOW_HOURS} Std)`;
+  if (events.length === 0) return `${header}\nKeine protokollierten Aktivitäten im Zeitraum.`;
+
+  const summary = summarizeAuditEvents(events)
+    .map((s) => `${s.label}: ${s.count}`)
+    .join(", ");
+
+  const lines = [...events]
+    .reverse()
+    .map((ev) => {
+      const time = formatTimeBerlin(ev.ts);
+      const actor = ev.actor_email ?? "System";
+      return `- ${time} – ${describeAuditEvent(ev, lookups)} (${actor})`;
+    });
+
+  return `${header}\nGesamt: ${events.length}\nZusammenfassung: ${summary}\n\n${lines.join("\n")}`;
+}
+
+function renderHtml(
+  summaries: JobSummary[],
+  windowStart: string,
+  hasFailures: boolean,
+  auditSectionHtml: string
+): string {
   const rows = summaries
     .map((s) => {
       const statusBg = s.failures > 0 ? "#fee2e2" : s.successes === 0 ? "#fef3c7" : "#dcfce7";
@@ -135,20 +317,25 @@ function renderHtml(summaries: JobSummary[], windowStart: string, hasFailures: b
         <tbody>${rows}</tbody>
       </table>
       ${emptyHint}
+      ${auditSectionHtml}
     </td></tr>
   </table>
 </body></html>`;
 }
 
-function renderText(summaries: JobSummary[], windowStart: string): string {
+function renderText(summaries: JobSummary[], windowStart: string, auditText: string): string {
   const header = `FamilieHake – Cron-Status (letzte ${WINDOW_HOURS} Std, ab ${formatDateBerlin(windowStart)})\n`;
-  if (summaries.length === 0) return `${header}\nKeine Läufe erfasst.`;
-  const lines = summaries.map((s) => {
-    const flag = s.failures > 0 ? "FEHLER" : s.successes === 0 ? "KEIN RUN" : "OK";
-    const err = s.lastError ? `  last-error: ${s.lastError.slice(0, 160)}` : "";
-    return `- [${flag}] ${s.jobName}  ok=${s.successes} err=${s.failures} sk=${s.skipped}  last-ok=${formatDateBerlin(s.lastSuccess)}  last-err=${formatDateBerlin(s.lastFailure)}\n${err}`;
-  });
-  return `${header}\n${lines.join("\n")}`;
+  const cronBlock =
+    summaries.length === 0
+      ? `${header}\nKeine Läufe erfasst.`
+      : `${header}\n${summaries
+          .map((s) => {
+            const flag = s.failures > 0 ? "FEHLER" : s.successes === 0 ? "KEIN RUN" : "OK";
+            const err = s.lastError ? `  last-error: ${s.lastError.slice(0, 160)}` : "";
+            return `- [${flag}] ${s.jobName}  ok=${s.successes} err=${s.failures} sk=${s.skipped}  last-ok=${formatDateBerlin(s.lastSuccess)}  last-err=${formatDateBerlin(s.lastFailure)}\n${err}`;
+          })
+          .join("\n")}`;
+  return `${cronBlock}${auditText}`;
 }
 
 /** Returns the Clerk user IDs of admins + superadmins. */
@@ -210,10 +397,17 @@ export async function GET(req: NextRequest) {
     const summaries = summarize((runs ?? []) as CronRunRow[]);
     const hasFailures = summaries.some((s) => s.failures > 0);
 
+    // Audit-Log der letzten 24h laden + Namen anreichern, damit die Mail
+    // verständlichen Klartext statt roher DB-Werte zeigt.
+    const auditEvents = await loadAuditEvents(sb, windowStart);
+    const auditLookups = await buildAuditLookups(sb, auditEvents);
+    const auditSectionHtml = renderAuditSectionHtml(auditEvents, auditLookups);
+    const auditText = renderAuditText(auditEvents, auditLookups);
+
     const adminIds = await listAdminUserIds();
 
-    const html = renderHtml(summaries, windowStart, hasFailures);
-    const text = renderText(summaries, windowStart);
+    const html = renderHtml(summaries, windowStart, hasFailures, auditSectionHtml);
+    const text = renderText(summaries, windowStart, auditText);
     const subject = hasFailures
       ? "⚠️ Cron-Status: Fehler in den letzten 24h"
       : "✅ Cron-Status: alles grün";
@@ -248,6 +442,7 @@ export async function GET(req: NextRequest) {
         window_hours: WINDOW_HOURS,
         jobs_observed: summaries.length,
         has_failures: hasFailures,
+        audit_events: auditEvents.length,
         admin_count: adminIds.length,
         recipients: emails.length,
         mail_skipped: Boolean(mailResult.skipped),
@@ -258,6 +453,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       jobs: summaries.length,
+      audit_events: auditEvents.length,
       recipients: emails.length,
       has_failures: hasFailures,
       mail: mailResult,

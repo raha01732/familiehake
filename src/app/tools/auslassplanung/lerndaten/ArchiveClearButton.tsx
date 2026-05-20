@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Calendar, Trash2 } from "lucide-react";
@@ -9,6 +9,20 @@ import { clearArchiveAction } from "../actions";
 type ArchiveDate = { show_date: string };
 
 type Mode = "range" | "all";
+
+// Stabiles, no-op subscribe für den useSyncExternalStore-Hydration-Check.
+const noopSubscribe = () => () => {};
+/**
+ * Liefert nach der Hydration `true`, beim Server-Render `false`. SSR-sicherer
+ * Ersatz für das setState-im-Effect-"mounted"-Muster (react-hooks/set-state-in-effect).
+ */
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false
+  );
+}
 
 export function ArchiveClearButton({ archiveDates }: { archiveDates: ArchiveDate[] }) {
   const [open, setOpen] = useState(false);
@@ -46,7 +60,7 @@ function ArchiveClearModal({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
   const [isPending, startTransition] = useTransition();
   const [mode, setMode] = useState<Mode>("range");
   const [dateFrom, setDateFrom] = useState("");
@@ -56,7 +70,6 @@ function ArchiveClearModal({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setMounted(true);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {

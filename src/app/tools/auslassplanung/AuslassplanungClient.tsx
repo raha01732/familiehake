@@ -1,7 +1,8 @@
 "use client";
 
+import type * as React from "react";
 import type { FormEvent, ReactNode } from "react";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -52,6 +53,21 @@ import {
   type ShowIntensity,
   type ShowPlanStatus,
 } from "./utils";
+
+// Stabiles, no-op subscribe für useSyncExternalStore-basierte Hydration-Checks.
+const noopSubscribe = () => () => {};
+/**
+ * Liefert nach der Hydration `true`, beim Server-Render/erstem Hydrations-Frame
+ * `false`. SSR-sicherer Ersatz für das setState-im-Effect-"mounted"-Muster und
+ * damit konform zu react-hooks/set-state-in-effect.
+ */
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false
+  );
+}
 
 type ActionFn = (_fd: FormData) => Promise<void>;
 type PlanFn = (_fd: FormData) => Promise<{
@@ -4719,9 +4735,8 @@ function ModalShell({
 
   // Portal-Mount: vermeidet, dass das fixed-Modal von einem Vorfahren mit
   // transform / backdrop-filter / animate-fade-up "eingefangen" wird.
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
   useEffect(() => {
-    setMounted(true);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {

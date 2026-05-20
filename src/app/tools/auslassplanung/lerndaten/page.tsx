@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft, Brain, Database, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -580,7 +581,7 @@ function StatCard({
 }: {
   label: string;
   value: number;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
   tone?: "neutral" | "warn";
 }) {
   const cls =
