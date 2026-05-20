@@ -30,6 +30,7 @@ import {
   attendeesAiEnabled,
 } from "@/lib/auslassplanung/attendees-ai";
 import { generateShowCode } from "@/lib/auslassplanung/show-code";
+import { logAudit, actorFromUser, type AuditAction } from "@/lib/audit";
 
 const PLAN_PATH = "/tools/auslassplanung";
 
@@ -43,6 +44,20 @@ async function assertCallerHasCinemaAccess() {
     user.id === env().PRIMARY_SUPERADMIN_ID;
   if (!isPriv) throw new Error("FORBIDDEN_CINEMA_ACCESS");
   return user;
+}
+
+/**
+ * Schreibt ein Audit-Event für eine Auslassplanung-Aktion. logAudit wirft nie,
+ * daher bleibt die eigentliche Aktion robust. `user` ist der aufrufende
+ * Clerk-User aus assertCallerHasCinemaAccess().
+ */
+async function auditAuslass(
+  user: Awaited<ReturnType<typeof currentUser>>,
+  action: AuditAction,
+  detail: Record<string, unknown> | null = null,
+  target: string | null = null
+) {
+  await logAudit({ action, ...actorFromUser(user), target, detail });
 }
 
 function normalizeTimeInput(value: string): string | null {
@@ -74,7 +89,7 @@ async function generateUniquePublicId(sb: SupabaseAdmin): Promise<string> {
 // ── Saal-CRUD ─────────────────────────────────────────────────────────
 
 export async function createHallAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const hallNumber = Number(formData.get("hall_number") || 0);
   if (!Number.isFinite(hallNumber) || hallNumber <= 0) return;
   const label = String(formData.get("label") || "").trim() || null;
@@ -87,11 +102,12 @@ export async function createHallAction(formData: FormData) {
     seat_count: seatCount,
     notes,
   });
+  await auditAuslass(user, "auslass_hall_create", { hallNumber, label });
   revalidatePath(PLAN_PATH);
 }
 
 export async function updateHallAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const id = Number(formData.get("id"));
   if (!id) return;
   const updates: Record<string, unknown> = {};
@@ -112,22 +128,35 @@ export async function updateHallAction(formData: FormData) {
   updates.updated_at = new Date().toISOString();
   const sb = createAdminClient();
   await sb.from("cinema_cleaning_halls").update(updates).eq("id", id);
+  await auditAuslass(user, "auslass_hall_update", {
+    id,
+    hallNumber: typeof updates.hall_number === "number" ? updates.hall_number : null,
+  });
   revalidatePath(PLAN_PATH);
 }
 
 export async function deleteHallAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const id = Number(formData.get("id"));
   if (!id) return;
   const sb = createAdminClient();
+  const { data: existingHall } = await sb
+    .from("cinema_cleaning_halls")
+    .select("hall_number")
+    .eq("id", id)
+    .maybeSingle();
   await sb.from("cinema_cleaning_halls").delete().eq("id", id);
+  await auditAuslass(user, "auslass_hall_delete", {
+    id,
+    hallNumber: existingHall?.hall_number ?? null,
+  });
   revalidatePath(PLAN_PATH);
 }
 
 // ── Staff CRUD ────────────────────────────────────────────────────────
 
 export async function createStaffAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const name = String(formData.get("name") || "").trim();
   if (!name) return;
   const preference = String(formData.get("preference") || "preferred") === "backup" ? "backup" : "preferred";
@@ -157,11 +186,12 @@ export async function createStaffAction(formData: FormData) {
     work_start: workStart,
     work_end: workEnd,
   });
+  await auditAuslass(user, "auslass_staff_create", { name });
   revalidatePath(PLAN_PATH);
 }
 
 export async function updateStaffAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const id = Number(formData.get("id"));
   if (!id) return;
   const updates: Record<string, unknown> = {};
@@ -195,15 +225,28 @@ export async function updateStaffAction(formData: FormData) {
   if (Object.keys(updates).length === 0) return;
   const sb = createAdminClient();
   await sb.from("cinema_cleaning_staff").update(updates).eq("id", id);
+  await auditAuslass(user, "auslass_staff_update", {
+    staffId: id,
+    staffName: typeof updates.name === "string" ? updates.name : null,
+  });
   revalidatePath(PLAN_PATH);
 }
 
 export async function deleteStaffAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const id = Number(formData.get("id"));
   if (!id) return;
   const sb = createAdminClient();
+  const { data: existingStaff } = await sb
+    .from("cinema_cleaning_staff")
+    .select("name")
+    .eq("id", id)
+    .maybeSingle();
   await sb.from("cinema_cleaning_staff").delete().eq("id", id);
+  await auditAuslass(user, "auslass_staff_delete", {
+    staffId: id,
+    staffName: existingStaff?.name ?? null,
+  });
   revalidatePath(PLAN_PATH);
 }
 
@@ -211,7 +254,7 @@ export async function deleteStaffAction(formData: FormData) {
 // Präferenz-Gruppe (preferred / backup). direction = "up" | "down".
 // Niedrigere sort_order = höhere Priorität in der Allokation.
 export async function moveStaffAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const id = Number(formData.get("id"));
   const direction = String(formData.get("direction") || "");
   if (!id || (direction !== "up" && direction !== "down")) return;
@@ -247,6 +290,7 @@ export async function moveStaffAction(formData: FormData) {
     await sb.from("cinema_cleaning_staff").update({ sort_order: target.sort_order }).eq("id", current.id);
     await sb.from("cinema_cleaning_staff").update({ sort_order: current.sort_order }).eq("id", target.id);
   }
+  await auditAuslass(user, "auslass_staff_move", { staffId: id, direction });
   revalidatePath(PLAN_PATH);
 }
 
@@ -286,11 +330,16 @@ export async function createShowAction(formData: FormData) {
     plan_status: "open",
     created_by: user.id,
   });
+  await auditAuslass(user, "auslass_show_create", {
+    date: showDate,
+    hallNumber,
+    movieTitle,
+  });
   revalidatePath(PLAN_PATH);
 }
 
 export async function updateShowAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const id = Number(formData.get("id"));
   if (!id) return;
   const updates: Record<string, unknown> = {};
@@ -342,18 +391,35 @@ export async function updateShowAction(formData: FormData) {
   updates.updated_at = new Date().toISOString();
   const sb = createAdminClient();
   await sb.from("cinema_cleaning_shows").update(updates).eq("id", id);
+  await auditAuslass(user, "auslass_show_update", {
+    showId: id,
+    movieTitle: typeof updates.movie_title === "string" ? updates.movie_title : null,
+    hallNumber: typeof updates.hall_number === "number" ? updates.hall_number : null,
+    date: typeof updates.show_date === "string" ? updates.show_date : null,
+  });
   revalidatePath(PLAN_PATH);
 }
 
 export async function deleteShowAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const id = Number(formData.get("id"));
   if (!id) return;
   const sb = createAdminClient();
+  const { data: existingShow } = await sb
+    .from("cinema_cleaning_shows")
+    .select("show_date, hall_number, movie_title")
+    .eq("id", id)
+    .maybeSingle();
   // Feedback (falls vorhanden) ins Archiv kopieren, damit die KI dieses
   // Lernen behält.
   await archiveShowsByIds(sb, [id]);
   await sb.from("cinema_cleaning_shows").delete().eq("id", id);
+  await auditAuslass(user, "auslass_show_delete", {
+    showId: id,
+    date: existingShow?.show_date ?? null,
+    hallNumber: existingShow?.hall_number ?? null,
+    movieTitle: existingShow?.movie_title ?? null,
+  });
   revalidatePath(PLAN_PATH);
 }
 
@@ -363,7 +429,7 @@ export async function deleteAllShowsAction(formData: FormData): Promise<{
   deleted: number;
   archived: number;
 }> {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   if (String(formData.get("confirm") || "") !== "yes") return { deleted: 0, archived: 0 };
   const sb = createAdminClient();
   const { count: before } = await sb
@@ -381,6 +447,7 @@ export async function deleteAllShowsAction(formData: FormData): Promise<{
 
   // Postgrest verlangt eine WHERE-Klausel — id > 0 trifft alle echten Rows.
   await sb.from("cinema_cleaning_shows").delete().gt("id", 0);
+  await auditAuslass(user, "auslass_shows_delete_all", { deleted: before ?? 0, archived });
   revalidatePath(PLAN_PATH);
   return { deleted: before ?? 0, archived };
 }
@@ -393,7 +460,7 @@ export async function deleteAllShowsAction(formData: FormData): Promise<{
 export async function archiveFeedbackAction(
   formData: FormData,
 ): Promise<{ archived: number; eligible: number }> {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const sb = createAdminClient();
 
   const explicitIds = formData
@@ -419,6 +486,7 @@ export async function archiveFeedbackAction(
   }
 
   const archived = await archiveShowsByIds(sb, candidateIds);
+  await auditAuslass(user, "auslass_feedback_archive", { count: archived });
   revalidatePath(PLAN_PATH);
   revalidatePath("/tools/auslassplanung/lerndaten");
   return { archived, eligible: candidateIds.length };
@@ -1055,11 +1123,16 @@ async function performPlanForShow(
 }
 
 export async function planShowAction(formData: FormData): Promise<PlanResult | null> {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const showId = Number(formData.get("show_id"));
   if (!showId) return null;
   const sb = createAdminClient();
   const result = await performPlanForShow(sb, showId);
+  await auditAuslass(user, "auslass_show_plan", {
+    showId,
+    assigned: result?.assignments.length ?? 0,
+    source: result?.source ?? null,
+  });
   revalidatePath(PLAN_PATH);
   return result;
 }
@@ -1085,7 +1158,7 @@ export type BulkPlanSummary = {
 };
 
 export async function planManyShowsAction(formData: FormData): Promise<BulkPlanSummary> {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const rawIds = formData.getAll("show_id").map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0);
   const showIds = Array.from(new Set(rawIds));
   const emptySummary: BulkPlanSummary = {
@@ -1339,6 +1412,12 @@ export async function planManyShowsAction(formData: FormData): Promise<BulkPlanS
     });
   }
 
+  await auditAuslass(user, "auslass_shows_plan_many", {
+    total: summary.total,
+    planned: summary.planned,
+    empty: summary.empty,
+  });
+
   revalidatePath(PLAN_PATH);
   return summary;
 }
@@ -1477,6 +1556,7 @@ export async function setManualAssignmentsAction(formData: FormData) {
       .update({ updated_at: new Date().toISOString() })
       .eq("id", showId);
   }
+  await auditAuslass(user, "auslass_assignments_set", { showId, count: staffIds.length });
   revalidatePath(PLAN_PATH);
 }
 
@@ -1522,6 +1602,7 @@ export async function removeAssignmentAction(formData: FormData) {
       .update({ updated_at: new Date().toISOString() })
       .eq("id", showId);
   }
+  await auditAuslass(user, "auslass_assignment_remove", { showId, staffId });
   revalidatePath(PLAN_PATH);
 }
 
@@ -1531,7 +1612,7 @@ export async function removeAssignmentAction(formData: FormData) {
 export async function clearArchiveAction(
   formData: FormData,
 ): Promise<{ deleted: number; error?: string }> {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const phrase = String(formData.get("confirm") || "").trim();
   if (phrase !== "ARCHIV LEEREN") {
     return { deleted: 0, error: "Bestätigungs-Phrase fehlt oder falsch." };
@@ -1564,6 +1645,8 @@ export async function clearArchiveAction(
   if (!validFrom && !validTo) delQ = delQ.gt("id", 0); // scope=all
   await delQ;
 
+  await auditAuslass(user, "auslass_archive_clear", { count: count ?? 0 });
+
   revalidatePath("/tools/auslassplanung/lerndaten");
   revalidatePath(PLAN_PATH);
   return { deleted: count ?? 0 };
@@ -1575,7 +1658,7 @@ export async function clearArchiveAction(
 export async function clearAssignmentsForShowsAction(
   formData: FormData,
 ): Promise<{ cleared: number }> {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const showIds = Array.from(
     new Set(
       formData
@@ -1591,13 +1674,14 @@ export async function clearAssignmentsForShowsAction(
     .from("cinema_cleaning_shows")
     .update({ plan_status: "open", updated_at: new Date().toISOString() })
     .in("id", showIds);
+  await auditAuslass(user, "auslass_assignments_clear", { count: showIds.length });
   revalidatePath(PLAN_PATH);
   return { cleared: showIds.length };
 }
 
 // Entfernt alle Zuweisungen (manuell + KI) für eine Vorstellung.
 export async function clearAssignmentsAction(formData: FormData) {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const showId = Number(formData.get("show_id"));
   if (!showId) return;
   const sb = createAdminClient();
@@ -1611,6 +1695,7 @@ export async function clearAssignmentsAction(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", showId);
+  await auditAuslass(user, "auslass_assignments_clear", { showId, count: 1 });
   revalidatePath(PLAN_PATH);
 }
 
@@ -1735,6 +1820,8 @@ export async function createShowsFromFupAction(formData: FormData): Promise<{ cr
     })),
   );
 
+  await auditAuslass(user, "auslass_shows_import_fup", { created: inserts.length, date: showDate });
+
   revalidatePath(PLAN_PATH);
   return { created: inserts.length };
 }
@@ -1742,7 +1829,7 @@ export async function createShowsFromFupAction(formData: FormData): Promise<{ cr
 // ── Besucherzahlen ────────────────────────────────────────────────────
 
 export async function updateAttendeesAction(formData: FormData): Promise<{ updated: number }> {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   // Payload: shows = JSON-Array von { id, attendees }
   let payload: unknown;
   try {
@@ -1769,6 +1856,7 @@ export async function updateAttendeesAction(formData: FormData): Promise<{ updat
       .eq("id", id);
     updated++;
   }
+  await auditAuslass(user, "auslass_attendees_update", { updated });
   revalidatePath(PLAN_PATH);
   return { updated };
 }
@@ -1905,6 +1993,7 @@ export async function saveFeedbackAction(formData: FormData) {
     .from("cinema_cleaning_shows")
     .update({ plan_status: "completed", updated_at: new Date().toISOString() })
     .eq("id", showId);
+  await auditAuslass(user, "auslass_feedback_save", { showId });
   revalidatePath(PLAN_PATH);
 }
 
@@ -1957,6 +2046,8 @@ export async function lockShowsAction(
       .eq("id", sid);
   }
 
+  await auditAuslass(user, "auslass_shows_lock", { count: showIds.length });
+
   revalidatePath(PLAN_PATH);
   return { locked: showIds.length };
 }
@@ -1966,7 +2057,7 @@ export async function lockShowsAction(
 export async function unlockShowsAction(
   formData: FormData,
 ): Promise<{ unlocked: number }> {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const showIds = Array.from(
     new Set(
       formData
@@ -1991,6 +2082,7 @@ export async function unlockShowsAction(
       })
       .eq("id", sid);
   }
+  await auditAuslass(user, "auslass_shows_unlock", { count: showIds.length });
   revalidatePath(PLAN_PATH);
   return { unlocked: showIds.length };
 }
@@ -2052,6 +2144,8 @@ export async function setEarlyLeaveAction(
     .update({ updated_at: new Date().toISOString() })
     .eq("id", showId);
 
+  await auditAuslass(user, "auslass_early_leave_set", { showId, staffId, earlyLeave });
+
   revalidatePath(PLAN_PATH);
   return { ok: true };
 }
@@ -2080,7 +2174,7 @@ export type RutschenPlanResult = {
 export async function planRutscheAction(
   formData: FormData,
 ): Promise<RutschenPlanResult> {
-  await assertCallerHasCinemaAccess();
+  const user = await assertCallerHasCinemaAccess();
   const showIds = Array.from(
     new Set(
       formData
@@ -2324,10 +2418,17 @@ export async function planRutscheAction(
     });
   }
 
+  const plannedCount = results.filter((r) => r.assignedCount > 0).length;
+  await auditAuslass(user, "auslass_rutsche_plan", {
+    total: planableShows.length,
+    planned: plannedCount,
+    source,
+  });
+
   revalidatePath(PLAN_PATH);
   return {
     total: planableShows.length,
-    planned: results.filter((r) => r.assignedCount > 0).length,
+    planned: plannedCount,
     empty: results.filter((r) => r.assignedCount === 0).length,
     results,
     rutscheNote,

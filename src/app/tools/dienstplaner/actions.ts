@@ -6,6 +6,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
+import { logAudit, actorFromUser, type AuditAction } from "@/lib/audit";
 import {
   addHoursToTime,
   calculateShiftMinutes,
@@ -76,6 +77,21 @@ async function assertAdminForDienstplanAutomation() {
   if (!isAdmin) {
     throw new Error("FORBIDDEN_ADMIN_ONLY");
   }
+  return user;
+}
+
+/**
+ * Schreibt ein Audit-Event für eine Dienstplaner-Aktion. Schluckt Fehler
+ * bewusst (logAudit selbst wirft nie), damit die eigentliche Aktion robust
+ * bleibt. `user` ist der aufrufende Clerk-User aus den Assert-Helfern.
+ */
+async function auditDienstplan(
+  user: Awaited<ReturnType<typeof currentUser>>,
+  action: AuditAction,
+  detail: Record<string, unknown> | null = null,
+  target: string | null = null
+) {
+  await logAudit({ action, ...actorFromUser(user), target, detail });
 }
 
 async function consumeMatchingPlannedSlot(
@@ -110,10 +126,11 @@ async function assertAuthenticatedForDienstplanWrite() {
   if (!isPrivilegedUser) {
     throw new Error("FORBIDDEN_WRITE_ACCESS");
   }
+  return user;
 }
 
 export async function saveShiftAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const employeeId = Number(formData.get("employee_id"));
   const shiftDate = String(formData.get("shift_date") || "");
@@ -141,6 +158,7 @@ export async function saveShiftAction(formData: FormData) {
         previousEmployeeId: employeeId,
       });
     }
+    await auditDienstplan(actor, "dienstplan_shift_delete", { employeeId, date: shiftDate });
     revalidatePath(PLAN_PATH);
     return;
   }
@@ -187,11 +205,19 @@ export async function saveShiftAction(formData: FormData) {
 
   await consumeMatchingPlannedSlot(sb, shiftDate, startTime, endTime);
 
+  await auditDienstplan(actor, "dienstplan_shift_save", {
+    employeeId,
+    date: shiftDate,
+    start: startTime,
+    end: endTime,
+    mode: existingShift ? "update" : "create",
+  });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function bulkSaveShiftsAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const sb = createAdminClient();
   const entries = Array.from(formData.entries());
@@ -214,9 +240,12 @@ export async function bulkSaveShiftsAction(formData: FormData) {
     shiftEntries.set(entryKey, entry);
   }
 
+  let savedCount = 0;
+  let deletedCount = 0;
   for (const entry of shiftEntries.values()) {
     if (!entry.startTimeRaw || !entry.endTimeRaw) {
       await sb.from("dienstplan_shifts").delete().eq("employee_id", entry.employeeId).eq("shift_date", entry.date);
+      deletedCount += 1;
       continue;
     }
     const startTime = normalizeTimeInput(entry.startTimeRaw);
@@ -246,13 +275,21 @@ export async function bulkSaveShiftsAction(formData: FormData) {
     );
 
     await consumeMatchingPlannedSlot(sb, entry.date, startTime, endTime);
+    savedCount += 1;
   }
+
+  await auditDienstplan(actor, "dienstplan_shift_save", {
+    bulk: true,
+    saved: savedCount,
+    deleted: deletedCount,
+    count: savedCount + deletedCount,
+  });
 
   revalidatePath(PLAN_PATH);
 }
 
 export async function clearMonthAction(formData: FormData) {
-  await assertAdminForDienstplanAutomation();
+  const actor = await assertAdminForDienstplanAutomation();
 
   const month = String(formData.get("month") || "");
   const range = getMonthRange(month);
@@ -265,11 +302,13 @@ export async function clearMonthAction(formData: FormData) {
     .gte("shift_date", range.start)
     .lte("shift_date", range.end);
 
+  await auditDienstplan(actor, "dienstplan_month_clear", { month });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function saveEmploymentHourDefaultAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const employmentType = String(formData.get("employment_type") || "").trim();
   const vacationHoursRaw = String(formData.get("vacation_hours_per_day") || "0").trim().replace(",", ".");
@@ -287,12 +326,18 @@ export async function saveEmploymentHourDefaultAction(formData: FormData) {
       { onConflict: "employment_type" }
     );
 
+  await auditDienstplan(actor, "dienstplan_settings_update", {
+    setting: "Urlaubsstunden pro Tag",
+    employmentType,
+    vacationHours,
+  });
+
   revalidatePath(SETTINGS_PATH);
   revalidatePath(PLAN_PATH);
 }
 
 export async function clearMonthAvailabilityAction(formData: FormData) {
-  await assertAdminForDienstplanAutomation();
+  const actor = await assertAdminForDienstplanAutomation();
 
   const month = String(formData.get("month") || "");
   const range = getMonthRange(month);
@@ -305,12 +350,14 @@ export async function clearMonthAvailabilityAction(formData: FormData) {
     .gte("availability_date", range.start)
     .lte("availability_date", range.end);
 
+  await auditDienstplan(actor, "dienstplan_availability_clear", { month });
+
   revalidatePath(PLAN_PATH);
   revalidatePath("/tools/dienstplaner/verfuegbarkeit");
 }
 
 export async function autoGenerateMonthPlanAction(formData: FormData) {
-  await assertAdminForDienstplanAutomation();
+  const actor = await assertAdminForDienstplanAutomation();
 
   const month = String(formData.get("month") || "");
   const range = getMonthRange(month);
@@ -501,12 +548,18 @@ export async function autoGenerateMonthPlanAction(formData: FormData) {
     );
   }
 
+  await auditDienstplan(actor, "dienstplan_month_autoplan", {
+    month,
+    created: generatedShifts.length,
+    unfilled: unfilledSlots.length,
+  });
+
   revalidatePath(PLAN_PATH);
   return { plannedShifts: generatedShifts, unfilledSlots };
 }
 
 export async function moveShiftAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const fromEmployeeId = Number(formData.get("from_employee_id"));
   const toEmployeeId = Number(formData.get("to_employee_id"));
@@ -549,11 +602,17 @@ export async function moveShiftAction(formData: FormData) {
     throw new Error("Verschiebung konnte nicht abgeschlossen werden.");
   }
 
+  await auditDienstplan(actor, "dienstplan_shift_move", {
+    fromEmployeeId,
+    toEmployeeId,
+    date: shiftDate,
+  });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function copyWeekShiftsAction(formData: FormData) {
-  await assertAdminForDienstplanAutomation();
+  const actor = await assertAdminForDienstplanAutomation();
 
   const fromWeekStart = String(formData.get("from_week_start") || "").trim();
   const toWeekStart = String(formData.get("to_week_start") || "").trim();
@@ -583,6 +642,7 @@ export async function copyWeekShiftsAction(formData: FormData) {
     throw new Error(`COPY_WEEK_TARGET_DELETE_FAILED: ${deleteTargetWeekError.message}`);
   }
 
+  let copiedCount = 0;
   if (sourceShifts.length > 0) {
     const entriesToInsert = sourceShifts
       .map((shift) => {
@@ -608,14 +668,21 @@ export async function copyWeekShiftsAction(formData: FormData) {
       if (insertCopiedShiftsError) {
         throw new Error(`COPY_WEEK_TARGET_INSERT_FAILED: ${insertCopiedShiftsError.message}`);
       }
+      copiedCount = entriesToInsert.length;
     }
   }
+
+  await auditDienstplan(actor, "dienstplan_week_copy", {
+    fromWeekStart,
+    toWeekStart,
+    count: copiedCount,
+  });
 
   revalidatePath(PLAN_PATH);
 }
 
 export async function updateShiftDetailsAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const employeeId = Number(formData.get("employee_id"));
   const shiftDate = String(formData.get("shift_date") || "").trim();
@@ -645,6 +712,13 @@ export async function updateShiftDetailsAction(formData: FormData) {
   );
 
   await consumeMatchingPlannedSlot(sb, shiftDate, startTime, endTime);
+
+  await auditDienstplan(actor, "dienstplan_shift_update", {
+    employeeId,
+    date: shiftDate,
+    start: startTime,
+    end: endTime,
+  });
 
   revalidatePath(PLAN_PATH);
 }
@@ -690,7 +764,7 @@ async function assertEmployeeAllowedForShift(
 }
 
 export async function createEmployeeAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
   const callerIsAdmin = await isCallerDienstplanAdmin();
 
   const name = String(formData.get("name") || "").trim();
@@ -752,13 +826,15 @@ export async function createEmployeeAction(formData: FormData) {
     user_id: userId,
   });
 
+  await auditDienstplan(actor, "dienstplan_employee_create", { name });
+
   revalidatePath(SETTINGS_PATH);
   revalidatePath(MITARBEITER_PATH);
   revalidatePath(PLAN_PATH);
 }
 
 export async function updateEmployeeAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
   const callerIsAdmin = await isCallerDienstplanAdmin();
 
   const id = Number(formData.get("id"));
@@ -839,19 +915,34 @@ export async function updateEmployeeAction(formData: FormData) {
 
   await sb.from("dienstplan_employees").update(updates).eq("id", id);
 
+  await auditDienstplan(actor, "dienstplan_employee_update", {
+    employeeId: id,
+    employeeName: typeof updates.name === "string" ? updates.name : null,
+  });
+
   revalidatePath(SETTINGS_PATH);
   revalidatePath(MITARBEITER_PATH);
   revalidatePath(PLAN_PATH);
 }
 
 export async function deleteEmployeeAction(formData: FormData) {
-  await assertAdminForDienstplanAutomation();
+  const actor = await assertAdminForDienstplanAutomation();
 
   const id = Number(formData.get("id"));
   if (!id) return;
 
   const sb = createAdminClient();
+  const { data: existingEmployee } = await sb
+    .from("dienstplan_employees")
+    .select("name")
+    .eq("id", id)
+    .maybeSingle();
   await sb.from("dienstplan_employees").delete().eq("id", id);
+
+  await auditDienstplan(actor, "dienstplan_employee_delete", {
+    employeeId: id,
+    employeeName: existingEmployee?.name ?? null,
+  });
 
   revalidatePath(SETTINGS_PATH);
   revalidatePath(MITARBEITER_PATH);
@@ -859,7 +950,7 @@ export async function deleteEmployeeAction(formData: FormData) {
 }
 
 export async function deleteShiftAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const employeeId = Number(formData.get("employee_id"));
   const shiftDate = String(formData.get("shift_date") || "").trim();
@@ -886,6 +977,8 @@ export async function deleteShiftAction(formData: FormData) {
       previousEmployeeId: employeeId,
     });
   }
+
+  await auditDienstplan(actor, "dienstplan_shift_delete", { employeeId, date: shiftDate });
 
   revalidatePath(PLAN_PATH);
 }
@@ -951,7 +1044,7 @@ async function reopenSlotForDeletedShift(
 }
 
 export async function createPauseRuleAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const minMinutes = Number(formData.get("min_minutes") || 0);
   const pauseMinutes = Number(formData.get("pause_minutes") || 0);
@@ -960,12 +1053,14 @@ export async function createPauseRuleAction(formData: FormData) {
   const sb = createAdminClient();
   await sb.from("dienstplan_pause_rules").insert({ min_minutes: minMinutes, pause_minutes: pauseMinutes });
 
+  await auditDienstplan(actor, "dienstplan_pause_rule_save", { mode: "create", minMinutes, pauseMinutes });
+
   revalidatePath(SETTINGS_PATH);
   revalidatePath(PLAN_PATH);
 }
 
 export async function updatePauseRuleAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const id = Number(formData.get("id"));
   const minMinutes = Number(formData.get("min_minutes") || 0);
@@ -975,12 +1070,14 @@ export async function updatePauseRuleAction(formData: FormData) {
   const sb = createAdminClient();
   await sb.from("dienstplan_pause_rules").update({ min_minutes: minMinutes, pause_minutes: pauseMinutes }).eq("id", id);
 
+  await auditDienstplan(actor, "dienstplan_pause_rule_save", { mode: "update", minMinutes, pauseMinutes });
+
   revalidatePath(SETTINGS_PATH);
   revalidatePath(PLAN_PATH);
 }
 
 export async function deletePauseRuleAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const id = Number(formData.get("id"));
   if (!id) return;
@@ -988,12 +1085,14 @@ export async function deletePauseRuleAction(formData: FormData) {
   const sb = createAdminClient();
   await sb.from("dienstplan_pause_rules").delete().eq("id", id);
 
+  await auditDienstplan(actor, "dienstplan_pause_rule_delete", { id });
+
   revalidatePath(SETTINGS_PATH);
   revalidatePath(PLAN_PATH);
 }
 
 export async function saveAvailabilityAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const employeeId = Number(formData.get("employee_id"));
   const availabilityDate = String(formData.get("availability_date") || "");
@@ -1012,6 +1111,11 @@ export async function saveAvailabilityAction(formData: FormData) {
 
   if (!normalizedStatus && !normalizedStart && !normalizedEnd) {
     await sb.from("dienstplan_availability").delete().eq("employee_id", employeeId).eq("availability_date", availabilityDate);
+    await auditDienstplan(actor, "dienstplan_availability_save", {
+      employeeId,
+      date: availabilityDate,
+      status: "geleert",
+    });
     revalidatePath(PLAN_PATH);
     return;
   }
@@ -1027,11 +1131,17 @@ export async function saveAvailabilityAction(formData: FormData) {
     { onConflict: "employee_id,availability_date" }
   );
 
+  await auditDienstplan(actor, "dienstplan_availability_save", {
+    employeeId,
+    date: availabilityDate,
+    status: normalizedStatus,
+  });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function saveWeekdayRequirementAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const weekday = Number(formData.get("weekday"));
   const requiredShifts = Number(formData.get("required_shifts"));
@@ -1045,6 +1155,12 @@ export async function saveWeekdayRequirementAction(formData: FormData) {
     },
     { onConflict: "weekday" }
   );
+
+  await auditDienstplan(actor, "dienstplan_requirement_save", {
+    kind: "Wochentag-Bedarf",
+    weekday,
+    requiredShifts,
+  });
 
   revalidatePath(PLAN_PATH);
 }
@@ -1061,7 +1177,7 @@ function slugifyTrackKey(value: string) {
 }
 
 export async function saveShiftTrackAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const trackKey = String(formData.get("track_key") || "").trim();
   const label = String(formData.get("label") || "").trim();
@@ -1075,12 +1191,18 @@ export async function saveShiftTrackAction(formData: FormData) {
   const sb = createAdminClient();
   await sb.from("dienstplan_shift_tracks").update(updates).eq("track_key", trackKey);
 
+  await auditDienstplan(actor, "dienstplan_shift_track_save", {
+    mode: "update",
+    trackKey,
+    label: label || null,
+  });
+
   revalidatePath(PLAN_PATH);
   revalidatePath(SETTINGS_PATH);
 }
 
 export async function createShiftTrackAction(formData: FormData) {
-  await assertAdminForDienstplanAutomation();
+  const actor = await assertAdminForDienstplanAutomation();
 
   const label = String(formData.get("label") || "").trim();
   const startTime = normalizeTimeInput(String(formData.get("start_time") || ""));
@@ -1110,12 +1232,18 @@ export async function createShiftTrackAction(formData: FormData) {
     end_time: endTime,
   });
 
+  await auditDienstplan(actor, "dienstplan_shift_track_save", {
+    mode: "create",
+    trackKey: candidateKey,
+    label,
+  });
+
   revalidatePath(PLAN_PATH);
   revalidatePath(SETTINGS_PATH);
 }
 
 export async function deleteShiftTrackAction(formData: FormData) {
-  await assertAdminForDienstplanAutomation();
+  const actor = await assertAdminForDienstplanAutomation();
 
   const trackKey = String(formData.get("track_key") || "").trim();
   if (!trackKey) return;
@@ -1123,12 +1251,14 @@ export async function deleteShiftTrackAction(formData: FormData) {
   const sb = createAdminClient();
   await sb.from("dienstplan_shift_tracks").delete().eq("track_key", trackKey);
 
+  await auditDienstplan(actor, "dienstplan_shift_track_delete", { trackKey });
+
   revalidatePath(PLAN_PATH);
   revalidatePath(SETTINGS_PATH);
 }
 
 export async function createWeekdayPositionRequirementAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const weekday = Number(formData.get("weekday"));
   const trackKey = String(formData.get("track_key") || "").trim();
@@ -1144,12 +1274,19 @@ export async function createWeekdayPositionRequirementAction(formData: FormData)
     note: note || null,
   });
 
+  await auditDienstplan(actor, "dienstplan_requirement_save", {
+    kind: "Wochentag-Positionsbedarf",
+    mode: "create",
+    weekday,
+    position,
+  });
+
   revalidatePath(PLAN_PATH);
   revalidatePath(SETTINGS_PATH);
 }
 
 export async function updateWeekdayPositionRequirementAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const id = Number(formData.get("id"));
   const weekday = Number(formData.get("weekday"));
@@ -1166,12 +1303,19 @@ export async function updateWeekdayPositionRequirementAction(formData: FormData)
     note: note || null,
   }).eq("id", id);
 
+  await auditDienstplan(actor, "dienstplan_requirement_save", {
+    kind: "Wochentag-Positionsbedarf",
+    mode: "update",
+    weekday,
+    position,
+  });
+
   revalidatePath(PLAN_PATH);
   revalidatePath(SETTINGS_PATH);
 }
 
 export async function deleteWeekdayPositionRequirementAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const id = Number(formData.get("id"));
   if (!id) return;
@@ -1179,12 +1323,17 @@ export async function deleteWeekdayPositionRequirementAction(formData: FormData)
   const sb = createAdminClient();
   await sb.from("dienstplan_weekday_position_requirements").delete().eq("id", id);
 
+  await auditDienstplan(actor, "dienstplan_requirement_delete", {
+    kind: "Wochentag-Positionsbedarf",
+    id,
+  });
+
   revalidatePath(PLAN_PATH);
   revalidatePath(SETTINGS_PATH);
 }
 
 export async function savePositionMatrixRowAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const trackKey = String(formData.get("track_key") || "").trim();
   const position = String(formData.get("position") || "").trim();
@@ -1226,12 +1375,18 @@ export async function savePositionMatrixRowAction(formData: FormData) {
     await sb.from("dienstplan_weekday_position_requirements").insert(inserts);
   }
 
+  await auditDienstplan(actor, "dienstplan_requirement_save", {
+    kind: "Positions-Matrix",
+    trackKey,
+    position,
+  });
+
   revalidatePath(PLAN_PATH);
   revalidatePath(SETTINGS_PATH);
 }
 
 export async function deletePositionMatrixRowAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const trackKey = String(formData.get("track_key") || "").trim();
   const position = String(formData.get("position") || "").trim();
@@ -1244,12 +1399,18 @@ export async function deletePositionMatrixRowAction(formData: FormData) {
     .eq("track_key", trackKey)
     .eq("position", position);
 
+  await auditDienstplan(actor, "dienstplan_requirement_delete", {
+    kind: "Positions-Matrix",
+    trackKey,
+    position,
+  });
+
   revalidatePath(PLAN_PATH);
   revalidatePath(SETTINGS_PATH);
 }
 
 export async function saveDateRequirementAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const date = String(formData.get("requirement_date") || "");
   const requiredShifts = Number(formData.get("required_shifts"));
@@ -1274,11 +1435,13 @@ export async function saveDateRequirementAction(formData: FormData) {
     { onConflict: "requirement_date" }
   );
 
+  await auditDienstplan(actor, "dienstplan_requirement_save", { kind: "Datums-Bedarf", date });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function clearDateRequirementAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const date = String(formData.get("requirement_date") || "");
   if (!date) return;
@@ -1286,11 +1449,13 @@ export async function clearDateRequirementAction(formData: FormData) {
   const sb = createAdminClient();
   await sb.from("dienstplan_date_requirements").delete().eq("requirement_date", date);
 
+  await auditDienstplan(actor, "dienstplan_requirement_delete", { kind: "Datums-Bedarf", date });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function upsertPositionRequirementAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   const position = String(formData.get("position") || "").trim();
@@ -1332,11 +1497,17 @@ export async function upsertPositionRequirementAction(formData: FormData) {
     { onConflict: "requirement_date,position,start_time,end_time" }
   );
 
+  await auditDienstplan(actor, "dienstplan_requirement_save", {
+    kind: "Positions-Bedarf",
+    date: requirementDate,
+    position,
+  });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function deletePositionRequirementAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   const position = String(formData.get("position") || "").trim();
@@ -1353,17 +1524,28 @@ export async function deletePositionRequirementAction(formData: FormData) {
     .eq("start_time", startTime)
     .eq("end_time", endTime);
 
+  await auditDienstplan(actor, "dienstplan_requirement_delete", {
+    kind: "Positions-Bedarf",
+    date: requirementDate,
+    position,
+  });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function clearPositionRequirementsAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   if (!requirementDate) return;
 
   const sb = createAdminClient();
   await sb.from("dienstplan_position_requirements").delete().eq("requirement_date", requirementDate);
+
+  await auditDienstplan(actor, "dienstplan_requirement_delete", {
+    kind: "Positions-Bedarf (Tag geleert)",
+    date: requirementDate,
+  });
 
   revalidatePath(PLAN_PATH);
 }
@@ -1373,7 +1555,7 @@ export async function clearPositionRequirementsAction(formData: FormData) {
 // ──────────────────────────────────────────────────────────────────────
 
 export async function createSpecialEventAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const eventDate = String(formData.get("event_date") || "").trim();
   const title = String(formData.get("title") || "").trim();
@@ -1393,11 +1575,17 @@ export async function createSpecialEventAction(formData: FormData) {
     note: note || null,
   });
 
+  await auditDienstplan(actor, "dienstplan_special_event_save", {
+    mode: "create",
+    title,
+    date: eventDate,
+  });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function updateSpecialEventAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const id = Number(formData.get("id"));
   const title = String(formData.get("title") || "").trim();
@@ -1419,17 +1607,33 @@ export async function updateSpecialEventAction(formData: FormData) {
     })
     .eq("id", id);
 
+  await auditDienstplan(actor, "dienstplan_special_event_save", {
+    mode: "update",
+    title,
+    id,
+  });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function deleteSpecialEventAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const id = Number(formData.get("id"));
   if (!id) return;
 
   const sb = createAdminClient();
+  const { data: existingEvent } = await sb
+    .from("dienstplan_special_events")
+    .select("title")
+    .eq("id", id)
+    .maybeSingle();
   await sb.from("dienstplan_special_events").delete().eq("id", id);
+
+  await auditDienstplan(actor, "dienstplan_special_event_delete", {
+    id,
+    title: existingEvent?.title ?? null,
+  });
 
   revalidatePath(PLAN_PATH);
 }
@@ -1439,7 +1643,7 @@ export async function deleteSpecialEventAction(formData: FormData) {
 // ──────────────────────────────────────────────────────────────────────
 
 export async function createPlannedSlotAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const slotDate = String(formData.get("slot_date") || "").trim();
   const position = String(formData.get("position") || "").trim();
@@ -1460,11 +1664,18 @@ export async function createPlannedSlotAction(formData: FormData) {
     source: "manual",
   });
 
+  await auditDienstplan(actor, "dienstplan_planned_slot_create", {
+    date: slotDate,
+    start: startTime,
+    end: endTime,
+    position: position || null,
+  });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function deletePlannedSlotAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const id = Number(formData.get("id"));
   if (!id) return;
@@ -1472,11 +1683,13 @@ export async function deletePlannedSlotAction(formData: FormData) {
   const sb = createAdminClient();
   await sb.from("dienstplan_planned_slots").delete().eq("id", id);
 
+  await auditDienstplan(actor, "dienstplan_planned_slot_delete", { id });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function assignPlannedSlotAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const id = Number(formData.get("id"));
   const employeeId = Number(formData.get("employee_id"));
@@ -1507,11 +1720,16 @@ export async function assignPlannedSlotAction(formData: FormData) {
 
   await sb.from("dienstplan_planned_slots").delete().eq("id", id);
 
+  await auditDienstplan(actor, "dienstplan_planned_slot_assign", {
+    employeeId,
+    date: slot.slot_date,
+  });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function buildPreplanForMonthAction(formData: FormData) {
-  await assertAdminForDienstplanAutomation();
+  const actor = await assertAdminForDienstplanAutomation();
 
   const month = String(formData.get("month") || "");
   const range = getMonthRange(month);
@@ -1646,11 +1864,16 @@ export async function buildPreplanForMonthAction(formData: FormData) {
     await sb.from("dienstplan_planned_slots").insert(inserts);
   }
 
+  await auditDienstplan(actor, "dienstplan_preplan_build", {
+    month,
+    created: inserts.length,
+  });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function autoFillPlannedSlotsAction(formData: FormData) {
-  await assertAdminForDienstplanAutomation();
+  const actor = await assertAdminForDienstplanAutomation();
 
   const month = String(formData.get("month") || "");
   const range = getMonthRange(month);
@@ -1793,6 +2016,11 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
       .in("id", Array.from(assignedSlotIds));
   }
 
+  await auditDienstplan(actor, "dienstplan_planned_slots_autofill", {
+    month,
+    filled: filledShifts.length,
+  });
+
   revalidatePath(PLAN_PATH);
   return { plannedShifts: generated, unfilledSlots };
 }
@@ -1802,7 +2030,7 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
 // ──────────────────────────────────────────────────────────────────────
 
 export async function aiFillPlannedSlotsAction(formData: FormData) {
-  await assertAdminForDienstplanAutomation();
+  const actor = await assertAdminForDienstplanAutomation();
 
   if (!dienstplanAiEnabled()) {
     throw new Error("KI ist nicht verfügbar (GEMINI_API_KEY fehlt).");
@@ -1986,11 +2214,16 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
       );
   }
 
+  await auditDienstplan(actor, "dienstplan_planned_slots_ai_fill", {
+    month,
+    filled: inserts.length,
+  });
+
   revalidatePath(PLAN_PATH);
 }
 
 export async function applyWeekdayDefaultsToDateAction(formData: FormData) {
-  await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertAuthenticatedForDienstplanWrite();
 
   const requirementDate = String(formData.get("requirement_date") || "").trim();
   if (!requirementDate) return;
@@ -2039,6 +2272,12 @@ export async function applyWeekdayDefaultsToDateAction(formData: FormData) {
   if (inserts.length > 0) {
     await sb.from("dienstplan_position_requirements").insert(inserts);
   }
+
+  await auditDienstplan(actor, "dienstplan_requirement_save", {
+    kind: "Wochentag-Vorlage angewendet",
+    date: requirementDate,
+    count: inserts.length,
+  });
 
   revalidatePath(PLAN_PATH);
 }

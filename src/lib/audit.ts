@@ -67,11 +67,91 @@ export const AUDIT_ACTIONS = [
   "nutrition_favorite_create",
   "nutrition_favorite_delete",
 
+  // Dienstplaner
+  "dienstplan_shift_save",
+  "dienstplan_shift_delete",
+  "dienstplan_shift_move",
+  "dienstplan_shift_update",
+  "dienstplan_week_copy",
+  "dienstplan_month_clear",
+  "dienstplan_month_autoplan",
+  "dienstplan_employee_create",
+  "dienstplan_employee_update",
+  "dienstplan_employee_delete",
+  "dienstplan_availability_save",
+  "dienstplan_availability_clear",
+  "dienstplan_pause_rule_save",
+  "dienstplan_pause_rule_delete",
+  "dienstplan_requirement_save",
+  "dienstplan_requirement_delete",
+  "dienstplan_shift_track_save",
+  "dienstplan_shift_track_delete",
+  "dienstplan_special_event_save",
+  "dienstplan_special_event_delete",
+  "dienstplan_planned_slot_create",
+  "dienstplan_planned_slot_delete",
+  "dienstplan_planned_slot_assign",
+  "dienstplan_preplan_build",
+  "dienstplan_planned_slots_autofill",
+  "dienstplan_planned_slots_ai_fill",
+  "dienstplan_settings_update",
+
+  // Auslassplanung (Kino-Reinigung)
+  "auslass_hall_create",
+  "auslass_hall_update",
+  "auslass_hall_delete",
+  "auslass_staff_create",
+  "auslass_staff_update",
+  "auslass_staff_delete",
+  "auslass_staff_move",
+  "auslass_show_create",
+  "auslass_show_update",
+  "auslass_show_delete",
+  "auslass_shows_delete_all",
+  "auslass_feedback_save",
+  "auslass_feedback_archive",
+  "auslass_show_plan",
+  "auslass_shows_plan_many",
+  "auslass_assignments_set",
+  "auslass_assignment_remove",
+  "auslass_assignments_clear",
+  "auslass_archive_clear",
+  "auslass_shows_import_fup",
+  "auslass_attendees_update",
+  "auslass_shows_lock",
+  "auslass_shows_unlock",
+  "auslass_early_leave_set",
+  "auslass_rutsche_plan",
+
   // Errors
   "critical_error",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+/**
+ * Strukturell typisierter Clerk-User (vermeidet harte Kopplung an den
+ * @clerk/nextjs Typ an dieser Stelle). Liefert die Actor-Felder für ein
+ * Audit-Event aus einem currentUser()-Objekt.
+ */
+type ClerkLikeUser =
+  | {
+      id: string;
+      primaryEmailAddressId?: string | null;
+      emailAddresses?: Array<{ id: string; emailAddress: string }>;
+    }
+  | null
+  | undefined;
+
+export function actorFromUser(user: ClerkLikeUser): {
+  actorUserId: string | null;
+  actorEmail: string | null;
+} {
+  if (!user) return { actorUserId: null, actorEmail: null };
+  const list = user.emailAddresses ?? [];
+  const primary = list.find((e) => e.id === user.primaryEmailAddressId) ?? list[0];
+  return { actorUserId: user.id ?? null, actorEmail: primary?.emailAddress ?? null };
+}
 
 export type LogAuditInput = {
   action: AuditAction;
