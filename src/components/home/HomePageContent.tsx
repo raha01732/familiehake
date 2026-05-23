@@ -5,11 +5,12 @@ import TaskSummaryTile from "@/components/home/TaskSummaryTile";
 import WelcomeTileCard, { WelcomeTile } from "@/components/dashboard/WelcomeTileCard";
 import { logAudit } from "@/lib/audit";
 import { getSessionInfo } from "@/lib/auth";
-import { ADMIN_LINKS, TOOL_LINKS } from "@/lib/navigation";
+import { ADMIN_LINKS, PLACEHOLDER_LINKS, TOOL_LINKS, type NavLink } from "@/lib/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import Link from "next/link";
+import { Fragment, type ReactNode } from "react";
 import {
   Activity,
   Apple,
@@ -59,6 +60,82 @@ const ADMIN_ICON_MAP: Record<string, LucideIcon> = {
   "monitoring":      Activity,
   "activity":        BarChart2,
 };
+
+// Icons für die (noch inaktiven) Family-Platzhalter
+const PLACEHOLDER_ICON_MAP: Record<string, LucideIcon> = {
+  "family/calendar": Calendar,
+  "family/storage":  HardDrive,
+};
+
+// ─── Sidebar-Bausteine ─────────────────────────────────────────────
+function SidebarDivider() {
+  return <div className="h-px w-full" style={{ background: "hsl(var(--border))" }} aria-hidden />;
+}
+
+function SidebarSection({
+  label,
+  icon: Icon,
+  children,
+}: {
+  label: string;
+  icon?: LucideIcon;
+  children: ReactNode;
+}) {
+  return (
+    <div className="space-y-2">
+      <p
+        className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em]"
+        style={{ color: "hsl(var(--muted-foreground))" }}
+      >
+        {Icon && <Icon size={11} aria-hidden style={{ color: "hsl(var(--primary))" }} />}
+        {label}
+      </p>
+      <nav className="flex flex-col gap-0.5">{children}</nav>
+    </div>
+  );
+}
+
+function SidebarLink({ link, icon: Icon }: { link: NavLink; icon?: LucideIcon }) {
+  return (
+    <Link href={link.href} className="nav-link flex items-center gap-2.5 px-3 py-2 text-sm font-medium">
+      {Icon && (
+        <span
+          className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg"
+          style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary))" }}
+        >
+          <Icon size={13} strokeWidth={2.2} aria-hidden />
+        </span>
+      )}
+      {link.label}
+    </Link>
+  );
+}
+
+function SidebarPlaceholder({ label, icon: Icon }: { label: string; icon?: LucideIcon }) {
+  return (
+    <div
+      className="flex cursor-not-allowed select-none items-center gap-2.5 px-3 py-2 text-sm font-medium"
+      aria-disabled="true"
+      title="Bald verfügbar"
+    >
+      {Icon && (
+        <span
+          className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg"
+          style={{ background: "hsl(var(--muted) / 0.7)", color: "hsl(var(--muted-foreground))" }}
+        >
+          <Icon size={13} strokeWidth={2.2} aria-hidden />
+        </span>
+      )}
+      <span style={{ color: "hsl(var(--muted-foreground))" }}>{label}</span>
+      <span
+        className="ml-auto rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
+        style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary))" }}
+      >
+        Bald
+      </span>
+    </div>
+  );
+}
 
 // ─── Typen & Konstanten ────────────────────────────────────────────
 type HealthSummary = {
@@ -276,6 +353,73 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
   const canSeeTasks =
     session.signedIn && !!session.userId && (session.isSuperAdmin || session.permissions["tools/tasks"]);
 
+  // ── Sidebar-Gruppen (nur freigeschaltete Einträge) ──────────────
+  const personalTools = toolLinks.filter((l) => (l.group ?? "personal") === "personal");
+  const familyTools = toolLinks.filter((l) => l.group === "family");
+  const cinemaTools = toolLinks.filter((l) => l.group === "cinema");
+  const systemTools = toolLinks.filter((l) => l.group === "system");
+  const familyPlaceholders = PLACEHOLDER_LINKS.filter((p) => p.group === "family");
+
+  const sidebarSections: { key: string; node: ReactNode }[] = [];
+
+  if (personalTools.length > 0) {
+    sidebarSections.push({
+      key: "personal",
+      node: (
+        <SidebarSection label="Personal-Workspace">
+          {personalTools.map((l) => (
+            <SidebarLink key={l.routeKey} link={l} icon={TOOL_ICON_MAP[l.routeKey]} />
+          ))}
+        </SidebarSection>
+      ),
+    });
+  }
+
+  if (familyTools.length > 0 || familyPlaceholders.length > 0) {
+    sidebarSections.push({
+      key: "family",
+      node: (
+        <SidebarSection label="Family-Bereich" icon={Users}>
+          {familyTools.map((l) => (
+            <SidebarLink key={l.routeKey} link={l} icon={TOOL_ICON_MAP[l.routeKey]} />
+          ))}
+          {familyPlaceholders.map((p) => (
+            <SidebarPlaceholder key={p.key} label={p.label} icon={PLACEHOLDER_ICON_MAP[p.key]} />
+          ))}
+        </SidebarSection>
+      ),
+    });
+  }
+
+  if (cinemaTools.length > 0) {
+    sidebarSections.push({
+      key: "cinema",
+      node: (
+        <SidebarSection label="Kino-Workspace" icon={Clapperboard}>
+          {cinemaTools.map((l) => (
+            <SidebarLink key={l.routeKey} link={l} icon={TOOL_ICON_MAP[l.routeKey] ?? Film} />
+          ))}
+        </SidebarSection>
+      ),
+    });
+  }
+
+  if (systemTools.length > 0 || adminLinks.length > 0) {
+    sidebarSections.push({
+      key: "system",
+      node: (
+        <SidebarSection label="System" icon={ShieldCheck}>
+          {systemTools.map((l) => (
+            <SidebarLink key={l.routeKey} link={l} icon={TOOL_ICON_MAP[l.routeKey]} />
+          ))}
+          {adminLinks.map((l) => (
+            <SidebarLink key={l.routeKey} link={l} icon={ADMIN_ICON_MAP[l.routeKey]} />
+          ))}
+        </SidebarSection>
+      ),
+    });
+  }
+
   return (
     <RoleGate routeKey="dashboard">
       <section className="grid items-start gap-6 lg:grid-cols-[272px_minmax(0,1fr)]">
@@ -289,116 +433,18 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
             aria-hidden
           />
 
-          {/* Tool-Links — Hauptgruppe */}
-          {(() => {
-            const mainTools = toolLinks.filter((l) => l.workspace !== "cinema");
-            const cinemaTools = toolLinks.filter((l) => l.workspace === "cinema");
-            return (
-              <>
-                <div className="space-y-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em]"
-                     style={{ color: "hsl(var(--muted-foreground))" }}>
-                    Workspace
-                  </p>
-                  <nav className="flex flex-col gap-0.5">
-                    {mainTools.length === 0 ? (
-                      <span className="px-3 py-2 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-                        Keine Tools freigeschaltet
-                      </span>
-                    ) : (
-                      mainTools.map((link) => {
-                        const Icon = TOOL_ICON_MAP[link.routeKey];
-                        return (
-                          <Link
-                            key={link.routeKey}
-                            href={link.href}
-                            className="nav-link flex items-center gap-2.5 px-3 py-2 text-sm font-medium"
-                          >
-                            {Icon && (
-                              <span
-                                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg"
-                                style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary))" }}
-                              >
-                                <Icon size={13} strokeWidth={2.2} aria-hidden />
-                              </span>
-                            )}
-                            {link.label}
-                          </Link>
-                        );
-                      })
-                    )}
-                  </nav>
-                </div>
-
-                {cinemaTools.length > 0 && (
-                  <>
-                    <div className="h-px w-full" style={{ background: "hsl(var(--border))" }} aria-hidden />
-                    <div className="space-y-2">
-                      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em]"
-                         style={{ color: "hsl(var(--muted-foreground))" }}>
-                        <Clapperboard size={11} aria-hidden style={{ color: "hsl(var(--primary))" }} />
-                        Kino-Workspace
-                      </p>
-                      <nav className="flex flex-col gap-0.5">
-                        {cinemaTools.map((link) => {
-                          const Icon = TOOL_ICON_MAP[link.routeKey] ?? Film;
-                          return (
-                            <Link
-                              key={link.routeKey}
-                              href={link.href}
-                              className="nav-link flex items-center gap-2.5 px-3 py-2 text-sm font-medium"
-                            >
-                              <span
-                                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg"
-                                style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary))" }}
-                              >
-                                <Icon size={13} strokeWidth={2.2} aria-hidden />
-                              </span>
-                              {link.label}
-                            </Link>
-                          );
-                        })}
-                      </nav>
-                    </div>
-                  </>
-                )}
-              </>
-            );
-          })()}
-
-          {/* Admin-Links */}
-          {adminLinks.length > 0 && (
-            <>
-              <div className="h-px w-full" style={{ background: "hsl(var(--border))" }} aria-hidden />
-              <div className="space-y-2">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em]"
-                   style={{ color: "hsl(var(--muted-foreground))" }}>
-                  Admin
-                </p>
-                <nav className="flex flex-col gap-0.5">
-                  {adminLinks.map((link) => {
-                    const Icon = ADMIN_ICON_MAP[link.routeKey];
-                    return (
-                      <Link
-                        key={link.routeKey}
-                        href={link.href}
-                        className="nav-link-muted flex items-center gap-2.5 px-3 py-2 text-sm font-medium"
-                      >
-                        {Icon && (
-                          <span
-                            className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg"
-                            style={{ background: "hsl(var(--muted) / 0.8)", color: "hsl(var(--muted-foreground))" }}
-                          >
-                            <Icon size={13} strokeWidth={2.2} aria-hidden />
-                          </span>
-                        )}
-                        {link.label}
-                      </Link>
-                    );
-                  })}
-                </nav>
-              </div>
-            </>
+          {/* Tool-Gruppen */}
+          {sidebarSections.length === 0 ? (
+            <span className="px-3 py-2 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Keine Tools freigeschaltet
+            </span>
+          ) : (
+            sidebarSections.map((section, i) => (
+              <Fragment key={section.key}>
+                {i > 0 && <SidebarDivider />}
+                {section.node}
+              </Fragment>
+            ))
           )}
 
           {/* System-Health */}

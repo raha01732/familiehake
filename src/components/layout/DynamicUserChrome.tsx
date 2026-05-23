@@ -23,7 +23,7 @@ function cssVarsToString(vars: Record<string, string>) {
 
 export default async function DynamicUserChrome({ clerkEnabled, signInUrl }: DynamicUserChromeProps) {
   if (!clerkEnabled) {
-    return <Header clerkEnabled={false} signInUrl={signInUrl} />;
+    return <Header clerkEnabled={false} signInUrl={signInUrl} isAdmin={false} />;
   }
 
   const session = await getSessionInfo();
@@ -50,7 +50,7 @@ export default async function DynamicUserChrome({ clerkEnabled, signInUrl }: Dyn
       {/* CSS-Variablen des aktiven Themes in :root injizieren */}
       <style id="dynamic-theme-vars">{`:root { ${cssVarsToString(themeCssVars)} }`}</style>
       <AdminErrorBanner isAdmin={isAdmin} />
-      <Header clerkEnabled={isSignedIn} signInUrl={signInUrl} />
+      <Header clerkEnabled={isSignedIn} signInUrl={signInUrl} isAdmin={isAdmin} />
       {isSignedIn ? <CommandMenu /> : null}
     </>
   );

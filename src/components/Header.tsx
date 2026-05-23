@@ -21,16 +21,20 @@ import NotificationSettings from "@/components/NotificationSettings";
 type HeaderProps = {
   clerkEnabled?: boolean;
   signInUrl?: string;
+  /** Top-Menü „Admin" nur bei Rolle admin/superadmin anzeigen. */
+  isAdmin?: boolean;
 };
 
-const NAV_LINKS = [
+const BASE_NAV_LINKS = [
   { href: "/", label: "Start" },
   { href: "/tools", label: "Tools" },
-  { href: "/admin", label: "Admin" },
 ];
+const ADMIN_NAV_LINK = { href: "/admin", label: "Admin" };
 
-export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) {
+export default function Header({ clerkEnabled = true, signInUrl, isAdmin = false }: HeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const navLinks = isAdmin ? [...BASE_NAV_LINKS, ADMIN_NAV_LINK] : BASE_NAV_LINKS;
 
   // Schließe mobiles Menü bei Route-Wechsel (Escape-Taste)
   useEffect(() => {
@@ -57,7 +61,7 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
 
         {/* Desktop Navigation */}
         <nav className="ml-3 hidden items-center gap-0.5 sm:flex">
-          {NAV_LINKS.map((item) => (
+          {navLinks.map((item) => (
             <NavLink key={item.href} href={item.href}>
               {item.label}
             </NavLink>
@@ -145,7 +149,7 @@ export default function Header({ clerkEnabled = true, signInUrl }: HeaderProps) 
           }}
         >
           <nav className="flex flex-col gap-0.5 px-4 py-3">
-            {NAV_LINKS.map((item) => (
+            {navLinks.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
