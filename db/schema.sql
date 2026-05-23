@@ -1299,6 +1299,26 @@ create index if not exists calendar_events_user_id_idx
 create index if not exists calendar_events_user_starts_idx
   on calendar_events(user_id, starts_at);
 
+-- Abonnierte externe Kalender-Feeds (ICS/iCal-URL) pro Nutzer.
+-- Die URL kann ein Geheimnis enthalten (z. B. Google "Privatadresse")
+-- und wird daher verschlüsselt abgelegt. Termine werden live geholt
+-- (Redis-Cache) und nicht persistiert.
+create table if not exists calendar_feeds (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  name text not null,
+  url_enc text not null,
+  color text not null default '221',
+  enabled boolean not null default true,
+  last_synced_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists calendar_feeds_user_id_idx
+  on calendar_feeds(user_id);
+
 -- ─────────────────────────────────────────────
 -- Kino-Workspace: Auslassplanung (Reinigung pro Vorstellung)
 -- ─────────────────────────────────────────────
