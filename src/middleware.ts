@@ -27,6 +27,10 @@ const isPublicRoute = createRouteMatcher([
 
   // Tracking-Pixel/-Redirects: per Token identifiziert, ohne Login erreichbar
   "/api/track(.*)",
+
+  // Öffentlicher Kalender-Feed: per geheimem Token identifiziert (für externe
+  // Kalender-Apps, die keine Login-Cookies senden).
+  "/api/calendar/subscribe(.*)",
 ]);
 
 const clerkPublishableKey = getClerkPublishableKey();

@@ -1319,6 +1319,17 @@ create table if not exists calendar_feeds (
 create index if not exists calendar_feeds_user_id_idx
   on calendar_feeds(user_id);
 
+-- Geheimer Token, mit dem der eigene Kalender als öffentlicher ICS-Feed
+-- abonniert werden kann (eine Adresse pro Nutzer, jederzeit neu generierbar).
+create table if not exists calendar_share_tokens (
+  user_id text primary key,
+  token text not null unique,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists calendar_share_tokens_token_idx
+  on calendar_share_tokens(token);
+
 -- ─────────────────────────────────────────────
 -- Kino-Workspace: Auslassplanung (Reinigung pro Vorstellung)
 -- ─────────────────────────────────────────────

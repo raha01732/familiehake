@@ -2,7 +2,19 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Check, Link2, Pencil, Plus, RefreshCw, Rss, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  Globe,
+  Link2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Rss,
+  Trash2,
+  X,
+} from "lucide-react";
 
 export type CalendarFeed = {
   id: string;
@@ -20,20 +32,26 @@ export const FEED_COLORS = ["221", "262", "27", "142", "0", "330", "192"];
 
 type FeedManagerProps = {
   feeds: CalendarFeed[];
+  subscribeToken: string | null;
   onClose: () => void;
   onAdd: (input: FeedInput) => Promise<void> | void;
   onUpdate: (id: string, input: Partial<FeedInput>) => Promise<void> | void;
   onDelete: (id: string) => Promise<void> | void;
   onRefresh: () => void;
+  onGenerateSubscribe: () => Promise<void> | void;
+  onRevokeSubscribe: () => Promise<void> | void;
 };
 
 export default function FeedManager({
   feeds,
+  subscribeToken,
   onClose,
   onAdd,
   onUpdate,
   onDelete,
   onRefresh,
+  onGenerateSubscribe,
+  onRevokeSubscribe,
 }: FeedManagerProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -272,6 +290,13 @@ export default function FeedManager({
           </div>
         </div>
 
+        {/* Eigenen Kalender veröffentlichen */}
+        <PublishSection
+          token={subscribeToken}
+          onGenerate={onGenerateSubscribe}
+          onRevoke={onRevokeSubscribe}
+        />
+
         <div className="flex items-center justify-between gap-2">
           <p className="text-[11px] leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>
             Tipp: In Google Kalender unter „Einstellungen → Kalender → Geheime Adresse im
@@ -287,6 +312,116 @@ export default function FeedManager({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PublishSection({
+  token,
+  onGenerate,
+  onRevoke,
+}: {
+  token: string | null;
+  onGenerate: () => Promise<void> | void;
+  onRevoke: () => Promise<void> | void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const url =
+    token && typeof window !== "undefined"
+      ? `${window.location.origin}/api/calendar/subscribe/${token}`
+      : "";
+
+  async function copy() {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function run(action: () => Promise<void> | void) {
+    setBusy(true);
+    try {
+      await action();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border p-3" style={{ borderColor: "hsl(var(--border))" }}>
+      <div className="flex items-center gap-2">
+        <Globe size={15} aria-hidden style={{ color: "hsl(var(--primary))" }} />
+        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "hsl(var(--muted-foreground))" }}>
+          Meinen Kalender veröffentlichen
+        </span>
+      </div>
+
+      <p className="text-[11px] leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>
+        Abonniere deine eigenen Termine in Google, Apple oder Outlook über eine geheime Adresse
+        (einseitig, Aktualisierung je nach Anbieter im Stunden­takt).
+      </p>
+
+      {token ? (
+        <>
+          <div className="flex items-center gap-2">
+            <input
+              readOnly
+              value={url}
+              onFocus={(e) => e.currentTarget.select()}
+              className="input-field text-xs"
+            />
+            <button
+              type="button"
+              onClick={copy}
+              aria-label="Adresse kopieren"
+              className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition hover:bg-[hsl(var(--secondary))]"
+              style={{ borderColor: "hsl(var(--border))", color: "hsl(var(--foreground))" }}
+            >
+              {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+              {copied ? "Kopiert" : "Kopieren"}
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => run(onGenerate)}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition hover:bg-[hsl(var(--secondary))] disabled:opacity-50"
+              style={{ borderColor: "hsl(var(--border))", color: "hsl(var(--foreground))" }}
+            >
+              <RefreshCw size={13} aria-hidden /> Neu generieren
+            </button>
+            <button
+              type="button"
+              onClick={() => run(onRevoke)}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition hover:bg-[hsl(var(--destructive)/0.1)] disabled:opacity-50"
+              style={{ borderColor: "hsl(var(--destructive) / 0.4)", color: "hsl(var(--destructive))" }}
+            >
+              <Trash2 size={13} aria-hidden /> Deaktivieren
+            </button>
+          </div>
+          <p className="text-[10px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Jeder mit dieser Adresse kann deine Termine lesen. Bei Verdacht „Neu generieren" – die alte
+            Adresse wird damit ungültig.
+          </p>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => run(onGenerate)}
+          disabled={busy}
+          className="brand-button inline-flex w-fit items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60"
+        >
+          <Globe size={15} aria-hidden /> Abo-Adresse erstellen
+        </button>
+      )}
     </div>
   );
 }

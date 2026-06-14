@@ -9,7 +9,22 @@ import { logAudit } from "@/lib/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DbRole } from "@/lib/access-db";
 import { env } from "@/lib/env";
-import { Users } from "lucide-react";
+import {
+  Users,
+  UserPlus,
+  Search,
+  RotateCcw,
+  X,
+  Mail,
+  Shield,
+  ShieldCheck,
+  Check,
+  Star,
+  Trash2,
+  Plus,
+  Database,
+  Pencil,
+} from "lucide-react";
 import {
   getClerkUserCached,
   getPrimaryEmail,
@@ -56,6 +71,7 @@ type UserDetail = {
   allowAdminManagement: boolean;
   hasDatabaseRole: boolean;
   roleMappingAvailable: boolean;
+  createdAt: number;
 };
 
 async function fetchRoles(): Promise<DbRole[]> {
@@ -93,6 +109,38 @@ function ensureDefaultRoles(rolesCatalog: DbRole[], assigned: DbRole[] | undefin
 
 function highestRole(roles: DbRole[]): DbRole | null {
   return roles.slice().sort((a, b) => b.rank - a.rank)[0] ?? null;
+}
+
+function getInitials(firstName: string, lastName: string, email: string): string {
+  const first = firstName.trim();
+  const last = lastName.trim();
+  if (first || last) {
+    return `${first.charAt(0)}${last.charAt(0)}`.toUpperCase() || first.charAt(0).toUpperCase();
+  }
+  return (email.trim().charAt(0) || "?").toUpperCase();
+}
+
+function getDisplayName(firstName: string, lastName: string, username: string, email: string): string {
+  const full = `${firstName} ${lastName}`.trim();
+  return full || username || email || "Unbenannt";
+}
+
+const dateFmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "short", year: "numeric" });
+function formatDate(ts: number | undefined): string {
+  if (!ts) return "—";
+  try {
+    return dateFmt.format(new Date(ts));
+  } catch {
+    return "—";
+  }
+}
+
+// Farbakzent je Rolle, abgeleitet aus der Theme-Palette (chart-Variablen).
+function roleAccent(role: DbRole): string {
+  if (role.isSuperAdmin || role.name === "superadmin") return "262 83% 58%";
+  if (role.name === "admin") return "221 83% 53%";
+  if (role.name === "cinema") return "27 96% 61%";
+  return "220 9% 46%";
 }
 
 async function fetchAssignments(userIds: string[], rolesCatalog: DbRole[]): Promise<Record<string, DbRole[]>> {
@@ -185,6 +233,7 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
     allowAdminManagement: Boolean((u.publicMetadata as any)?.allowAdminManagement),
     hasDatabaseRole,
     roleMappingAvailable,
+    createdAt: (u as { createdAt?: number }).createdAt ?? Date.now(),
   };
 }
 
@@ -584,6 +633,12 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
 
   const editUser = editId ? await getOneUser(editId, rolesCatalog) : null;
   const editUserIsAdmin = editUser?.roles.some((role) => role.name === "admin") ?? false;
+  const closeHref = `/admin/users?${new URLSearchParams(
+    Object.fromEntries(
+      Object.entries({ q, role: roleFilter }).filter(([, v]) => (v ?? "") !== "" && v !== "all")
+    )
+  ).toString()}`.replace(/\?$/, "");
+  const editUserSynced = Boolean(editUser?.roleMappingAvailable && editUser?.hasDatabaseRole);
 
   return (
     <RoleGate routeKey="admin/users">
@@ -612,11 +667,22 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
               </p>
             </div>
           </div>
-          <div className="text-right text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-            <div className="font-semibold" style={{ color: "hsl(var(--foreground))" }}>{counts.total} Nutzer</div>
-            {Object.entries(counts.byRole).map(([roleName, amount]) => (
-              <div key={roleName}>{roleName}: {amount}</div>
-            ))}
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-bold tabular-nums text-foreground">{counts.total}</span>
+              <span className="text-xs text-muted-foreground">Nutzer</span>
+            </div>
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {Object.entries(counts.byRole).map(([roleName, amount]) => (
+                <span
+                  key={roleName}
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                >
+                  <span className="font-semibold text-foreground tabular-nums">{amount}</span>
+                  {roleName}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -637,15 +703,22 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
 
         <form method="get" className="feature-card grid gap-3 p-4 sm:grid-cols-3">
           <div className="sm:col-span-2">
-            <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+            <label className="text-xs font-medium" style={{ color: "hsl(var(--muted-foreground))" }}>
               Suche (E-Mail, Name, Benutzername)
             </label>
-            <input
-              name="q"
-              defaultValue={q}
-              placeholder="z. B. ralf, @username, name@example.com"
-              className="mt-1 input-field"
-            />
+            <div className="relative mt-1">
+              <Search
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                name="q"
+                defaultValue={q}
+                placeholder="z. B. ralf, @username, name@example.com"
+                className="input-field pl-9"
+              />
+            </div>
           </div>
           <div>
             <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Rolle</label>
@@ -663,25 +736,15 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
             </select>
           </div>
           <div className="sm:col-span-3 flex gap-2">
-            <button
-              className="rounded-xl px-3 py-2 text-xs font-medium transition-colors"
-              style={{
-                border: "1px solid hsl(var(--border))",
-                color: "hsl(var(--foreground))",
-                background: "transparent",
-              }}
-            >
+            <button className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-secondary">
+              <Search size={13} aria-hidden />
               Anwenden
             </button>
             <a
               href="/admin/users"
-              className="rounded-xl px-3 py-2 text-xs font-medium transition-colors"
-              style={{
-                border: "1px solid hsl(var(--border) / 0.5)",
-                color: "hsl(var(--muted-foreground))",
-                background: "transparent",
-              }}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border/50 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             >
+              <RotateCcw size={13} aria-hidden />
               Zurücksetzen
             </a>
           </div>
@@ -689,15 +752,22 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
 
         <form action={createUserAction} className="feature-card p-4 grid gap-3">
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
-                Neuen Benutzer anlegen
-              </h3>
-              <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-                Erstellt einen Clerk-Benutzer und weist automatisch die Standardrolle „User" zu.
-              </p>
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <UserPlus size={16} aria-hidden />
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+                  Neuen Benutzer anlegen
+                </h3>
+                <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  Erstellt einen Clerk-Benutzer und weist automatisch die Standardrolle „User" zu.
+                </p>
+              </div>
             </div>
-            <span className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>Nur Admins</span>
+            <span className="shrink-0 rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              Nur Admins
+            </span>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
@@ -756,160 +826,207 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
           )}
           <div className="flex justify-end">
             <button
-              className="brand-button rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-60"
+              className="brand-button inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-60"
               disabled={!actorIsAdmin}
             >
+              <UserPlus size={14} aria-hidden />
               Benutzer anlegen
             </button>
           </div>
         </form>
 
-        <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] text-xs uppercase tracking-wide">
-              <tr>
-                <th className="px-3 py-2 font-medium">E-Mail</th>
-                <th className="px-3 py-2 font-medium">Name</th>
-                <th className="px-3 py-2 font-medium">Benutzername</th>
-                <th className="px-3 py-2 font-medium">Rollen</th>
-                <th className="px-3 py-2 font-medium">Aktion</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[hsl(var(--border))]">
-              {filtered.map((user) => (
-                <tr key={user.id} className="hover:bg-[hsl(var(--secondary)/0.5)] transition-colors">
-                  <td className="px-3 py-2.5 text-xs" style={{ color: "hsl(var(--foreground))" }}>{user.email}</td>
-                  <td className="px-3 py-2.5 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-                    {user.firstName} {user.lastName}
-                  </td>
-                  <td className="px-3 py-2.5 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>{user.username || "—"}</td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex flex-wrap gap-1">
-                      {user.roles.map((role) => (
-                        <span
-                          key={role.id}
-                          className="rounded-full px-2 py-0.5 text-[10px] font-medium"
-                          style={{
-                            background: "hsl(var(--primary) / 0.08)",
-                            color: "hsl(var(--primary))",
-                            border: "1px solid hsl(var(--primary) / 0.15)",
-                          }}
-                        >
-                          {role.label}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <Link
-                      href={{
-                        pathname: "/admin/users",
-                        query: {
-                          ...(q ? { q } : {}),
-                          ...(roleFilter !== "all" ? { role: roleFilter } : {}),
-                          edit: user.id,
-                        },
-                      }}
-                      className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
-                      style={{
-                        border: "1px solid hsl(var(--border))",
-                        color: "hsl(var(--foreground))",
-                        background: "transparent",
-                      }}
-                    >
-                      Bearbeiten
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
+        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-border bg-secondary/60 text-[11px] uppercase tracking-wider text-muted-foreground">
                 <tr>
-                  <td colSpan={5} className="px-3 py-6 text-center text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-                    Keine Benutzer gefunden.
-                  </td>
+                  <th className="px-4 py-3 font-semibold">Benutzer</th>
+                  <th className="px-4 py-3 font-semibold">Benutzername</th>
+                  <th className="px-4 py-3 font-semibold">Rollen</th>
+                  <th className="hidden px-4 py-3 font-semibold lg:table-cell">Mitglied seit</th>
+                  <th className="px-4 py-3 text-right font-semibold">Aktion</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((user) => {
+                  return (
+                    <tr key={user.id} className="group transition-colors hover:bg-secondary/40">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <span
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-primary-foreground ring-1 ring-inset ring-white/10"
+                            style={{
+                              backgroundImage:
+                                "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))",
+                            }}
+                            aria-hidden
+                          >
+                            {getInitials(user.firstName, user.lastName, user.email)}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-foreground">
+                              {getDisplayName(user.firstName, user.lastName, user.username, user.email)}
+                            </div>
+                            <div className="truncate text-xs text-muted-foreground">{user.email || "—"}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {user.username ? `@${user.username}` : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1.5">
+                          {user.roles.map((role) => {
+                            const accent = roleAccent(role);
+                            return (
+                              <span
+                                key={role.id}
+                                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                                style={{
+                                  background: `hsl(${accent} / 0.1)`,
+                                  color: `hsl(${accent})`,
+                                  border: `1px solid hsl(${accent} / 0.25)`,
+                                }}
+                              >
+                                {(role.isSuperAdmin || role.name === "admin") && (
+                                  <ShieldCheck size={10} aria-hidden />
+                                )}
+                                {role.label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td className="hidden px-4 py-3 text-xs text-muted-foreground lg:table-cell">
+                        {formatDate(user.createdAt)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          href={{
+                            pathname: "/admin/users",
+                            query: {
+                              ...(q ? { q } : {}),
+                              ...(roleFilter !== "all" ? { role: roleFilter } : {}),
+                              edit: user.id,
+                            },
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-secondary"
+                          aria-label={`${getDisplayName(user.firstName, user.lastName, user.username, user.email)} bearbeiten`}
+                        >
+                          <Pencil size={12} aria-hidden />
+                          <span className="hidden sm:inline">Bearbeiten</span>
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-16 text-center">
+                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                        <Users size={28} className="opacity-40" aria-hidden />
+                        <p className="text-sm font-medium">Keine Benutzer gefunden.</p>
+                        <p className="text-xs">Passe Suche oder Rollenfilter an.</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
       {editUser ? (
-        <div className="fixed inset-0 z-[100]">
-          <div className="absolute inset-0 bg-black/60" />
-          <div className="relative mx-auto mt-24 w-full max-w-lg card p-0 overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[hsl(var(--border))]">
-              <div className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>Benutzer bearbeiten</div>
-              <a
-                href={`/admin/users?${new URLSearchParams(
-                  Object.fromEntries(
-                    Object.entries({ q, role: roleFilter }).filter(([, v]) => (v ?? "") !== "" && v !== "all")
-                  )
-                ).toString()}`}
-                className="text-xs rounded-lg px-2 py-1 transition-colors"
-                style={{
-                  border: "1px solid hsl(var(--border))",
-                  color: "hsl(var(--muted-foreground))",
-                }}
+        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto p-4 sm:items-center">
+          {/* Backdrop – Klick schließt das Modal */}
+          <a href={closeHref} aria-label="Schließen" className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+
+          <div className="card relative my-4 flex w-full max-w-lg flex-col overflow-hidden p-0 shadow-2xl sm:max-h-[calc(100vh-2rem)]">
+            {/* Header mit Identität */}
+            <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+              <span
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground ring-1 ring-inset ring-white/10"
+                style={{ backgroundImage: "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))" }}
+                aria-hidden
               >
-                Schließen
+                {getInitials(editUser.firstName, editUser.lastName, editUser.emails[0]?.email ?? "")}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold text-foreground">
+                  {getDisplayName(
+                    editUser.firstName,
+                    editUser.lastName,
+                    editUser.username,
+                    editUser.emails[0]?.email ?? ""
+                  )}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  Mitglied seit {formatDate(editUser.createdAt)}
+                </div>
+              </div>
+              <a
+                href={closeHref}
+                aria-label="Schließen"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <X size={15} aria-hidden />
               </a>
             </div>
 
-            <div className="p-5 flex flex-col gap-5">
-              <form action={saveUserAction} className="flex flex-col gap-3">
+            {/* Scrollbarer Inhalt */}
+            <div className="flex flex-col gap-6 overflow-y-auto px-5 py-5">
+              <form action={saveUserAction} className="flex flex-col gap-4">
                 <input type="hidden" name="userId" value={editUser.id} />
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Vorname</label>
-                    <input
-                      name="firstName"
-                      defaultValue={editUser.firstName}
-                      className="mt-1 input-field"
-                    />
+
+                {/* Profil */}
+                <div className="flex flex-col gap-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground">Vorname</label>
+                      <input name="firstName" defaultValue={editUser.firstName} className="mt-1 input-field" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground">Nachname</label>
+                      <input name="lastName" defaultValue={editUser.lastName} className="mt-1 input-field" />
+                    </div>
                   </div>
                   <div>
-                    <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Nachname</label>
-                    <input
-                      name="lastName"
-                      defaultValue={editUser.lastName}
-                      className="mt-1 input-field"
-                    />
+                    <label className="text-xs font-medium text-muted-foreground">Benutzername</label>
+                    <input name="username" defaultValue={editUser.username} className="mt-1 input-field" />
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Benutzername</label>
-                  <input
-                    name="username"
-                    defaultValue={editUser.username}
-                    className="mt-1 input-field"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Rollen</span>
+                {/* Rollen als Toggle-Chips */}
+                <div className="flex flex-col gap-2.5">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Shield size={12} aria-hidden />
+                    Rollen
+                  </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {rolesCatalog.map((role) => {
                       const checked = editUser.roles.some((r) => r.id === role.id);
-                      const disabled = role.isSuperAdmin && !actorIsSuper;
+                      const disabled = (role.isSuperAdmin && !actorIsSuper) || !actorIsAdmin;
                       return (
-                        <label key={role.id} className="flex items-center gap-2 text-sm" style={{ color: "hsl(var(--foreground))" }}>
+                        <label key={role.id} className="cursor-pointer">
                           <input
                             type="checkbox"
                             name="roles"
                             value={role.id}
                             defaultChecked={checked}
                             disabled={disabled}
-                            style={{ accentColor: "hsl(var(--primary))" }}
+                            className="peer sr-only"
                           />
-                          <span>{role.label}</span>
+                          <span className="flex items-center justify-between gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 peer-checked:border-primary peer-checked:bg-primary/10 peer-checked:text-primary peer-checked:[&>svg]:opacity-100 peer-focus-visible:ring-2 peer-focus-visible:ring-ring/40 peer-disabled:cursor-not-allowed peer-disabled:opacity-40">
+                            <span>{role.label}</span>
+                            <Check size={14} className="shrink-0 opacity-0 transition-opacity" aria-hidden />
+                          </span>
                         </label>
                       );
                     })}
                   </div>
                   {actorIsPrimarySuper && editUserIsAdmin ? (
-                    <label className="mt-2 flex items-center gap-2 text-xs" style={{ color: "hsl(var(--foreground))" }}>
+                    <label className="mt-1 flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs text-foreground">
                       <input type="hidden" name="allowAdminManagement" value="off" />
                       <input
                         type="checkbox"
@@ -921,95 +1038,122 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                     </label>
                   ) : null}
                   {!actorIsAdmin && (
-                    <div className="text-[11px]" style={{ color: "hsl(27 96% 61%)" }}>
+                    <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "hsl(27 96% 50%)" }}>
                       Nur der freigegebene Admin oder der Superadmin darf Rollen verändern.
                     </div>
                   )}
                 </div>
 
-                <div className="mt-4 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] p-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>Supabase-Verknüpfung</div>
-                      <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-                        {!editUser.roleMappingAvailable
-                          ? "Die Tabelle user_roles fehlt in Supabase. Bitte das Schema aus db/schema.sql ausführen."
-                          : editUser.hasDatabaseRole
-                            ? "Eintrag in user_roles vorhanden."
-                            : "Noch kein Eintrag in user_roles – bitte einmal anlegen, damit Clerk-IDs sauber verknüpft sind."}
-                      </p>
-                    </div>
-                    {editUser.roleMappingAvailable && editUser.hasDatabaseRole ? (
-                      <span className="inline-flex items-center rounded-full border border-green-700 px-3 py-1 text-[11px] text-green-300">
-                        Synchronisiert
-                      </span>
-                    ) : (
-                      <form action={ensureSupabaseUserAction} className="flex gap-2">
+                {/* Supabase-Verknüpfung: nur bei Bedarf als volle Box */}
+                {!editUserSynced ? (
+                  <div
+                    className="rounded-xl border p-3"
+                    style={{
+                      borderColor: "hsl(27 96% 61% / 0.4)",
+                      background: "hsl(27 96% 61% / 0.06)",
+                    }}
+                  >
+                    <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-start gap-2">
+                        <Database size={15} className="mt-0.5 shrink-0" style={{ color: "hsl(27 96% 50%)" }} aria-hidden />
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">Datenbank-Verknüpfung fehlt</div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {!editUser.roleMappingAvailable
+                              ? "Die Tabelle user_roles fehlt in Supabase. Bitte das Schema aus db/schema.sql ausführen."
+                              : "Noch kein Eintrag in user_roles – einmal anlegen, damit die Clerk-ID sauber verknüpft ist."}
+                          </p>
+                        </div>
+                      </div>
+                      <form action={ensureSupabaseUserAction} className="shrink-0">
                         <input type="hidden" name="userId" value={editUser.id} />
                         <button
-                          className="rounded-lg border border-blue-700 text-blue-200 text-xs font-medium px-3 py-2 hover:bg-blue-900/40"
+                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-secondary disabled:opacity-60 sm:w-auto"
                           disabled={!actorIsAdmin || !editUser.roleMappingAvailable}
                         >
-                          Supabase-Eintrag anlegen
+                          Eintrag anlegen
                         </button>
                       </form>
-                    )}
+                    </div>
                   </div>
-                </div>
+                ) : null}
 
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <a
-                    href={`/admin/users?${new URLSearchParams(
-                      Object.fromEntries(
-                        Object.entries({ q, role: roleFilter }).filter(([, v]) => (v ?? "") !== "" && v !== "all")
-                      )
-                    ).toString()}`}
-                    className="rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs font-medium px-3 py-2 hover:bg-[hsl(var(--secondary))]"
-                  >
-                    Abbrechen
-                  </a>
-                  <button
-                    className="brand-button rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-60"
-                    disabled={!actorIsAdmin}
-                  >
-                    Speichern
-                  </button>
+                {/* Footer-Aktionen */}
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  {editUserSynced ? (
+                    <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <Check size={12} style={{ color: "hsl(142 71% 45%)" }} aria-hidden />
+                      Mit Datenbank verknüpft
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={closeHref}
+                      className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
+                    >
+                      Abbrechen
+                    </a>
+                    <button
+                      className="brand-button rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-60"
+                      disabled={!actorIsAdmin}
+                    >
+                      Speichern
+                    </button>
+                  </div>
                 </div>
               </form>
 
-              <div className="border-t border-[hsl(var(--border))] pt-4">
-                <div className="text-sm font-semibold mb-2" style={{ color: "hsl(var(--foreground))" }}>E-Mail-Adressen</div>
-                <div className="grid gap-2">
+              {/* E-Mail-Adressen */}
+              <div className="border-t border-border pt-5">
+                <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Mail size={12} aria-hidden />
+                  E-Mail-Adressen
+                </div>
+                <div className="flex flex-col gap-2">
                   {editUser.emails.map((email) => {
                     const status = email.verification?.status ?? "unverified";
                     const verified = status === "verified";
                     return (
                       <div
                         key={email.id}
-                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] px-3 py-2 gap-2"
+                        className="flex flex-col gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
                       >
-                        <div className="text-xs" style={{ color: "hsl(var(--foreground))" }}>
-                          {email.email}
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="truncate text-xs font-medium text-foreground">{email.email}</span>
                           {email.isPrimary ? (
-                            <span className="ml-2 rounded px-2 py-0.5" style={{ border: "1px solid hsl(var(--primary) / 0.4)", color: "hsl(var(--primary))", background: "hsl(var(--primary) / 0.08)" }}>primary</span>
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                              style={{
+                                border: "1px solid hsl(var(--primary) / 0.4)",
+                                color: "hsl(var(--primary))",
+                                background: "hsl(var(--primary) / 0.1)",
+                              }}
+                            >
+                              <Star size={9} aria-hidden />
+                              Primär
+                            </span>
                           ) : null}
                           <span
-                            className="ml-2 rounded px-2 py-0.5"
-                            style={verified
-                              ? { border: "1px solid hsl(142 71% 45% / 0.4)", color: "hsl(142 71% 55%)", background: "hsl(142 71% 45% / 0.08)" }
-                              : { border: "1px solid hsl(27 96% 61% / 0.4)", color: "hsl(27 96% 61%)", background: "hsl(27 96% 61% / 0.08)" }
+                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                            style={
+                              verified
+                                ? { border: "1px solid hsl(142 71% 45% / 0.4)", color: "hsl(142 71% 45%)", background: "hsl(142 71% 45% / 0.1)" }
+                                : { border: "1px solid hsl(27 96% 61% / 0.4)", color: "hsl(27 96% 50%)", background: "hsl(27 96% 61% / 0.1)" }
                             }
                           >
-                            {verified ? "verified" : status}
+                            {verified ? "verifiziert" : status}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           {!email.isPrimary && verified && (
                             <form action={makePrimaryEmailAction}>
                               <input type="hidden" name="userId" value={editUser.id} />
                               <input type="hidden" name="emailId" value={email.id} />
-                              <button className="rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-[11px] px-2 py-1 hover:bg-[hsl(var(--secondary))]">
-                                Als primär setzen
+                              <button className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-secondary">
+                                <Star size={11} aria-hidden />
+                                Primär
                               </button>
                             </form>
                           )}
@@ -1017,8 +1161,12 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                             <form action={deleteEmailAction}>
                               <input type="hidden" name="userId" value={editUser.id} />
                               <input type="hidden" name="emailId" value={email.id} />
-                              <button className="rounded-lg border border-red-700 text-red-300 text-[11px] px-2 py-1 hover:bg-red-900/30">
-                                Löschen
+                              <button
+                                aria-label="E-Mail löschen"
+                                className="inline-flex items-center justify-center rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors"
+                                style={{ borderColor: "hsl(var(--destructive) / 0.4)", color: "hsl(var(--destructive))" }}
+                              >
+                                <Trash2 size={11} aria-hidden />
                               </button>
                             </form>
                           )}
@@ -1028,7 +1176,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                   })}
                 </div>
 
-                <form action={addEmailAction} className="mt-4 flex gap-2">
+                <form action={addEmailAction} className="mt-3 flex gap-2">
                   <input type="hidden" name="userId" value={editUser.id} />
                   <input
                     name="newEmail"
@@ -1036,7 +1184,8 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                     placeholder="Neue E-Mail-Adresse"
                     className="flex-1 input-field"
                   />
-                  <button className="rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] text-xs font-medium px-3 py-2 hover:bg-[hsl(var(--secondary))]">
+                  <button className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-secondary">
+                    <Plus size={13} aria-hidden />
                     Hinzufügen
                   </button>
                 </form>

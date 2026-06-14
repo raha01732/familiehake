@@ -59,6 +59,7 @@ export default function CalendarClientPage() {
   const [localEvents, setLocalEvents] = useState<CalendarEvent[]>([]);
   const [feedEvents, setFeedEvents] = useState<CalendarEvent[]>([]);
   const [feeds, setFeeds] = useState<CalendarFeed[]>([]);
+  const [subscribeToken, setSubscribeToken] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
   const [feedManagerOpen, setFeedManagerOpen] = useState(false);
 
@@ -98,6 +99,16 @@ export default function CalendarClientPage() {
     }
   }, []);
 
+  const loadSubscription = useCallback(async () => {
+    try {
+      const res = await fetch("/api/calendar/subscription", { cache: "no-store" });
+      const json = await res.json();
+      if (json?.ok) setSubscribeToken((json.token as string | null) ?? null);
+    } catch {
+      /* best effort */
+    }
+  }, []);
+
   const reloadFeedEvents = useCallback(() => {
     const { from, to } = getViewRange(view, cursor);
     loadFeedEvents(from, to);
@@ -107,8 +118,9 @@ export default function CalendarClientPage() {
     void (async () => {
       await loadLocal();
       await loadFeeds();
+      await loadSubscription();
     })();
-  }, [loadLocal, loadFeeds]);
+  }, [loadLocal, loadFeeds, loadSubscription]);
 
   // Externe Events bei Ansicht-/Zeitwechsel + im Intervall (hohe Aktualität).
   useEffect(() => {
@@ -213,6 +225,20 @@ export default function CalendarClientPage() {
     void loadFeeds();
     reloadFeedEvents();
   }, [loadFeeds, reloadFeedEvents]);
+
+  const handleGenerateSubscribe = useCallback(async () => {
+    const res = await fetch("/api/calendar/subscription", { method: "POST" });
+    const json = await res.json();
+    if (!json?.ok) throw new Error("subscribe generate failed");
+    setSubscribeToken(json.token as string);
+  }, []);
+
+  const handleRevokeSubscribe = useCallback(async () => {
+    const res = await fetch("/api/calendar/subscription", { method: "DELETE" });
+    const json = await res.json();
+    if (!json?.ok) throw new Error("subscribe revoke failed");
+    setSubscribeToken(null);
+  }, []);
 
   // ── View-Interaktionen ────────────────────────────────────────
   const onSelectEvent = useCallback((event: CalendarEvent) => {
@@ -411,11 +437,14 @@ export default function CalendarClientPage() {
       {feedManagerOpen && (
         <FeedManager
           feeds={feeds}
+          subscribeToken={subscribeToken}
           onClose={() => setFeedManagerOpen(false)}
           onAdd={handleFeedAdd}
           onUpdate={handleFeedUpdate}
           onDelete={handleFeedDelete}
           onRefresh={refreshFeeds}
+          onGenerateSubscribe={handleGenerateSubscribe}
+          onRevokeSubscribe={handleRevokeSubscribe}
         />
       )}
     </section>
