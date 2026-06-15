@@ -292,7 +292,7 @@ function renderHtml(
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f4f5;margin:0;padding:24px;color:#18181b">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:720px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7">
     <tr><td style="padding:24px">
-      <p style="margin:0 0 4px;color:#71717a;font-size:12px;letter-spacing:0.1em;text-transform:uppercase">FamilieHake • Admin</p>
+      <p style="margin:0 0 4px;color:#71717a;font-size:12px;letter-spacing:0.1em;text-transform:uppercase">Hearth • Admin</p>
       <h1 style="margin:0 0 4px;color:#18181b;font-size:20px">Cron-Status Tagesreport</h1>
       <p style="margin:0 0 20px;color:#52525b;font-size:12px">Fenster: letzte ${WINDOW_HOURS} Stunden (ab ${escapeHtml(formatDateBerlin(windowStart))})</p>
       ${banner}
@@ -316,7 +316,7 @@ function renderHtml(
 }
 
 function renderText(summaries: JobSummary[], windowStart: string, auditText: string): string {
-  const header = `FamilieHake – Cron-Status (letzte ${WINDOW_HOURS} Std, ab ${formatDateBerlin(windowStart)})\n`;
+  const header = `Hearth – Cron-Status (letzte ${WINDOW_HOURS} Std, ab ${formatDateBerlin(windowStart)})\n`;
   const cronBlock =
     summaries.length === 0
       ? `${header}\nKeine Läufe erfasst.`

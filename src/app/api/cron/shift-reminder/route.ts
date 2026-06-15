@@ -178,7 +178,7 @@ export async function GET(req: NextRequest) {
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f4f5;margin:0;padding:24px">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7">
     <tr><td style="padding:24px">
-      <p style="margin:0 0 4px;color:#71717a;font-size:12px;letter-spacing:0.1em;text-transform:uppercase">FamilieHake · Dienstplan</p>
+      <p style="margin:0 0 4px;color:#71717a;font-size:12px;letter-spacing:0.1em;text-transform:uppercase">Hearth · Dienstplan</p>
       <h1 style="margin:0 0 16px;color:#18181b;font-size:20px">Schicht-Erinnerung</h1>
       <p style="margin:0 0 12px;color:#333;line-height:1.55">Hallo ${escapeHtml(emp.name)},</p>
       <p style="margin:0 0 12px;color:#333;line-height:1.55">heute (${escapeHtml(dateLabel)}) hast du eine Schicht:</p>
@@ -205,7 +205,7 @@ export async function GET(req: NextRequest) {
       <p style="margin:24px 0 0">
         <a href="${escapeHtml(process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "")}/tools/dienstplaner" style="background:#0284c7;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;display:inline-block">Zum Dienstplaner</a>
       </p>
-      <p style="margin:24px 0 0;color:#a1a1aa;font-size:11px">Du erhältst diese E-Mail, weil du als Mitarbeiter im FamilieHake-Dienstplan verknüpft bist.</p>
+      <p style="margin:24px 0 0;color:#a1a1aa;font-size:11px">Du erhältst diese E-Mail, weil du als Mitarbeiter im Hearth-Dienstplan verknüpft bist.</p>
     </td></tr>
   </table>
 </body></html>`;

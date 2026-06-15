@@ -24,6 +24,16 @@ import {
   Plus,
   Database,
   Pencil,
+  Clock,
+  KeyRound,
+  Smartphone,
+  Monitor,
+  Ban,
+  Lock,
+  LogIn,
+  Activity,
+  Globe,
+  Fingerprint,
 } from "lucide-react";
 import {
   getClerkUserCached,
@@ -37,6 +47,7 @@ type SearchParams = {
   q?: string;
   role?: string;
   edit?: string;
+  new?: string;
   status?: string;
   message?: string;
   errorCode?: string;
@@ -59,6 +70,36 @@ type UserSummary = {
   lastName: string;
   roles: DbRole[];
   createdAt: number;
+  imageUrl: string;
+  hasImage: boolean;
+  lastSignInAt: number | null;
+  lastActiveAt: number | null;
+  banned: boolean;
+  locked: boolean;
+  twoFactorEnabled: boolean;
+};
+
+type ExternalAccountInfo = { provider: string; emailAddress: string | null };
+
+type SessionInfo = {
+  id: string;
+  status: string;
+  lastActiveAt: number | null;
+  expireAt: number | null;
+  browser: string;
+  device: string;
+  ipAddress: string | null;
+  city: string | null;
+  country: string | null;
+  isMobile: boolean;
+};
+
+type ActivityItem = {
+  id: string;
+  ts: number;
+  action: string;
+  direction: "actor" | "target";
+  detail: Record<string, unknown> | null;
 };
 
 type UserDetail = {
@@ -72,6 +113,19 @@ type UserDetail = {
   hasDatabaseRole: boolean;
   roleMappingAvailable: boolean;
   createdAt: number;
+  updatedAt: number | null;
+  imageUrl: string;
+  hasImage: boolean;
+  lastSignInAt: number | null;
+  lastActiveAt: number | null;
+  banned: boolean;
+  locked: boolean;
+  twoFactorEnabled: boolean;
+  passwordEnabled: boolean;
+  externalAccounts: ExternalAccountInfo[];
+  phoneNumbers: string[];
+  sessions: SessionInfo[];
+  activity: ActivityItem[];
 };
 
 async function fetchRoles(): Promise<DbRole[]> {
@@ -135,12 +189,70 @@ function formatDate(ts: number | undefined): string {
   }
 }
 
+// Echte (hierarchische) Rollen vs. Workspace-Freischaltungen.
+// "cinema" ist keine Rolle im eigentlichen Sinn, sondern schaltet den
+// Kino-Workspace frei. Alles, was keine Kernrolle ist, gilt als
+// Workspace-Freischaltung – so erscheinen künftige Workspace-Gates
+// automatisch in der gleichen Sektion.
+const CORE_ROLE_NAMES = new Set(["user", "admin", "superadmin"]);
+function isWorkspaceRole(role: DbRole): boolean {
+  return !role.isSuperAdmin && !CORE_ROLE_NAMES.has(role.name);
+}
+
 // Farbakzent je Rolle, abgeleitet aus der Theme-Palette (chart-Variablen).
 function roleAccent(role: DbRole): string {
   if (role.isSuperAdmin || role.name === "superadmin") return "262 83% 58%";
   if (role.name === "admin") return "221 83% 53%";
   if (role.name === "cinema") return "27 96% 61%";
   return "220 9% 46%";
+}
+
+const relFmt = new Intl.RelativeTimeFormat("de-DE", { numeric: "auto" });
+const REL_STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["year", 1000 * 60 * 60 * 24 * 365],
+  ["month", 1000 * 60 * 60 * 24 * 30],
+  ["day", 1000 * 60 * 60 * 24],
+  ["hour", 1000 * 60 * 60],
+  ["minute", 1000 * 60],
+];
+function formatRelative(ts: number | null | undefined): string {
+  if (!ts) return "—";
+  const diff = ts - Date.now();
+  const abs = Math.abs(diff);
+  if (abs < 60 * 1000) return "gerade eben";
+  for (const [unit, ms] of REL_STEPS) {
+    if (abs >= ms) return relFmt.format(Math.round(diff / ms), unit);
+  }
+  return "gerade eben";
+}
+
+// Audit-Action -> kurzes, lesbares deutsches Label.
+const ACTION_LABELS: Record<string, string> = {
+  login_success: "Anmeldung",
+  access_denied: "Zugriff verweigert",
+  role_change: "Rollen geändert",
+  email_add: "E-Mail hinzugefügt",
+  email_deleted: "E-Mail gelöscht",
+  primary_email_set: "Primäre E-Mail gesetzt",
+  email_verification_sent: "Verifizierung gesendet",
+  theme_preference_update: "Design angepasst",
+  dashboard_welcome_update: "Dashboard aktualisiert",
+};
+function prettyAction(action: string): string {
+  if (ACTION_LABELS[action]) return ACTION_LABELS[action];
+  // Fallback: snake_case humanisieren
+  const cleaned = action.replace(/_/g, " ").trim();
+  return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : "Aktion";
+}
+
+function providerLabel(provider: string): string {
+  const p = provider.toLowerCase();
+  if (p.includes("google")) return "Google";
+  if (p.includes("github")) return "GitHub";
+  if (p.includes("microsoft")) return "Microsoft";
+  if (p.includes("apple")) return "Apple";
+  if (p.includes("facebook")) return "Facebook";
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
 async function fetchAssignments(userIds: string[], rolesCatalog: DbRole[]): Promise<Record<string, DbRole[]>> {
@@ -199,13 +311,89 @@ async function getUsers(rolesCatalog: DbRole[], limit = 100): Promise<UserSummar
     lastName: u.lastName ?? "",
     roles: assignments[u.id] ?? ensureDefaultRoles(rolesCatalog, undefined),
     createdAt: u.createdAt ?? Date.now(),
+    imageUrl: u.imageUrl ?? "",
+    hasImage: Boolean(u.hasImage),
+    lastSignInAt: u.lastSignInAt ?? null,
+    lastActiveAt: (u as { lastActiveAt?: number | null }).lastActiveAt ?? null,
+    banned: Boolean((u as { banned?: boolean }).banned),
+    locked: Boolean((u as { locked?: boolean }).locked),
+    twoFactorEnabled: Boolean((u as { twoFactorEnabled?: boolean }).twoFactorEnabled),
   }));
 }
 
+async function loadUserSessions(userId: string): Promise<SessionInfo[]> {
+  try {
+    const client = await clerkClient();
+    const raw: any = await client.sessions.getSessionList({ userId });
+    const list: any[] = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+    return list
+      .map((s: any): SessionInfo => {
+        const act = s.latestActivity ?? {};
+        const browser = [act.browserName, act.browserVersion].filter(Boolean).join(" ").trim();
+        return {
+          id: s.id,
+          status: s.status ?? "unknown",
+          lastActiveAt: s.lastActiveAt ?? null,
+          expireAt: s.expireAt ?? null,
+          browser: browser || "Unbekannter Browser",
+          device: act.deviceType || (act.isMobile ? "Mobil" : "Desktop"),
+          ipAddress: act.ipAddress ?? null,
+          city: act.city ?? null,
+          country: act.country ?? null,
+          isMobile: Boolean(act.isMobile),
+        };
+      })
+      .sort((a, b) => (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0));
+  } catch (e) {
+    console.error("loadUserSessions error:", e);
+    return [];
+  }
+}
+
+async function loadUserActivity(userId: string): Promise<ActivityItem[]> {
+  try {
+    const sb = createAdminClient();
+    const { data, error } = await sb
+      .from("audit_events")
+      .select("ts, action, actor_user_id, target, detail")
+      .or(`actor_user_id.eq.${userId},target.eq.${userId}`)
+      .order("ts", { ascending: false })
+      .limit(12);
+    if (error) {
+      // Tabelle fehlt o. Ä. – Feed bleibt einfach leer
+      return [];
+    }
+    return (data ?? []).map((row: any, i: number) => {
+      const ts = row.ts ? new Date(row.ts).getTime() : Date.now();
+      return {
+        id: `${ts}-${row.action}-${i}`,
+        ts,
+        action: String(row.action ?? ""),
+        direction: row.actor_user_id === userId ? "actor" : "target",
+        detail: (row.detail as Record<string, unknown> | null) ?? null,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserDetail | null> {
-  const u = await getClerkUserCached(userId);
-  if (!u) return null;
-  const assignments = await fetchAssignments([userId], rolesCatalog);
+  const client = await clerkClient();
+  let u: Awaited<ReturnType<typeof client.users.getUser>>;
+  try {
+    u = await client.users.getUser(userId);
+  } catch (e) {
+    console.error("getOneUser getUser error:", e);
+    return null;
+  }
+
+  const [assignments, sessions, activity] = await Promise.all([
+    fetchAssignments([userId], rolesCatalog),
+    loadUserSessions(userId),
+    loadUserActivity(userId),
+  ]);
+
   const primaryId = u.primaryEmailAddressId ?? undefined;
   const sb = createAdminClient();
   const { data: assignmentRows, error: assignmentError } = await sb
@@ -223,6 +411,13 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
     verification: (e.verification as { status?: string } | null) ?? null,
   }));
 
+  const externalAccounts: ExternalAccountInfo[] = (u.externalAccounts ?? []).map((a: any) => ({
+    provider: String(a.provider ?? "").replace(/^oauth_/, ""),
+    emailAddress: a.emailAddress ?? null,
+  }));
+
+  const phoneNumbers: string[] = (u.phoneNumbers ?? []).map((p: any) => p.phoneNumber).filter(Boolean);
+
   return {
     id: u.id,
     emails,
@@ -233,7 +428,20 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
     allowAdminManagement: Boolean((u.publicMetadata as any)?.allowAdminManagement),
     hasDatabaseRole,
     roleMappingAvailable,
-    createdAt: (u as { createdAt?: number }).createdAt ?? Date.now(),
+    createdAt: u.createdAt ?? Date.now(),
+    updatedAt: u.updatedAt ?? null,
+    imageUrl: u.imageUrl ?? "",
+    hasImage: Boolean(u.hasImage),
+    lastSignInAt: u.lastSignInAt ?? null,
+    lastActiveAt: (u as { lastActiveAt?: number | null }).lastActiveAt ?? null,
+    banned: Boolean((u as { banned?: boolean }).banned),
+    locked: Boolean((u as { locked?: boolean }).locked),
+    twoFactorEnabled: Boolean((u as { twoFactorEnabled?: boolean }).twoFactorEnabled),
+    passwordEnabled: Boolean((u as { passwordEnabled?: boolean }).passwordEnabled),
+    externalAccounts,
+    phoneNumbers,
+    sessions,
+    activity,
   };
 }
 
@@ -598,6 +806,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
   const q = (sp?.q ?? "").trim().toLowerCase();
   const roleFilter = (sp?.role ?? "all").toLowerCase();
   const editId = sp?.edit;
+  const newOpen = (sp?.new ?? "") === "1";
   const status = sp?.status === "error" ? "error" : sp?.status === "success" ? "success" : null;
   const statusMessage = (sp?.message ?? "").trim();
   const errorCode = (sp?.errorCode ?? "").trim();
@@ -638,7 +847,14 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
       Object.entries({ q, role: roleFilter }).filter(([, v]) => (v ?? "") !== "" && v !== "all")
     )
   ).toString()}`.replace(/\?$/, "");
+  const newHref = `/admin/users?${new URLSearchParams(
+    Object.fromEntries(
+      Object.entries({ q, role: roleFilter, new: "1" }).filter(([, v]) => (v ?? "") !== "" && v !== "all")
+    )
+  ).toString()}`;
   const editUserSynced = Boolean(editUser?.roleMappingAvailable && editUser?.hasDatabaseRole);
+  const coreRoles = rolesCatalog.filter((r) => !isWorkspaceRole(r));
+  const workspaceRoles = rolesCatalog.filter((r) => isWorkspaceRole(r));
 
   return (
     <RoleGate routeKey="admin/users">
@@ -667,21 +883,32 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
               </p>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-2xl font-bold tabular-nums text-foreground">{counts.total}</span>
-              <span className="text-xs text-muted-foreground">Nutzer</span>
-            </div>
-            <div className="flex flex-wrap justify-end gap-1.5">
-              {Object.entries(counts.byRole).map(([roleName, amount]) => (
-                <span
-                  key={roleName}
-                  className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-                >
-                  <span className="font-semibold text-foreground tabular-nums">{amount}</span>
-                  {roleName}
-                </span>
-              ))}
+          <div className="flex flex-col items-end gap-3">
+            {actorIsAdmin && (
+              <a
+                href={newHref}
+                className="brand-button inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold"
+              >
+                <UserPlus size={15} aria-hidden />
+                Neuer Benutzer
+              </a>
+            )}
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-2xl font-bold tabular-nums text-foreground">{counts.total}</span>
+                <span className="text-xs text-muted-foreground">Nutzer</span>
+              </div>
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {Object.entries(counts.byRole).map(([roleName, amount]) => (
+                  <span
+                    key={roleName}
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  >
+                    <span className="font-semibold text-foreground tabular-nums">{amount}</span>
+                    {roleName}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -716,7 +943,8 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                 name="q"
                 defaultValue={q}
                 placeholder="z. B. ralf, @username, name@example.com"
-                className="input-field pl-9"
+                className="input-field"
+                style={{ paddingLeft: "2.25rem" }}
               />
             </div>
           </div>
@@ -750,100 +978,15 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
           </div>
         </form>
 
-        <form action={createUserAction} className="feature-card p-4 grid gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <UserPlus size={16} aria-hidden />
-              </span>
-              <div>
-                <h3 className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
-                  Neuen Benutzer anlegen
-                </h3>
-                <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-                  Erstellt einen Clerk-Benutzer und weist automatisch die Standardrolle „User" zu.
-                </p>
-              </div>
-            </div>
-            <span className="shrink-0 rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-              Nur Admins
-            </span>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>E-Mail</label>
-              <input
-                name="email"
-                type="email"
-                required
-                placeholder="name@example.com"
-                disabled={!actorIsAdmin}
-                className="mt-1 input-field disabled:opacity-60"
-              />
-            </div>
-            <div>
-              <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Benutzername</label>
-              <input
-                name="username"
-                placeholder="optional"
-                disabled={!actorIsAdmin}
-                className="mt-1 input-field disabled:opacity-60"
-              />
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Vorname</label>
-              <input
-                name="firstName"
-                placeholder="optional"
-                disabled={!actorIsAdmin}
-                className="mt-1 input-field disabled:opacity-60"
-              />
-            </div>
-            <div>
-              <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Nachname</label>
-              <input
-                name="lastName"
-                placeholder="optional"
-                disabled={!actorIsAdmin}
-                className="mt-1 input-field disabled:opacity-60"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>Temporäres Passwort (optional)</label>
-            <input
-              name="password"
-              type="password"
-              placeholder="optional"
-              disabled={!actorIsAdmin}
-              className="mt-1 input-field disabled:opacity-60"
-            />
-          </div>
-          {!actorIsAdmin && (
-            <div className="text-[11px]" style={{ color: "hsl(27 96% 61%)" }}>Nur Admins dürfen neue Benutzer anlegen.</div>
-          )}
-          <div className="flex justify-end">
-            <button
-              className="brand-button inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-60"
-              disabled={!actorIsAdmin}
-            >
-              <UserPlus size={14} aria-hidden />
-              Benutzer anlegen
-            </button>
-          </div>
-        </form>
-
         <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-border bg-secondary/60 text-[11px] uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Benutzer</th>
-                  <th className="px-4 py-3 font-semibold">Benutzername</th>
+                  <th className="hidden px-4 py-3 font-semibold md:table-cell">Benutzername</th>
                   <th className="px-4 py-3 font-semibold">Rollen</th>
-                  <th className="hidden px-4 py-3 font-semibold lg:table-cell">Mitglied seit</th>
+                  <th className="hidden px-4 py-3 font-semibold lg:table-cell">Zuletzt aktiv</th>
                   <th className="px-4 py-3 text-right font-semibold">Aktion</th>
                 </tr>
               </thead>
@@ -853,31 +996,54 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                     <tr key={user.id} className="group transition-colors hover:bg-secondary/40">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <span
-                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-primary-foreground ring-1 ring-inset ring-white/10"
-                            style={{
-                              backgroundImage:
-                                "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))",
-                            }}
-                            aria-hidden
-                          >
-                            {getInitials(user.firstName, user.lastName, user.email)}
-                          </span>
+                          {user.hasImage && user.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={user.imageUrl}
+                              alt=""
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-inset ring-border"
+                            />
+                          ) : (
+                            <span
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-primary-foreground ring-1 ring-inset ring-white/10"
+                              style={{
+                                backgroundImage:
+                                  "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))",
+                              }}
+                              aria-hidden
+                            >
+                              {getInitials(user.firstName, user.lastName, user.email)}
+                            </span>
+                          )}
                           <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-foreground">
-                              {getDisplayName(user.firstName, user.lastName, user.username, user.email)}
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-medium text-foreground">
+                                {getDisplayName(user.firstName, user.lastName, user.username, user.email)}
+                              </span>
+                              {user.banned && (
+                                <Ban size={13} style={{ color: "hsl(var(--destructive))" }} aria-label="Gebannt" />
+                              )}
+                              {user.locked && !user.banned && (
+                                <Lock size={13} style={{ color: "hsl(27 96% 50%)" }} aria-label="Gesperrt" />
+                              )}
+                              {user.twoFactorEnabled && (
+                                <ShieldCheck size={13} style={{ color: "hsl(142 71% 45%)" }} aria-label="2FA aktiv" />
+                              )}
                             </div>
                             <div className="truncate text-xs text-muted-foreground">{user.email || "—"}</div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                      <td className="hidden px-4 py-3 text-xs text-muted-foreground md:table-cell">
                         {user.username ? `@${user.username}` : "—"}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1.5">
                           {user.roles.map((role) => {
                             const accent = roleAccent(role);
+                            const workspace = isWorkspaceRole(role);
                             return (
                               <span
                                 key={role.id}
@@ -887,10 +1053,13 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                                   color: `hsl(${accent})`,
                                   border: `1px solid hsl(${accent} / 0.25)`,
                                 }}
+                                title={workspace ? "Workspace-Freischaltung" : "Rolle"}
                               >
-                                {(role.isSuperAdmin || role.name === "admin") && (
+                                {workspace ? (
+                                  <KeyRound size={10} aria-hidden />
+                                ) : (role.isSuperAdmin || role.name === "admin") ? (
                                   <ShieldCheck size={10} aria-hidden />
-                                )}
+                                ) : null}
                                 {role.label}
                               </span>
                             );
@@ -898,7 +1067,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                         </div>
                       </td>
                       <td className="hidden px-4 py-3 text-xs text-muted-foreground lg:table-cell">
-                        {formatDate(user.createdAt)}
+                        {formatRelative(user.lastActiveAt ?? user.lastSignInAt)}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link
@@ -945,20 +1114,42 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
           <div className="card relative my-4 flex w-full max-w-lg flex-col overflow-hidden p-0 shadow-2xl sm:max-h-[calc(100vh-2rem)]">
             {/* Header mit Identität */}
             <div className="flex items-center gap-3 border-b border-border px-5 py-4">
-              <span
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground ring-1 ring-inset ring-white/10"
-                style={{ backgroundImage: "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))" }}
-                aria-hidden
-              >
-                {getInitials(editUser.firstName, editUser.lastName, editUser.emails[0]?.email ?? "")}
-              </span>
+              {editUser.hasImage && editUser.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={editUser.imageUrl}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  className="h-11 w-11 shrink-0 rounded-full object-cover ring-1 ring-inset ring-border"
+                />
+              ) : (
+                <span
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground ring-1 ring-inset ring-white/10"
+                  style={{ backgroundImage: "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))" }}
+                  aria-hidden
+                >
+                  {getInitials(editUser.firstName, editUser.lastName, editUser.emails[0]?.email ?? "")}
+                </span>
+              )}
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold text-foreground">
-                  {getDisplayName(
-                    editUser.firstName,
-                    editUser.lastName,
-                    editUser.username,
-                    editUser.emails[0]?.email ?? ""
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-sm font-semibold text-foreground">
+                    {getDisplayName(
+                      editUser.firstName,
+                      editUser.lastName,
+                      editUser.username,
+                      editUser.emails[0]?.email ?? ""
+                    )}
+                  </span>
+                  {editUser.banned && (
+                    <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold" style={{ background: "hsl(var(--destructive) / 0.12)", color: "hsl(var(--destructive))" }}>
+                      <Ban size={9} aria-hidden /> Gebannt
+                    </span>
+                  )}
+                  {editUser.locked && !editUser.banned && (
+                    <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold" style={{ background: "hsl(27 96% 61% / 0.12)", color: "hsl(27 96% 50%)" }}>
+                      <Lock size={9} aria-hidden /> Gesperrt
+                    </span>
                   )}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
@@ -997,14 +1188,14 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                   </div>
                 </div>
 
-                {/* Rollen als Toggle-Chips */}
+                {/* Rollen (hierarchisch) */}
                 <div className="flex flex-col gap-2.5">
                   <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     <Shield size={12} aria-hidden />
                     Rollen
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {rolesCatalog.map((role) => {
+                    {coreRoles.map((role) => {
                       const checked = editUser.roles.some((r) => r.id === role.id);
                       const disabled = (role.isSuperAdmin && !actorIsSuper) || !actorIsAdmin;
                       return (
@@ -1043,6 +1234,48 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                     </div>
                   )}
                 </div>
+
+                {/* Workspace-Freischaltungen (keine Rollen, sondern Zugänge je Bereich) */}
+                {workspaceRoles.length > 0 && (
+                  <div className="flex flex-col gap-2.5">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <KeyRound size={12} aria-hidden />
+                      Workspace-Zugänge
+                    </div>
+                    <p className="-mt-1 text-[11px] text-muted-foreground">
+                      Schaltet einzelne Bereiche frei – unabhängig von der Rolle.
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {workspaceRoles.map((role) => {
+                        const checked = editUser.roles.some((r) => r.id === role.id);
+                        const disabled = !actorIsAdmin;
+                        return (
+                          <label
+                            key={role.id}
+                            className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-secondary/40 px-3 py-2.5"
+                          >
+                            <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                              <KeyRound size={14} className="text-muted-foreground" aria-hidden />
+                              {role.label}
+                            </span>
+                            <input
+                              type="checkbox"
+                              name="roles"
+                              value={role.id}
+                              defaultChecked={checked}
+                              disabled={disabled}
+                              className="peer sr-only"
+                            />
+                            {/* Switch-Track */}
+                            <span className="relative h-5 w-9 shrink-0 rounded-full bg-muted transition-colors peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-ring/40 peer-disabled:opacity-40 peer-checked:[&>span]:translate-x-4">
+                              <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform" aria-hidden />
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Supabase-Verknüpfung: nur bei Bedarf als volle Box */}
                 {!editUserSynced ? (
@@ -1190,7 +1423,261 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                   </button>
                 </form>
               </div>
+
+              {/* Konto & Sicherheit */}
+              <div className="border-t border-border pt-5">
+                <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Fingerprint size={12} aria-hidden />
+                  Konto &amp; Sicherheit
+                </div>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+                  <div>
+                    <dt className="text-muted-foreground">Letzter Login</dt>
+                    <dd
+                      className="mt-0.5 flex items-center gap-1 font-medium text-foreground"
+                      title={editUser.lastSignInAt ? new Date(editUser.lastSignInAt).toLocaleString("de-DE") : undefined}
+                    >
+                      <LogIn size={11} className="text-muted-foreground" aria-hidden />
+                      {formatRelative(editUser.lastSignInAt)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Zuletzt aktiv</dt>
+                    <dd className="mt-0.5 flex items-center gap-1 font-medium text-foreground">
+                      <Clock size={11} className="text-muted-foreground" aria-hidden />
+                      {formatRelative(editUser.lastActiveAt)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Zwei-Faktor</dt>
+                    <dd className="mt-1">
+                      {editUser.twoFactorEnabled ? (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                          style={{ background: "hsl(142 71% 45% / 0.1)", color: "hsl(142 71% 45%)", border: "1px solid hsl(142 71% 45% / 0.25)" }}
+                        >
+                          <ShieldCheck size={10} aria-hidden /> Aktiv
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          Inaktiv
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Telefon</dt>
+                    <dd className="mt-0.5 font-medium text-foreground">
+                      {editUser.phoneNumbers.length > 0 ? editUser.phoneNumbers.join(", ") : "—"}
+                    </dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="text-muted-foreground">Login-Methode</dt>
+                    <dd className="mt-1 flex flex-wrap gap-1.5">
+                      {editUser.passwordEnabled && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-foreground">
+                          <KeyRound size={10} aria-hidden /> Passwort
+                        </span>
+                      )}
+                      {editUser.externalAccounts.map((a, i) => (
+                        <span
+                          key={`${a.provider}-${i}`}
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+                          style={{ background: "hsl(var(--primary) / 0.08)", color: "hsl(var(--primary))", border: "1px solid hsl(var(--primary) / 0.2)" }}
+                          title={a.emailAddress ?? undefined}
+                        >
+                          <Globe size={10} aria-hidden /> {providerLabel(a.provider)}
+                        </span>
+                      ))}
+                      {!editUser.passwordEnabled && editUser.externalAccounts.length === 0 && (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              {/* Aktive Sitzungen */}
+              <div className="border-t border-border pt-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Monitor size={12} aria-hidden />
+                    Aktive Sitzungen
+                  </div>
+                  {editUser.sessions.length > 0 && (
+                    <span className="rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {editUser.sessions.length}
+                    </span>
+                  )}
+                </div>
+                {editUser.sessions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Keine aktiven Sitzungen.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {editUser.sessions.slice(0, 5).map((s) => {
+                      const location = [s.city, s.country].filter(Boolean).join(", ");
+                      return (
+                        <div key={s.id} className="flex items-center gap-3 rounded-xl border border-border bg-secondary/40 px-3 py-2.5">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden>
+                            {s.isMobile ? <Smartphone size={14} /> : <Monitor size={14} />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-xs font-medium text-foreground">{s.browser}</div>
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              {location || "Ort unbekannt"}
+                              {s.ipAddress ? ` · ${s.ipAddress}` : ""}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className="text-[11px] text-muted-foreground">{formatRelative(s.lastActiveAt)}</div>
+                            {s.status === "active" && (
+                              <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium" style={{ color: "hsl(142 71% 45%)" }}>
+                                <span className="h-1.5 w-1.5 rounded-full" style={{ background: "hsl(142 71% 45%)" }} aria-hidden />
+                                aktiv
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Letzte Aktivitäten */}
+              <div className="border-t border-border pt-5">
+                <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Activity size={12} aria-hidden />
+                  Letzte Aktivitäten
+                </div>
+                {editUser.activity.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Keine Aktivitäten erfasst.</p>
+                ) : (
+                  <ul className="flex flex-col gap-2.5">
+                    {editUser.activity.map((a) => (
+                      <li key={a.id} className="flex items-start gap-2.5 text-xs">
+                        <span
+                          className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{ background: a.direction === "actor" ? "hsl(var(--primary))" : "hsl(27 96% 50%)" }}
+                          aria-hidden
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-foreground">{prettyAction(a.action)}</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {a.direction === "actor" ? "durch diesen Nutzer" : "an diesem Konto"} · {formatRelative(a.ts)}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {newOpen ? (
+        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto p-4 sm:items-center">
+          <a href={closeHref} aria-label="Schließen" className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+
+          <div className="card relative my-4 flex w-full max-w-lg flex-col overflow-hidden p-0 shadow-2xl sm:max-h-[calc(100vh-2rem)]">
+            <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary" aria-hidden>
+                <UserPlus size={18} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-foreground">Neuen Benutzer anlegen</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  Erstellt einen Clerk-Benutzer mit Standardrolle „User".
+                </div>
+              </div>
+              <a
+                href={closeHref}
+                aria-label="Schließen"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <X size={15} aria-hidden />
+              </a>
+            </div>
+
+            <form action={createUserAction} className="flex flex-col gap-4 overflow-y-auto px-5 py-5">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">E-Mail</label>
+                <input
+                  name="email"
+                  type="email"
+                  required
+                  placeholder="name@example.com"
+                  disabled={!actorIsAdmin}
+                  className="mt-1 input-field disabled:opacity-60"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Vorname</label>
+                  <input
+                    name="firstName"
+                    placeholder="optional"
+                    disabled={!actorIsAdmin}
+                    className="mt-1 input-field disabled:opacity-60"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Nachname</label>
+                  <input
+                    name="lastName"
+                    placeholder="optional"
+                    disabled={!actorIsAdmin}
+                    className="mt-1 input-field disabled:opacity-60"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Benutzername</label>
+                <input
+                  name="username"
+                  placeholder="optional"
+                  disabled={!actorIsAdmin}
+                  className="mt-1 input-field disabled:opacity-60"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Temporäres Passwort (optional)</label>
+                <input
+                  name="password"
+                  type="password"
+                  placeholder="optional"
+                  disabled={!actorIsAdmin}
+                  className="mt-1 input-field disabled:opacity-60"
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Leer lassen, damit der Benutzer das Passwort selbst per Einladung/Reset festlegt.
+                </p>
+              </div>
+
+              {!actorIsAdmin && (
+                <div className="text-[11px]" style={{ color: "hsl(27 96% 50%)" }}>
+                  Nur Admins dürfen neue Benutzer anlegen.
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <a
+                  href={closeHref}
+                  className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
+                >
+                  Abbrechen
+                </a>
+                <button
+                  className="brand-button inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-60"
+                  disabled={!actorIsAdmin}
+                >
+                  <UserPlus size={14} aria-hidden />
+                  Benutzer anlegen
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

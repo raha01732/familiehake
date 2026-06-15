@@ -6,7 +6,7 @@ type SendEmailInput = {
   subject: string;
   html?: string;
   text?: string;
-  /** Absender überschreiben (z.B. "FamilieHake <info@domain>"). Fällt sonst
+  /** Absender überschreiben (z.B. "Hearth <info@domain>"). Fällt sonst
    *  auf NOTIFICATION_EMAIL_FROM zurück. Die Domain muss in Resend verifiziert sein. */
   from?: string;
 };

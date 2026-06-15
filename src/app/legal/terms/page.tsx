@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import React from "react";
 
 export const metadata: Metadata = {
-  title: "Nutzungsbedingungen – FamilieHake",
-  description: "Nutzungsbedingungen für die private FamilieHake-Plattform.",
+  title: "Nutzungsbedingungen – Hearth",
+  description: "Nutzungsbedingungen für die private Hearth-Plattform.",
 };
 
 const LAST_UPDATED = "16. April 2026";
@@ -44,7 +44,7 @@ export default function TermsPage() {
       <Prose>
         <Section title="1. Geltungsbereich">
           <p>
-            Diese Nutzungsbedingungen gelten für die Nutzung der Plattform <strong>FamilieHake</strong>{" "}
+            Diese Nutzungsbedingungen gelten für die Nutzung der Plattform <strong>Hearth</strong>{" "}
             (nachfolgend „Plattform"), die ausschließlich für den privaten, nicht-kommerziellen
             Gebrauch durch eingeladene Personen (Familie, enge Vertraute) betrieben wird.
           </p>

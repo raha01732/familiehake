@@ -185,7 +185,7 @@ function Brand() {
       <span className="brand-badge grid h-9 w-9 flex-shrink-0 place-items-center rounded-2xl text-sm font-bold shadow-md transition group-hover:scale-105">
         FH
       </span>
-      <span className="hidden sm:block">FamilyHake</span>
+      <span className="hidden sm:block">Hearth</span>
     </Link>
   );
 }

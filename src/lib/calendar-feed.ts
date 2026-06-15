@@ -69,7 +69,7 @@ export async function fetchIcsCached(url: string): Promise<FeedFetchResult> {
       redirect: "follow",
       cache: "no-store",
       headers: {
-        "User-Agent": "FamilyHake-Calendar/1.0",
+        "User-Agent": "Hearth-Calendar/1.0",
         Accept: "text/calendar, text/plain, */*",
       },
     });

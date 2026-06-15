@@ -62,7 +62,7 @@ export default function NotificationSettings() {
           Benachrichtigungen
         </h1>
         <p className="text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
-          Steuere, wie du über Ereignisse in FamilieHake informiert wirst.
+          Steuere, wie du über Ereignisse in Hearth informiert wirst.
         </p>
       </div>
 

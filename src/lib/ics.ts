@@ -12,10 +12,10 @@ export function toICS(events: Array<{
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//FamilyHake//Calendar//DE",
+    "PRODID:-//Hearth//Calendar//DE",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    "X-WR-CALNAME:FamilyHake",
+    "X-WR-CALNAME:Hearth",
   ];
   const stamp = dt(new Date());
   for (const e of events) {

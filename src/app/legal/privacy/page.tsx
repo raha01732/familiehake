@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import React from "react";
 
 export const metadata: Metadata = {
-  title: "Datenschutzerklärung – FamilieHake",
-  description: "Datenschutzerklärung für die private FamilieHake-Plattform.",
+  title: "Datenschutzerklärung – Hearth",
+  description: "Datenschutzerklärung für die private Hearth-Plattform.",
 };
 
 const LAST_UPDATED = "16. April 2026";
@@ -45,7 +45,7 @@ export default function PrivacyPage() {
         <Section title="1. Verantwortlicher">
           <p>
             Verantwortlicher im Sinne der DSGVO ist der Betreiber der Plattform{" "}
-            <strong>FamilieHake</strong>. Bei Fragen zum Datenschutz wenden Sie sich bitte direkt
+            <strong>Hearth</strong>. Bei Fragen zum Datenschutz wenden Sie sich bitte direkt
             an den Betreiber über die bekannten Kontaktwege.
           </p>
         </Section>

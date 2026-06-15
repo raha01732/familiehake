@@ -15,7 +15,7 @@ import { PreviewTopBanner } from "@/components/PreviewNotice";
 
 export function generateMetadata(): Metadata {
   return {
-    title: "FamilyHake",
+    title: "Hearth",
     description: "Private Tools",
     other: {
       ...Sentry.getTraceData(),
@@ -86,7 +86,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           color: "hsl(var(--muted-foreground))",
         }}
       >
-        <span>© {new Date().getFullYear()} FamilieHake</span>
+        <span>© {new Date().getFullYear()} Hearth</span>
         <Link
           href="/legal/terms"
           style={{ color: "hsl(var(--muted-foreground))", textDecoration: "none" }}

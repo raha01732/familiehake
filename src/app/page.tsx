@@ -33,7 +33,7 @@ export default async function HomePage() {
             className="text-[11px] font-semibold uppercase tracking-[0.2em]"
             style={{ color: "hsl(var(--primary))" }}
           >
-            FamilyHake Private Workspace
+            Hearth Private Workspace
           </span>
         </div>
 
