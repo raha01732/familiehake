@@ -20,6 +20,9 @@ import {
   assignPlannedSlotAction,
 } from "./actions";
 import MonthlyGrid from "./components/MonthlyGrid";
+import ToolMaintenanceNotice from "@/components/ToolMaintenanceNotice";
+import { getSessionInfo } from "@/lib/auth";
+import { getToolGate } from "@/lib/workspace-locks";
 import type {
   Employee,
   EmploymentHourDefault,
@@ -42,6 +45,11 @@ type PageProps = {
 
 export default async function DienstplanerPage({ searchParams }: PageProps) {
   const params = await searchParams;
+  const session = await getSessionInfo();
+  const gate = await getToolGate("tools/dienstplaner", session);
+  if (gate.blocked) {
+    return <ToolMaintenanceNotice message={gate.message} />;
+  }
   const rawMonth = params.month ?? "";
   const month = /^\d{4}-\d{2}$/.test(rawMonth) ? rawMonth : getCurrentMonth();
   const [y, m] = month.split("-").map(Number);

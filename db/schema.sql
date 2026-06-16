@@ -1740,3 +1740,88 @@ on conflict (route, role) do update
 insert into tool_status (route_key, enabled, maintenance_message)
 values ('tools/auslassplanung', true, null)
 on conflict (route_key) do nothing;
+
+-- ─────────────────────────────────────────────
+-- Workspaces: Pro-Benutzer-Freischaltung + Pro-Rolle-Sperren
+-- ─────────────────────────────────────────────
+
+-- Workspace-Rollen (cinema existiert bereits weiter oben).
+insert into roles (name, label, rank, is_superadmin)
+values
+  ('personal', 'Personal-Workspace', 10, false),
+  ('family',   'Family-Bereich',     15, false)
+on conflict (name) do update
+  set label = excluded.label,
+      updated_at = now();
+
+-- Workspace-Routen an ihre Freischaltungs-Rolle binden:
+--   unlockRole + admin = Zugriff, user = kein Zugriff (Superadmin wird im Code
+--   ohnehin global durchgelassen). Damit sind Personal/Family/Kino künftig pro
+--   Benutzer freischaltbar – analog zum bisherigen Kino-Workspace.
+-- Hinweis: tools/storage & tools/system bleiben bewusst admin-only und werden
+--   hier NICHT der personal-Rolle zugeordnet.
+with ws_access(route, role, allowed) as (
+  values
+    -- Personal-Workspace
+    ('tools/files',          'personal', true),
+    ('tools/journal',        'personal', true),
+    ('tools/calender',       'personal', true),
+    ('tools/messages',       'personal', true),
+    ('tools/finance',        'personal', true),
+    ('tools/vault',          'personal', true),
+    ('tools/nutrition',      'personal', true),
+    ('tools/files',          'user', false),
+    ('tools/journal',        'user', false),
+    ('tools/calender',       'user', false),
+    ('tools/messages',       'user', false),
+    ('tools/finance',        'user', false),
+    ('tools/vault',          'user', false),
+    ('tools/nutrition',      'user', false),
+    ('tools/files',          'admin', true),
+    ('tools/journal',        'admin', true),
+    ('tools/calender',       'admin', true),
+    ('tools/messages',       'admin', true),
+    ('tools/finance',        'admin', true),
+    ('tools/vault',          'admin', true),
+    ('tools/nutrition',      'admin', true),
+    -- Family-Bereich
+    ('tools/tasks',          'family', true),
+    ('tools/tasks',          'user', false),
+    ('tools/tasks',          'admin', true),
+    -- Kino-Workspace
+    ('tools/dispoplaner',    'cinema', true),
+    ('tools/auslassplanung', 'cinema', true),
+    ('tools/dienstplaner',   'cinema', true),
+    ('tools/dispoplaner',    'user', false),
+    ('tools/auslassplanung', 'user', false),
+    ('tools/dienstplaner',   'user', false),
+    ('tools/dispoplaner',    'admin', true),
+    ('tools/auslassplanung', 'admin', true),
+    ('tools/dienstplaner',   'admin', true)
+)
+insert into access_rules (route, role, allowed)
+select route, role, allowed from ws_access
+on conflict (route, role) do update
+  set allowed = excluded.allowed,
+      updated_at = now();
+
+-- Bestandsnutzer behalten ihren bisherigen Zugriff: jeder Nutzer mit Rolle
+-- 'user' bekommt zusätzlich 'personal' und 'family'. (Kino bleibt bewusst
+-- selektiv und wird NICHT automatisch verteilt.)
+insert into user_roles (user_id, role_id)
+select ur.user_id, wr.id
+from user_roles ur
+join roles base on base.id = ur.role_id and base.name = 'user'
+join roles wr on wr.name in ('personal', 'family')
+on conflict (user_id, role_id) do nothing;
+
+-- Pro-Rolle-Sperren für Workspaces: Tool bleibt sichtbar, der Aufruf zeigt
+-- nur einen Hinweis. workspace_key entspricht den Keys aus src/lib/workspaces.ts.
+create table if not exists workspace_locks (
+  workspace_key text not null,
+  role text not null,
+  locked boolean not null default false,
+  message text,
+  updated_at timestamptz not null default now(),
+  primary key (workspace_key, role)
+);

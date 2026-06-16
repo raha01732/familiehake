@@ -5,6 +5,7 @@ import TaskSummaryTile from "@/components/home/TaskSummaryTile";
 import WelcomeTileCard, { WelcomeTile } from "@/components/dashboard/WelcomeTileCard";
 import { logAudit } from "@/lib/audit";
 import { getSessionInfo } from "@/lib/auth";
+import { getLockedWorkspaceKeys } from "@/lib/workspace-locks";
 import { ADMIN_LINKS, PLACEHOLDER_LINKS, TOOL_LINKS, type NavLink } from "@/lib/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
@@ -25,6 +26,7 @@ import {
   HardDrive,
   KeyRound,
   ListChecks,
+  Lock,
   MessageSquare,
   Monitor,
   Settings2,
@@ -75,10 +77,12 @@ function SidebarDivider() {
 function SidebarSection({
   label,
   icon: Icon,
+  locked = false,
   children,
 }: {
   label: string;
   icon?: LucideIcon;
+  locked?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -89,6 +93,15 @@ function SidebarSection({
       >
         {Icon && <Icon size={11} aria-hidden style={{ color: "hsl(var(--primary))" }} />}
         {label}
+        {locked && (
+          <span
+            className="ml-auto inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold normal-case tracking-normal"
+            style={{ background: "hsl(27 96% 61% / 0.12)", color: "hsl(27 96% 50%)" }}
+            title="Workspace gesperrt – Aufruf zeigt einen Hinweis"
+          >
+            <Lock size={9} aria-hidden /> Gesperrt
+          </span>
+        )}
       </p>
       <nav className="flex flex-col gap-0.5">{children}</nav>
     </div>
@@ -329,6 +342,7 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
     session.signedIn &&
     (session.isSuperAdmin || session.roles.some((r) => r.name === "admin"));
 
+  const lockedWorkspaces = session.signedIn ? await getLockedWorkspaceKeys(session) : new Set<string>();
   const health = isAdmin ? await getHealthSummary() : null;
   const healthStatus = (health?.status as "ok" | "warn" | "degraded" | "unreachable") ?? "unreachable";
   const welcomeTile = await getWelcomeTile();
@@ -366,7 +380,7 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
     sidebarSections.push({
       key: "personal",
       node: (
-        <SidebarSection label="Personal-Workspace">
+        <SidebarSection label="Personal-Workspace" locked={lockedWorkspaces.has("personal")}>
           {personalTools.map((l) => (
             <SidebarLink key={l.routeKey} link={l} icon={TOOL_ICON_MAP[l.routeKey]} />
           ))}
@@ -379,7 +393,7 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
     sidebarSections.push({
       key: "family",
       node: (
-        <SidebarSection label="Family-Bereich" icon={Users}>
+        <SidebarSection label="Family-Bereich" icon={Users} locked={lockedWorkspaces.has("family")}>
           {familyTools.map((l) => (
             <SidebarLink key={l.routeKey} link={l} icon={TOOL_ICON_MAP[l.routeKey]} />
           ))}
@@ -395,7 +409,7 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
     sidebarSections.push({
       key: "cinema",
       node: (
-        <SidebarSection label="Kino-Workspace" icon={Clapperboard}>
+        <SidebarSection label="Kino-Workspace" icon={Clapperboard} locked={lockedWorkspaces.has("cinema")}>
           {cinemaTools.map((l) => (
             <SidebarLink key={l.routeKey} link={l} icon={TOOL_ICON_MAP[l.routeKey] ?? Film} />
           ))}

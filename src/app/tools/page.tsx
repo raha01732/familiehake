@@ -1,11 +1,11 @@
-import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
-import { env } from "@/lib/env";
-import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
+import { getSessionInfo } from "@/lib/auth";
 import { TOOL_LINKS } from "@/lib/navigation";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
-import { getAllowedRoutesForRole, LEVEL_NONE, LEVEL_READ, normalizeRouteKey } from "@/lib/route-access";
+import { normalizeRouteKey } from "@/lib/route-access";
 import { getToolStatusMap } from "@/lib/tool-status";
+import { getLockedWorkspaceKeys } from "@/lib/workspace-locks";
+import { getWorkspaceForRoute } from "@/lib/workspaces";
 import {
   FolderOpen, BookOpen, Film, CalendarClock, Calendar,
   MessageSquare, HardDrive, Monitor, type LucideIcon,
@@ -30,8 +30,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
 };
 
 export default async function ToolsPage() {
-  const user = await currentUser();
-  if (!user) {
+  const session = await getSessionInfo();
+  if (!session.signedIn) {
     return (
       <section className="p-6">
         <div
@@ -47,18 +47,15 @@ export default async function ToolsPage() {
     );
   }
 
-  const role = getRoleFromPublicMetadata(user.publicMetadata);
-  const isSuper = user.id === env().PRIMARY_SUPERADMIN_ID;
-  const [allowed, toolStatusMap] = await Promise.all([
-    isSuper ? Promise.resolve<Map<string, number> | null>(null) : getAllowedRoutesForRole(role),
+  const isSuper = session.isSuperAdmin;
+  const [toolStatusMap, lockedWorkspaces] = await Promise.all([
     getToolStatusMap(),
+    getLockedWorkspaceKeys(session),
   ]);
 
   const visible = isSuper
     ? TOOL_LINKS
-    : TOOL_LINKS.filter(
-        (t) => (allowed?.get(normalizeRouteKey(t.routeKey)) ?? LEVEL_NONE) >= LEVEL_READ
-      );
+    : TOOL_LINKS.filter((t) => session.permissions[normalizeRouteKey(t.routeKey)] === true);
 
   return (
     <section className="flex flex-col gap-8 animate-fade-up">
@@ -116,8 +113,17 @@ export default async function ToolsPage() {
           {visible.map((t) => {
             const Icon = ICON_MAP[t.routeKey] ?? Wrench;
             const toolStatus = toolStatusMap[t.routeKey];
-            const enabled = toolStatus?.enabled ?? true;
-            const maintenanceMessage = toolStatus?.maintenanceMessage?.trim() || null;
+            const ws = getWorkspaceForRoute(t.routeKey);
+            const workspaceLocked = !isSuper && !!ws && lockedWorkspaces.has(ws.key);
+            const enabled = (toolStatus?.enabled ?? true) && !workspaceLocked;
+            const maintenanceMessage = workspaceLocked
+              ? null
+              : toolStatus?.maintenanceMessage?.trim() || null;
+            const badgeLabel = workspaceLocked
+              ? "Gesperrt"
+              : maintenanceMessage
+                ? "Wartung"
+                : "Deaktiviert";
 
             return (
               <Link
@@ -148,7 +154,7 @@ export default async function ToolsPage() {
                         color: "hsl(27 96% 50%)",
                       }}
                     >
-                      {maintenanceMessage ? "Wartung" : "Deaktiviert"}
+                      {badgeLabel}
                     </span>
                   )}
                 </div>

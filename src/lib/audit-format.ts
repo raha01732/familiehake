@@ -156,6 +156,7 @@ const ACTION_LABELS: Record<string, string> = {
   dashboard_welcome_update: "Willkommenstext geändert",
   theme_preference_update: "Theme geändert",
   tool_maintenance_enabled: "Wartungsmodus geschaltet",
+  workspace_locked: "Workspace gesperrt",
   // Finance / Vault / Tasks / Nutrition
   finance_transaction_create: "Finanz-Buchung erstellt",
   finance_transaction_update: "Finanz-Buchung geändert",

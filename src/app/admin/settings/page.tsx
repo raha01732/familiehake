@@ -1,9 +1,10 @@
 // /workspace/familiehake/src/app/admin/settings/page.tsx
 import RoleGate from "@/components/RoleGate";
-import { Settings2, Plus, Save, ShieldCheck, Wrench } from "lucide-react";
+import { Settings2, Plus, Save, ShieldCheck, Wrench, Lock } from "lucide-react";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
 import { checkDatabaseLive } from "@/lib/access-db";
 import { TOOL_LINKS } from "@/lib/navigation";
+import { WORKSPACES } from "@/lib/workspaces";
 import { discoverAppRoutes } from "@/lib/route-discovery";
 import { normalizeRouteKey } from "@/lib/route-access";
 import { env } from "@/lib/env";
@@ -52,7 +53,7 @@ async function getData() {
   const sb = createAdminClient();
 
   // IMPORTANT: throwOnError() sorgt dafür, dass Supabase Fehler nicht "verschluckt" werden.
-  const [rolesRes, rulesRes, toolStatusRes] = await Promise.all([
+  const [rolesRes, rulesRes, toolStatusRes, workspaceLocksRes] = await Promise.all([
     sb.from("roles").select("name,label,rank").order("rank", { ascending: false }).throwOnError(),
     sb.from("access_rules").select("route,role,allowed").order("route", { ascending: true }).throwOnError(),
     sb
@@ -63,11 +64,18 @@ async function getData() {
         TOOL_LINKS.map((link) => link.routeKey)
       )
       .throwOnError(),
+    sb.from("workspace_locks").select("workspace_key,role,locked,message").throwOnError(),
   ]);
 
   const roleList: DbRole[] = (rolesRes.data ?? []) as unknown as DbRole[];
   const ruleList: DbRule[] = (rulesRes.data ?? []) as unknown as DbRule[];
   const toolStatusRows: DbToolStatus[] = (toolStatusRes.data ?? []) as unknown as DbToolStatus[];
+  const workspaceLockRows = (workspaceLocksRes.data ?? []) as unknown as {
+    workspace_key: string;
+    role: string;
+    locked: boolean | null;
+    message: string | null;
+  }[];
   const discoveredRoutes = await discoverAppRoutes();
 
   // Matrix: route -> role -> allowed
@@ -117,7 +125,29 @@ async function getData() {
     };
   });
 
-  return { roles: roleList, routes, matrix, toolStatusList };
+  // Workspace-Sperren: pro Workspace gesperrte Rollen + Hinweistext
+  const lockedRolesByWs = new Map<string, Set<string>>();
+  const messageByWs = new Map<string, string>();
+  for (const row of workspaceLockRows) {
+    const wsKey = String(row.workspace_key ?? "");
+    const role = normalizeRoleKey(String(row.role ?? ""));
+    if (!wsKey || !role) continue;
+    if (row.locked === true) {
+      if (!lockedRolesByWs.has(wsKey)) lockedRolesByWs.set(wsKey, new Set());
+      lockedRolesByWs.get(wsKey)!.add(role);
+    }
+    if (typeof row.message === "string" && row.message.trim() && !messageByWs.has(wsKey)) {
+      messageByWs.set(wsKey, row.message);
+    }
+  }
+  const workspaceLockList = WORKSPACES.map((ws) => ({
+    key: ws.key,
+    label: ws.label,
+    lockedRoles: lockedRolesByWs.get(ws.key) ?? new Set<string>(),
+    message: messageByWs.get(ws.key) ?? "",
+  }));
+
+  return { roles: roleList, routes, matrix, toolStatusList, workspaceLockList };
 }
 
 /* ===================== Actions ===================== */
@@ -132,6 +162,14 @@ function buildToolEnabledFieldName(routeKey: string) {
 
 function buildToolMessageFieldName(routeKey: string) {
   return `toolStatusMessage:${routeKey}`;
+}
+
+function buildWorkspaceLockFieldName(workspaceKey: string, role: string) {
+  return `wsLock:${workspaceKey}:${role}`;
+}
+
+function buildWorkspaceMessageFieldName(workspaceKey: string) {
+  return `wsLockMsg:${workspaceKey}`;
 }
 
 async function upsertAccessAction(formData: FormData): Promise<void> {
@@ -305,6 +343,79 @@ async function upsertToolStatusAction(formData: FormData): Promise<void> {
   redirect("/admin/settings?toolStatusSaved=1");
 }
 
+async function upsertWorkspaceLocksAction(formData: FormData): Promise<void> {
+  "use server";
+  const sb = createAdminClient();
+
+  try {
+    const rolesRes = await sb.from("roles").select("name,is_superadmin").throwOnError();
+    const roleNames = (rolesRes.data ?? [])
+      .filter((r: { is_superadmin?: boolean | null }) => !r.is_superadmin)
+      .map((r: { name: string }) => normalizeRoleKey(String(r.name)));
+
+    const existingRes = await sb
+      .from("workspace_locks")
+      .select("workspace_key,role,locked,message")
+      .throwOnError();
+    const existingByKey = new Map<string, { locked: boolean; message: string }>();
+    for (const row of existingRes.data ?? []) {
+      existingByKey.set(`${row.workspace_key}:${normalizeRoleKey(String(row.role))}`, {
+        locked: row.locked === true,
+        message: typeof row.message === "string" ? row.message : "",
+      });
+    }
+
+    const payload: { workspace_key: string; role: string; locked: boolean; message: string | null }[] = [];
+    for (const ws of WORKSPACES) {
+      const message = String(formData.get(buildWorkspaceMessageFieldName(ws.key)) ?? "").trim() || null;
+      for (const role of roleNames) {
+        payload.push({
+          workspace_key: ws.key,
+          role,
+          locked: formData.has(buildWorkspaceLockFieldName(ws.key, role)),
+          message,
+        });
+      }
+    }
+
+    if (payload.length > 0) {
+      const upsertRes = await sb
+        .from("workspace_locks")
+        .upsert(payload, { onConflict: "workspace_key,role" });
+      if (upsertRes.error) throw upsertRes.error;
+
+      const actor = await currentUser();
+      for (const item of payload) {
+        const prev = existingByKey.get(`${item.workspace_key}:${item.role}`);
+        const wasLocked = prev?.locked ?? false;
+        const reasonChanged = (item.message ?? "").trim() !== (prev?.message ?? "").trim();
+        if (!item.locked) continue;
+        if (wasLocked && !reasonChanged) continue;
+
+        await logAudit({
+          action: "workspace_locked",
+          actorUserId: actor?.id ?? null,
+          actorEmail: actor?.emailAddresses?.[0]?.emailAddress ?? null,
+          target: `${item.workspace_key}:${item.role}`,
+          detail: {
+            workspace: item.workspace_key,
+            role: item.role,
+            reason: item.message || "kein_grund_angegeben",
+          },
+        });
+      }
+    }
+  } catch (error) {
+    console.error("workspace_locks_save_failed", error);
+    revalidatePath("/admin/settings");
+    const errorDetail = error instanceof Error ? error.message : "unknown_error";
+    redirect(`/admin/settings?error=1&errorDetail=${encodeURIComponent(errorDetail)}`);
+  }
+
+  revalidatePath("/admin/settings");
+  redirect("/admin/settings?workspaceLockSaved=1");
+}
+
 /* ===================== Page ===================== */
 
 type SettingsSearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -314,8 +425,11 @@ export default async function AdminSettingsPage({
 }: {
   searchParams: SettingsSearchParams;
 }) {
-  const [{ roles, routes, matrix, toolStatusList }, { isAdmin }, liveStatus, sp] =
+  const [{ roles, routes, matrix, toolStatusList, workspaceLockList }, { isAdmin }, liveStatus, sp] =
     await Promise.all([getData(), getAdminStatus(), checkDatabaseLive(), searchParams]);
+
+  // Superadmin wird ohnehin durchgelassen → in der Sperr-Matrix nicht anbieten.
+  const lockableRoles = roles.filter((role) => normalizeRoleKey(role.name) !== "superadmin");
 
   const saved =
     sp?.saved === "1" ||
@@ -328,6 +442,10 @@ export default async function AdminSettingsPage({
   const toolStatusSaved =
     sp?.toolStatusSaved === "1" ||
     (Array.isArray(sp?.toolStatusSaved) && sp?.toolStatusSaved.includes("1"));
+
+  const workspaceLockSaved =
+    sp?.workspaceLockSaved === "1" ||
+    (Array.isArray(sp?.workspaceLockSaved) && sp?.workspaceLockSaved.includes("1"));
 
   const error =
     sp?.error === "1" ||
@@ -376,7 +494,7 @@ export default async function AdminSettingsPage({
           </div>
         </div>
 
-        {(saved || added || toolStatusSaved || error) && (
+        {(saved || added || toolStatusSaved || workspaceLockSaved || error) && (
           <div
             className="rounded-xl border px-4 py-3 text-sm"
             style={
@@ -388,6 +506,7 @@ export default async function AdminSettingsPage({
             {!error && saved && "Die Zugriffs-Matrix wurde gespeichert."}
             {!error && added && "Die Route wurde hinzugefügt."}
             {!error && toolStatusSaved && "Der Tool-Status wurde gespeichert."}
+            {!error && workspaceLockSaved && "Die Workspace-Sperren wurden gespeichert."}
             {error && "Es ist ein Fehler aufgetreten."}
             {error && errorDetail && (
               <pre
@@ -549,6 +668,81 @@ export default async function AdminSettingsPage({
               <button className="brand-button inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold">
                 <Save size={13} aria-hidden />
                 Tool-Status speichern
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* Workspace-Sperren */}
+        <div className="card p-6">
+          <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Lock size={15} className="text-primary" aria-hidden />
+            Workspace-Sperren
+          </div>
+          <p className="mb-4 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Sperre einen ganzen Workspace für einzelne Rollen. Die Tools bleiben sichtbar, beim
+            Aufruf erscheint nur der Hinweistext. Superadmins werden nie gesperrt.
+          </p>
+
+          <form action={upsertWorkspaceLocksAction} className="flex flex-col gap-4">
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <table className="min-w-full text-sm">
+                <thead className="border-b border-border bg-secondary/60 text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold">Workspace</th>
+                    {lockableRoles.map((role) => (
+                      <th key={role.name} className="px-4 py-3 text-left font-semibold">
+                        {role.label}
+                      </th>
+                    ))}
+                    <th className="px-4 py-3 text-left font-semibold">Hinweistext</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {workspaceLockList.map((ws) => (
+                    <tr key={ws.key} className="transition-colors hover:bg-secondary/40">
+                      <td className="px-4 py-2.5 text-xs font-medium" style={{ color: "hsl(var(--foreground))" }}>
+                        {ws.label}
+                      </td>
+                      {lockableRoles.map((role) => {
+                        const roleKey = normalizeRoleKey(role.name);
+                        return (
+                          <td key={role.name} className="px-4 py-2">
+                            <label className="inline-flex items-center gap-2" style={{ color: "hsl(var(--foreground))" }}>
+                              <input
+                                type="checkbox"
+                                name={buildWorkspaceLockFieldName(ws.key, roleKey)}
+                                defaultChecked={ws.lockedRoles.has(roleKey)}
+                                className="h-4 w-4 rounded"
+                                style={{ accentColor: "hsl(var(--primary))" }}
+                                aria-label={`Workspace ${ws.label} für ${role.name} sperren`}
+                              />
+                              <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                                {role.name}
+                              </span>
+                            </label>
+                          </td>
+                        );
+                      })}
+                      <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          name={buildWorkspaceMessageFieldName(ws.key)}
+                          defaultValue={ws.message}
+                          placeholder="Optional: Hinweistext bei Sperre"
+                          className="w-full input-field text-xs"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div>
+              <button className="brand-button inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold">
+                <Save size={13} aria-hidden />
+                Workspace-Sperren speichern
               </button>
             </div>
           </form>

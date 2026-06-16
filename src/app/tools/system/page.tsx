@@ -5,7 +5,7 @@ import { fetchSentryStats } from "@/lib/sentry-metrics";
 import { headers } from "next/headers";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 import { getSessionInfo } from "@/lib/auth";
-import { getToolStatusMap } from "@/lib/tool-status";
+import { getToolGate } from "@/lib/workspace-locks";
 import ToolMaintenanceNotice from "@/components/ToolMaintenanceNotice";
 
 export const metadata = { title: "Systemübersicht" };
@@ -54,10 +54,10 @@ function getServerInfo() {
 }
 
 export default async function SystemOverviewPage() {
-  const [session, toolStatusMap] = await Promise.all([getSessionInfo(), getToolStatusMap()]);
-  const toolStatus = toolStatusMap["tools/system"];
-  if (toolStatus && !toolStatus.enabled && !session.isSuperAdmin) {
-    return <ToolMaintenanceNotice message={toolStatus.maintenanceMessage} />;
+  const session = await getSessionInfo();
+  const gate = await getToolGate("tools/system", session);
+  if (gate.blocked) {
+    return <ToolMaintenanceNotice message={gate.message} />;
   }
 
   if (isPreviewEnvironment()) {

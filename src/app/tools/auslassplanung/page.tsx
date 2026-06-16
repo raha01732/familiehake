@@ -3,6 +3,9 @@ import { currentUser } from "@clerk/nextjs/server";
 import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import RoleGate from "@/components/RoleGate";
+import ToolMaintenanceNotice from "@/components/ToolMaintenanceNotice";
+import { getSessionInfo } from "@/lib/auth";
+import { getToolGate } from "@/lib/workspace-locks";
 import AuslassplanungClient from "./AuslassplanungClient";
 import { auslassplanungAiEnabled } from "@/lib/auslassplanung/ai";
 import { fupImportEnabled } from "@/lib/auslassplanung/fup";
@@ -56,6 +59,11 @@ export default async function AuslassplanungPage({
   searchParams: Promise<{ date?: string }>;
 }) {
   const params = await searchParams;
+  const session = await getSessionInfo();
+  const gate = await getToolGate("tools/auslassplanung", session);
+  if (gate.blocked) {
+    return <ToolMaintenanceNotice message={gate.message} />;
+  }
   const user = await currentUser();
   const role = user ? getRoleFromPublicMetadata(user.publicMetadata) : null;
   const isAdmin =

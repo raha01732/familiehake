@@ -47,6 +47,7 @@ export const AUDIT_ACTIONS = [
   "dashboard_welcome_update",
   "theme_preference_update",
   "tool_maintenance_enabled",
+  "workspace_locked",
 
   // Finance
   "finance_transaction_create",

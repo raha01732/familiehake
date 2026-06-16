@@ -9,7 +9,7 @@ import { generateShareToken, hashPasswordScrypt, isShareActive } from "@/lib/sha
 import { isPreviewEnvironment } from "@/lib/env";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 import { getSessionInfo } from "@/lib/auth";
-import { getToolStatusMap } from "@/lib/tool-status";
+import { getToolGate } from "@/lib/workspace-locks";
 import ToolMaintenanceNotice from "@/components/ToolMaintenanceNotice";
 
 export const metadata = { title: "Dateien" };
@@ -432,10 +432,10 @@ async function revokeShareAction(formData: FormData) {
 /* ======================== Page ======================== */
 
 export default async function FilesPage({ searchParams }: { searchParams?: { folder?: string } }) {
-  const [session, toolStatusMap] = await Promise.all([getSessionInfo(), getToolStatusMap()]);
-  const toolStatus = toolStatusMap["tools/files"];
-  if (toolStatus && !toolStatus.enabled && !session.isSuperAdmin) {
-    return <ToolMaintenanceNotice message={toolStatus.maintenanceMessage} />;
+  const session = await getSessionInfo();
+  const gate = await getToolGate("tools/files", session);
+  if (gate.blocked) {
+    return <ToolMaintenanceNotice message={gate.message} />;
   }
 
   if (isPreviewEnvironment()) {

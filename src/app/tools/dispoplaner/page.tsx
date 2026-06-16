@@ -12,7 +12,7 @@ import {
 } from "./actions";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 import { getSessionInfo } from "@/lib/auth";
-import { getToolStatusMap } from "@/lib/tool-status";
+import { getToolGate } from "@/lib/workspace-locks";
 import ToolMaintenanceNotice from "@/components/ToolMaintenanceNotice";
 import Link from "next/link";
 import { Film, ChevronLeft, ChevronRight, Plus, Trash2, CalendarDays } from "lucide-react";
@@ -71,15 +71,10 @@ type PageProps = {
 };
 
 export default async function DispoplanerPage({ searchParams }: PageProps) {
-  const [session, toolStatusMap, params] = await Promise.all([
-    getSessionInfo(),
-    getToolStatusMap(),
-    searchParams,
-  ]);
-  const toolStatus = toolStatusMap["tools/dispoplaner"];
-
-  if (toolStatus && !toolStatus.enabled && !session.isSuperAdmin) {
-    return <ToolMaintenanceNotice message={toolStatus.maintenanceMessage} />;
+  const [session, params] = await Promise.all([getSessionInfo(), searchParams]);
+  const gate = await getToolGate("tools/dispoplaner", session);
+  if (gate.blocked) {
+    return <ToolMaintenanceNotice message={gate.message} />;
   }
 
   const user = await currentUser();

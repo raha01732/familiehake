@@ -1,17 +1,16 @@
 // src/app/tools/tasks/page.tsx
 import { getSessionInfo } from "@/lib/auth";
-import { getToolStatusMap } from "@/lib/tool-status";
+import { getToolGate } from "@/lib/workspace-locks";
 import ToolMaintenanceNotice from "@/components/ToolMaintenanceNotice";
 import TaskBoardClientPage from "./TaskBoardClientPage";
 
 export const metadata = { title: "Aufgaben-Board" };
 
 export default async function TasksPage() {
-  const [session, toolStatusMap] = await Promise.all([getSessionInfo(), getToolStatusMap()]);
-  const toolStatus = toolStatusMap["tools/tasks"];
-
-  if (toolStatus && !toolStatus.enabled && !session.isSuperAdmin) {
-    return <ToolMaintenanceNotice message={toolStatus.maintenanceMessage} />;
+  const session = await getSessionInfo();
+  const gate = await getToolGate("tools/tasks", session);
+  if (gate.blocked) {
+    return <ToolMaintenanceNotice message={gate.message} />;
   }
 
   return <TaskBoardClientPage />;

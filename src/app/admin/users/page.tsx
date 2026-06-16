@@ -8,6 +8,7 @@ import { redirect } from "next/navigation";
 import { logAudit } from "@/lib/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DbRole } from "@/lib/access-db";
+import { getUnlockRoleNames } from "@/lib/workspaces";
 import { env } from "@/lib/env";
 import {
   Users,
@@ -140,7 +141,9 @@ async function fetchRoles(): Promise<DbRole[]> {
     return [];
   }
 
-  const allowed = new Set(["user", "admin", "superadmin", "cinema"]); // cinema = Kino-Workspace Zugang
+  // Kernrollen + alle Workspace-Freischaltungs-Rollen (personal/family/cinema, …).
+  // So erscheinen neue Workspaces automatisch im Bearbeiten-Modal.
+  const allowed = new Set<string>(["user", "admin", "superadmin", ...getUnlockRoleNames()]);
   return (
     data
       ?.filter((row) => allowed.has(String(row.name).toLowerCase()))
@@ -204,6 +207,8 @@ function roleAccent(role: DbRole): string {
   if (role.isSuperAdmin || role.name === "superadmin") return "262 83% 58%";
   if (role.name === "admin") return "221 83% 53%";
   if (role.name === "cinema") return "27 96% 61%";
+  if (role.name === "personal") return "199 89% 48%";
+  if (role.name === "family") return "142 71% 45%";
   return "220 9% 46%";
 }
 
