@@ -9,6 +9,9 @@ import { PreviewWriteBlockedError } from "@/lib/supabase/preview-guard";
 export const AUDIT_ACTIONS = [
   // Auth & Access
   "login_success",
+  "login_new_device",
+  "account_locked",
+  "account_unlocked",
   "access_denied",
   "role_change",
 

@@ -155,6 +155,7 @@ const KNOWN_CRON_JOBS = [
   "audit-rollup",
   "force-logout",
   "shift-reminder",
+  "clerk-activity-sync",
 ];
 
 async function fetchCronJobRuns(): Promise<CronJobRun[]> {

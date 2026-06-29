@@ -1825,3 +1825,40 @@ create table if not exists workspace_locks (
   updated_at timestamptz not null default now(),
   primary key (workspace_key, role)
 );
+
+-- ───────────────────────────────────────────────────────────────────
+-- Clerk-Aktivitäts-Spiegel
+-- Clerk hält Session-/Aktivitäts-Logs nur ~24h vor und löscht sie dann.
+-- Der Cron /api/cron/clerk-activity-sync (2×/Tag) spiegelt sie hierher,
+-- damit eine dauerhafte Login-/Geräte-Historie entsteht.
+-- ───────────────────────────────────────────────────────────────────
+
+-- Ein dauerhafter Snapshot jeder bei Clerk gesehenen Session.
+-- session_id ist der Primärschlüssel: pro Lauf wird ge-upsertet, sodass
+-- last_active_at/last_synced_at aktualisiert werden, first_seen_at bleibt.
+create table if not exists clerk_user_sessions (
+  session_id     text primary key,
+  user_id        text not null,
+  status         text,
+  browser        text,
+  device         text,
+  ip_address     text,
+  city           text,
+  country        text,
+  is_mobile      boolean not null default false,
+  last_active_at timestamptz,
+  first_seen_at  timestamptz not null default now(),
+  last_synced_at timestamptz not null default now()
+);
+
+create index if not exists clerk_user_sessions_user_idx
+  on clerk_user_sessions(user_id, last_active_at desc nulls last);
+
+-- Letzter bekannter Zustand pro Nutzer, um Änderungen zwischen zwei
+-- Läufen zu erkennen (neue Anmeldung, frisch gesperrtes Konto).
+create table if not exists clerk_user_state (
+  user_id         text primary key,
+  last_sign_in_at timestamptz,
+  locked          boolean not null default false,
+  last_synced_at  timestamptz not null default now()
+);

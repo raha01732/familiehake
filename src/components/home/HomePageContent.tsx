@@ -1,4 +1,5 @@
 import RoleGate from "@/components/RoleGate";
+import AccountActivityTile from "@/components/home/AccountActivityTile";
 import NextShiftsTile from "@/components/home/NextShiftsTile";
 import NotificationsTile from "@/components/home/NotificationsTile";
 import TaskSummaryTile from "@/components/home/TaskSummaryTile";
@@ -584,6 +585,8 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
         </div>
 
           <NotificationsTile />
+
+          {session.userId && <AccountActivityTile userId={session.userId} />}
 
           <div className="grid gap-5 lg:grid-cols-2">
             <NextShiftsTile />

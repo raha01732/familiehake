@@ -8,6 +8,7 @@ export type NotificationKind =
   | "task_overdue"
   | "admin_cron_digest"
   | "shift_reminder"
+  | "security"
   | "system";
 
 type NotifyInput = {
