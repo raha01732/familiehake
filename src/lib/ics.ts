@@ -2,6 +2,7 @@
 // ICS-Hilfen: eigene Termine als VCALENDAR exportieren (toICS) sowie
 // externe Feeds parsen (parseIcsEvents) inkl. RRULE-Serien-Expansion.
 import ICAL from "ical.js";
+import { APP_NAME, APP_NAME_SLUG } from "@/lib/app-name";
 
 // ─── Export (eigene Termine) ───────────────────────────────────────
 
@@ -12,10 +13,10 @@ export function toICS(events: Array<{
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Hearth//Calendar//DE",
+    `PRODID:-//${APP_NAME_SLUG}//Calendar//DE`,
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    "X-WR-CALNAME:Hearth",
+    `X-WR-CALNAME:${APP_NAME}`,
   ];
   const stamp = dt(new Date());
   for (const e of events) {

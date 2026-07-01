@@ -1,6 +1,7 @@
 // /workspace/familiehake/src/app/tools/system/page.tsx
 import RoleGate from "@/components/RoleGate";
 import { env, isPreviewEnvironment } from "@/lib/env";
+import { APP_NAME } from "@/lib/app-name";
 import { fetchSentryStats } from "@/lib/sentry-metrics";
 import { headers } from "next/headers";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
@@ -98,7 +99,7 @@ export default async function SystemOverviewPage() {
             <div>
               <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">Systemübersicht</h1>
               <p className="text-sm text-zinc-400">
-                Verdichtete Runtime-Daten – Hearth Systembericht.
+                Verdichtete Runtime-Daten – {APP_NAME} Systembericht.
               </p>
             </div>
             <div className="text-xs text-zinc-500">Status: {status}</div>

@@ -1,10 +1,11 @@
 // src/app/legal/terms/page.tsx
 import type { Metadata } from "next";
 import React from "react";
+import { APP_NAME } from "@/lib/app-name";
 
 export const metadata: Metadata = {
-  title: "Nutzungsbedingungen – Hearth",
-  description: "Nutzungsbedingungen für die private Hearth-Plattform.",
+  title: `Nutzungsbedingungen – ${APP_NAME}`,
+  description: `Nutzungsbedingungen für die private ${APP_NAME}-Plattform.`,
 };
 
 const LAST_UPDATED = "16. April 2026";
@@ -44,7 +45,7 @@ export default function TermsPage() {
       <Prose>
         <Section title="1. Geltungsbereich">
           <p>
-            Diese Nutzungsbedingungen gelten für die Nutzung der Plattform <strong>Hearth</strong>{" "}
+            Diese Nutzungsbedingungen gelten für die Nutzung der Plattform <strong>{APP_NAME}</strong>{" "}
             (nachfolgend „Plattform"), die ausschließlich für den privaten, nicht-kommerziellen
             Gebrauch durch eingeladene Personen (Familie, enge Vertraute) betrieben wird.
           </p>

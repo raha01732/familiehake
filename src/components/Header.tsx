@@ -17,6 +17,7 @@ import { LogOut, Settings, ChevronDown, Bell } from "lucide-react";
 import { createRoot, type Root } from "react-dom/client";
 import NotificationBell from "@/components/NotificationBell";
 import NotificationSettings from "@/components/NotificationSettings";
+import { APP_NAME } from "@/lib/app-name";
 
 type HeaderProps = {
   clerkEnabled?: boolean;
@@ -185,7 +186,7 @@ function Brand() {
       <span className="brand-badge grid h-9 w-9 flex-shrink-0 place-items-center rounded-2xl text-sm font-bold shadow-md transition group-hover:scale-105">
         FH
       </span>
-      <span className="hidden sm:block">Hearth</span>
+      <span className="hidden sm:block">{APP_NAME}</span>
     </Link>
   );
 }

@@ -11,11 +11,12 @@ import DynamicUserChrome from "@/components/layout/DynamicUserChrome";
 import * as Sentry from "@sentry/nextjs";
 import { getSessionInfo } from "@/lib/auth";
 import { env, getClerkPublishableKey } from "@/lib/env";
+import { APP_NAME } from "@/lib/app-name";
 import { PreviewTopBanner } from "@/components/PreviewNotice";
 
 export function generateMetadata(): Metadata {
   return {
-    title: "Hearth",
+    title: APP_NAME,
     description: "Private Tools",
     other: {
       ...Sentry.getTraceData(),
@@ -86,7 +87,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           color: "hsl(var(--muted-foreground))",
         }}
       >
-        <span>© {new Date().getFullYear()} Hearth</span>
+        <span>© {new Date().getFullYear()} {APP_NAME}</span>
         <Link
           href="/legal/terms"
           style={{ color: "hsl(var(--muted-foreground))", textDecoration: "none" }}

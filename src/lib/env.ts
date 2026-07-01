@@ -3,6 +3,8 @@ import { z } from "zod";
 
 const baseSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url().optional(),
+  // Anzeigename der App (Header, Titel, E-Mails, ICS-Export). Default: "Hearth".
+  NEXT_PUBLIC_APP_NAME: z.string().min(1).optional(),
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1).optional(),
   CLERK_PUBLISHABLE_KEY: z.string().min(1).optional(),
   CLERK_SECRET_KEY: z.string().min(1).optional(),

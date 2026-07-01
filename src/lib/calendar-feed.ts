@@ -4,6 +4,7 @@
 // Aktualität ohne externe Server zu überlasten).
 import { createHash } from "node:crypto";
 import { getCachedJson, setCachedJson } from "@/lib/redis";
+import { APP_NAME_SLUG } from "@/lib/app-name";
 
 export const FEED_CACHE_TTL = 90; // Sekunden
 const FETCH_TIMEOUT_MS = 10_000;
@@ -69,7 +70,7 @@ export async function fetchIcsCached(url: string): Promise<FeedFetchResult> {
       redirect: "follow",
       cache: "no-store",
       headers: {
-        "User-Agent": "Hearth-Calendar/1.0",
+        "User-Agent": `${APP_NAME_SLUG}-Calendar/1.0`,
         Accept: "text/calendar, text/plain, */*",
       },
     });

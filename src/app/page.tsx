@@ -1,5 +1,6 @@
 import HomePageContent from "@/components/home/HomePageContent";
 import { getSessionInfo } from "@/lib/auth";
+import { APP_NAME } from "@/lib/app-name";
 import Link from "next/link";
 
 export default async function HomePage() {
@@ -33,7 +34,7 @@ export default async function HomePage() {
             className="text-[11px] font-semibold uppercase tracking-[0.2em]"
             style={{ color: "hsl(var(--primary))" }}
           >
-            Hearth Private Workspace
+            {APP_NAME} Private Workspace
           </span>
         </div>
 

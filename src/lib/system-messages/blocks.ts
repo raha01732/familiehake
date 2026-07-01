@@ -4,6 +4,7 @@
 // Bewusst frei von Server-/Framework-Abhängigkeiten, damit es sowohl im
 // Client-Composer (Live-Vorschau) als auch serverseitig (Versand) läuft.
 import { trackedClickUrl, trackingPixelUrl, isHttpUrl } from "@/lib/system-messages/tracking";
+import { APP_NAME } from "@/lib/app-name";
 
 export type NoticeTone = "info" | "warn" | "success";
 
@@ -145,7 +146,7 @@ export function renderEmailHtml(params: {
   const body = blocks.map((b) => renderBlockHtml(b, tracking)).join("\n");
   const footerLink =
     appUrl && appUrl.trim()
-      ? `<a href="${escapeAttr(appUrl)}" style="color:${BRAND.primary};text-decoration:none">Hearth öffnen</a> · `
+      ? `<a href="${escapeAttr(appUrl)}" style="color:${BRAND.primary};text-decoration:none">${escapeHtml(APP_NAME)} öffnen</a> · `
       : "";
   const pixel =
     tracking && tracking.pixel
@@ -158,7 +159,7 @@ export function renderEmailHtml(params: {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:${BRAND.card};border-radius:16px;overflow:hidden;border:1px solid ${BRAND.border}">
     <tr><td style="height:6px;background:linear-gradient(90deg,${BRAND.primary},${BRAND.primaryDark})"></td></tr>
     <tr><td style="padding:28px 28px 8px">
-      <p style="margin:0 0 4px;color:${BRAND.faint};font-size:12px;letter-spacing:0.12em;text-transform:uppercase">Hearth</p>
+      <p style="margin:0 0 4px;color:${BRAND.faint};font-size:12px;letter-spacing:0.12em;text-transform:uppercase">${escapeHtml(APP_NAME)}</p>
       <h1 style="margin:0;color:${BRAND.text};font-size:22px;line-height:1.25">${escapeHtml(title)}</h1>
     </td></tr>
     <tr><td style="padding:12px 28px 28px">

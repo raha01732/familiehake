@@ -3,6 +3,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { Mail, Check, Loader2, Eye } from "lucide-react";
+import { APP_NAME } from "@/lib/app-name";
 
 type Prefs = { email_enabled: boolean; open_tracking_enabled: boolean };
 
@@ -62,7 +63,7 @@ export default function NotificationSettings() {
           Benachrichtigungen
         </h1>
         <p className="text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
-          Steuere, wie du über Ereignisse in Hearth informiert wirst.
+          Steuere, wie du über Ereignisse in {APP_NAME} informiert wirst.
         </p>
       </div>
 

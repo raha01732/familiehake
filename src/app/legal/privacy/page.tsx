@@ -1,10 +1,11 @@
 // src/app/legal/privacy/page.tsx
 import type { Metadata } from "next";
 import React from "react";
+import { APP_NAME } from "@/lib/app-name";
 
 export const metadata: Metadata = {
-  title: "Datenschutzerklärung – Hearth",
-  description: "Datenschutzerklärung für die private Hearth-Plattform.",
+  title: `Datenschutzerklärung – ${APP_NAME}`,
+  description: `Datenschutzerklärung für die private ${APP_NAME}-Plattform.`,
 };
 
 const LAST_UPDATED = "16. April 2026";
@@ -45,7 +46,7 @@ export default function PrivacyPage() {
         <Section title="1. Verantwortlicher">
           <p>
             Verantwortlicher im Sinne der DSGVO ist der Betreiber der Plattform{" "}
-            <strong>Hearth</strong>. Bei Fragen zum Datenschutz wenden Sie sich bitte direkt
+            <strong>{APP_NAME}</strong>. Bei Fragen zum Datenschutz wenden Sie sich bitte direkt
             an den Betreiber über die bekannten Kontaktwege.
           </p>
         </Section>

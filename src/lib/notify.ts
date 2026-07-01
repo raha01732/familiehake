@@ -1,6 +1,7 @@
 // src/lib/notify.ts
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, resolveUserEmail, escapeHtml } from "@/lib/mail";
+import { APP_NAME } from "@/lib/app-name";
 
 export type NotificationKind =
   | "task_assigned"
@@ -67,7 +68,7 @@ function defaultEmailHtml(params: {
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f4f5;margin:0;padding:24px">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7">
     <tr><td style="padding:24px">
-      <p style="margin:0 0 4px;color:#71717a;font-size:12px;letter-spacing:0.1em;text-transform:uppercase">Hearth</p>
+      <p style="margin:0 0 4px;color:#71717a;font-size:12px;letter-spacing:0.1em;text-transform:uppercase">${escapeHtml(APP_NAME)}</p>
       <h1 style="margin:0 0 16px;color:#18181b;font-size:20px">${escapeHtml(title)}</h1>
       ${bodyHtml}
       ${linkHtml}
