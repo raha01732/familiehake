@@ -1,14 +1,14 @@
 // src/app/legal/terms/page.tsx
 import type { Metadata } from "next";
 import React from "react";
-import { APP_NAME } from "@/lib/app-name";
+import { APP_NAME, CONTACT_EMAIL } from "@/lib/app-name";
 
 export const metadata: Metadata = {
   title: `Nutzungsbedingungen – ${APP_NAME}`,
   description: `Nutzungsbedingungen für die private ${APP_NAME}-Plattform.`,
 };
 
-const LAST_UPDATED = "16. April 2026";
+const LAST_UPDATED = "1. Juli 2026";
 
 export default function TermsPage() {
   return (
@@ -129,8 +129,11 @@ export default function TermsPage() {
 
         <Section title="9. Kontakt">
           <p>
-            Bei Fragen zu diesen Nutzungsbedingungen wenden Sie sich bitte direkt an den
-            Betreiber der Plattform.
+            Bei Fragen zu diesen Nutzungsbedingungen wenden Sie sich bitte direkt per E-Mail an{" "}
+            <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: "hsl(var(--primary))" }}>
+              {CONTACT_EMAIL}
+            </a>
+            .
           </p>
         </Section>
       </Prose>

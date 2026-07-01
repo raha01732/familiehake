@@ -1,14 +1,14 @@
 // src/app/legal/privacy/page.tsx
 import type { Metadata } from "next";
 import React from "react";
-import { APP_NAME } from "@/lib/app-name";
+import { APP_NAME, CONTACT_EMAIL } from "@/lib/app-name";
 
 export const metadata: Metadata = {
   title: `Datenschutzerklärung – ${APP_NAME}`,
   description: `Datenschutzerklärung für die private ${APP_NAME}-Plattform.`,
 };
 
-const LAST_UPDATED = "16. April 2026";
+const LAST_UPDATED = "1. Juli 2026";
 
 export default function PrivacyPage() {
   return (
@@ -45,10 +45,18 @@ export default function PrivacyPage() {
       <Prose>
         <Section title="1. Verantwortlicher">
           <p>
-            Verantwortlicher im Sinne der DSGVO ist der Betreiber der Plattform{" "}
-            <strong>{APP_NAME}</strong>. Bei Fragen zum Datenschutz wenden Sie sich bitte direkt
-            an den Betreiber über die bekannten Kontaktwege.
+            Verantwortlicher im Sinne der DSGVO (Art. 4 Nr. 7) für die Plattform{" "}
+            <strong>{APP_NAME}</strong> ist:
           </p>
+          <p>
+            Ralf Hake
+            <br />
+            E-Mail:{" "}
+            <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: "hsl(var(--primary))" }}>
+              {CONTACT_EMAIL}
+            </a>
+          </p>
+          <p>Bei Fragen zum Datenschutz wenden Sie sich bitte direkt an diese Adresse.</p>
         </Section>
 
         <Section title="2. Welche Daten werden verarbeitet?">
@@ -70,16 +78,32 @@ export default function PrivacyPage() {
               <strong>Technische Daten:</strong> IP-Adresse, Browser-Informationen (nur für
               Sicherheitszwecke, keine Profilbildung).
             </li>
+            <li>
+              <strong>Analyse- & Diagnosedaten (nur mit Einwilligung):</strong> Name, E-Mail-Adresse
+              und Nutzungsverhalten über PostHog sowie Bildschirmaufzeichnungen fehlerhafter
+              Sitzungen über Sentry Session Replay. Siehe Abschnitt 8.
+            </li>
           </ul>
         </Section>
 
-        <Section title="3. Zweck der Datenverarbeitung">
+        <Section title="3. Zweck und Rechtsgrundlage der Verarbeitung (Art. 6 DSGVO)">
           <p>Die Daten werden ausschließlich für folgende Zwecke verarbeitet:</p>
           <ul>
-            <li>Bereitstellung und Betrieb der Plattform,</li>
-            <li>Authentifizierung und Zugriffskontrolle,</li>
-            <li>Sicherheit und Missbrauchsprävention,</li>
-            <li>Fehlererkennung und -behebung (Sentry).</li>
+            <li>
+              <strong>Bereitstellung und Betrieb der Plattform</strong> (Konto-, Nutzungs- und
+              Inhaltsdaten) — Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (Erfüllung des
+              Nutzungsverhältnisses gemäß unseren Nutzungsbedingungen).
+            </li>
+            <li>
+              <strong>Sicherheit, Missbrauchsprävention und Fehlererkennung</strong> (IP-Adresse,
+              Audit-Log, Sentry-Basisfehlerdaten) — Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO
+              (berechtigtes Interesse am sicheren und stabilen Betrieb einer privaten Plattform).
+            </li>
+            <li>
+              <strong>PostHog-Analytics und Sentry Session Replay</strong> — Rechtsgrundlage:
+              Art. 6 Abs. 1 lit. a DSGVO (Einwilligung). Beide sind standardmäßig deaktiviert und
+              laufen nur nach ausdrücklicher Zustimmung, siehe Abschnitt 8.
+            </li>
           </ul>
           <p>
             Eine Weitergabe an Dritte zu Werbe- oder sonstigen kommerziellen Zwecken findet
@@ -89,11 +113,11 @@ export default function PrivacyPage() {
 
         <Section title="4. Datensicherheit und Verschlüsselung">
           <p>
-            Besonders sensible Daten wie Finanztransaktionen werden serverseitig mit dem
-            Verfahren <strong>AES-256-GCM</strong> (Authenticated Encryption) verschlüsselt
-            gespeichert. Der Verschlüsselungsschlüssel befindet sich ausschließlich in der
-            sicheren Laufzeitumgebung (Vercel) und ist für niemanden — auch nicht für den
-            Betreiber — im Klartext einsehbar.
+            Besonders sensible Daten — Finanztransaktionen, Journaleinträge und Kalenderdaten —
+            werden serverseitig mit dem Verfahren <strong>AES-256-GCM</strong> (Authenticated
+            Encryption) verschlüsselt gespeichert. Der Verschlüsselungsschlüssel befindet sich
+            ausschließlich in der sicheren Laufzeitumgebung (Vercel) und ist für niemanden — auch
+            nicht für den Betreiber — im Klartext einsehbar.
           </p>
           <p>
             Alle Verbindungen zur Plattform erfolgen ausschließlich über{" "}
@@ -146,21 +170,40 @@ export default function PrivacyPage() {
             </li>
           </ul>
           <p>
-            Zur Ausübung Ihrer Rechte wenden Sie sich bitte direkt an den Betreiber.
-            Sie haben zudem das Recht, eine Beschwerde bei der zuständigen
+            Zur Ausübung Ihrer Rechte wenden Sie sich bitte direkt per E-Mail an{" "}
+            <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: "hsl(var(--primary))" }}>
+              {CONTACT_EMAIL}
+            </a>
+            . Sie haben zudem das Recht, eine Beschwerde bei der zuständigen
             Datenschutzaufsichtsbehörde einzureichen.
           </p>
         </Section>
 
-        <Section title="8. Cookies und lokaler Speicher">
+        <Section title="8. Cookies, Analytics & Session Replay">
           <p>
-            Die Plattform verwendet technisch notwendige Cookies für die Sitzungsverwaltung
-            (Clerk Authentication) sowie ein Locale-Cookie für die Spracheinstellung. Es
-            werden keine Tracking- oder Werbe-Cookies eingesetzt.
+            <strong>Technisch notwendig (immer aktiv):</strong> Cookies für die Sitzungsverwaltung
+            (Clerk Authentication), ein Locale-Cookie für die Spracheinstellung sowie das Cookie{" "}
+            <code>analytics_consent</code>, das Ihre Entscheidung zu den unten beschriebenen
+            Analyse-Tools speichert. Diese Cookies erfordern keine Einwilligung
+            (§ 25 Abs. 2 Nr. 2 TTDSG).
           </p>
           <p>
-            PostHog Analytics ist im Einsatz, um anonymisierte Nutzungsstatistiken zu erheben.
-            Es findet keine Verknüpfung mit personenbezogenen Daten statt.
+            <strong>Nur mit Einwilligung:</strong> Beim ersten Besuch fragen wir per Banner, ob wir
+            <strong> PostHog</strong> (Nutzungsstatistiken, Klick-/Seitenaufrufe, verknüpft mit
+            Ihrem Namen, Ihrer E-Mail-Adresse und Ihrer Nutzerrolle) und{" "}
+            <strong>Sentry Session Replay</strong> (Bildschirmaufzeichnung Ihrer Sitzung bei
+            aufgetretenen Fehlern, Eingabefelder werden dabei maskiert) verwenden dürfen. Beide
+            sind ohne Zustimmung vollständig deaktiviert; die Plattform funktioniert in jedem Fall
+            identisch. Ihre Entscheidung wird als Cookie in Ihrem Browser und — sofern Sie
+            angemeldet sind — zusätzlich geräteübergreifend in Ihrem Nutzerkonto gespeichert. Sie
+            können sie jederzeit über <strong>Kontoeinstellungen → Analytics</strong> ändern.
+          </p>
+          <p>
+            Unabhängig von dieser Einwilligung erhält Sentry bei jedem Fehlerereignis technische
+            Basisdaten (u. a. IP-Adresse) zur Fehlerdiagnose — Rechtsgrundlage ist hier das
+            berechtigte Interesse an einem stabilen Betrieb (Abschnitt 3). Für PostHog und Sentry
+            gelten im Übrigen die Aufbewahrungsfristen der jeweiligen Anbieter, siehe deren
+            Datenschutzerklärungen (Tabelle in Abschnitt 5).
           </p>
         </Section>
 
@@ -200,13 +243,13 @@ function ThirdPartyTable() {
     },
     {
       name: "Sentry",
-      purpose: "Fehlererkennung & Monitoring",
+      purpose: "Fehlererkennung & Monitoring; Session Replay nur mit Einwilligung",
       location: "USA (SCCs)",
       privacy: "sentry.io/privacy",
     },
     {
       name: "PostHog",
-      purpose: "Anonymisierte Nutzungsstatistiken",
+      purpose: "Nutzungsstatistiken mit Nutzeridentität, nur mit Einwilligung",
       location: "EU",
       privacy: "posthog.com/privacy",
     },

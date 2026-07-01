@@ -5,9 +5,18 @@
 
 import * as Sentry from "@sentry/nextjs";
 import posthog from "posthog-js";
+import { readAnalyticsConsentCookie } from "@/lib/analytics-consent";
 
 const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "/ph";
+
+// PostHog (Autocapture, Identify, Session Recording) und Sentry Session
+// Replay sind nicht technisch notwendig und laufen daher nur nach
+// ausdrücklicher Einwilligung über den AnalyticsConsentBanner. Ohne
+// Entscheidung/bei Ablehnung bleibt alles deaktiviert (siehe Datenschutz-
+// erklärung, Abschnitt „Cookies, Analytics & Session Replay").
+const analyticsConsent = readAnalyticsConsentCookie();
+const analyticsGranted = analyticsConsent === "granted";
 
 if (posthogKey) {
   posthog.init(posthogKey, {
@@ -16,6 +25,7 @@ if (posthogKey) {
     defaults: "2025-11-30",
     capture_pageview: false,
     autocapture: true,
+    opt_out_capturing_by_default: true,
     session_recording: {
       maskAllInputs: true,
       blockClass: "ph-no-capture",
@@ -25,6 +35,9 @@ if (posthogKey) {
       posthogClient.register({
         stack: ["Supabase", "Clerk", "Upstash", "Sentry", "Vercel"],
       });
+      if (analyticsGranted) {
+        posthogClient.opt_in_capturing();
+      }
     },
   });
 }
@@ -35,7 +48,8 @@ Sentry.init({
 
   // Add optional integrations for additional features
   integrations: [
-    Sentry.replayIntegration(),
+    // Session Replay (Bildschirmaufzeichnung) nur nach Einwilligung.
+    ...(analyticsGranted ? [Sentry.replayIntegration()] : []),
     Sentry.feedbackIntegration({
       colorScheme: "system",
       triggerLabel: "Einen Fehler melden",
@@ -61,13 +75,11 @@ Sentry.init({
   // Enable logs to be sent to Sentry
   enableLogs: true,
 
-  // Define how likely Replay events are sampled.
-  // This sets the sample rate to be 10%. You may want this to be 100% while
-  // in development and sample at a lower rate in production
-  replaysSessionSampleRate: 0.1,
+  // Define how likely Replay events are sampled (nur bei erteilter Einwilligung > 0).
+  replaysSessionSampleRate: analyticsGranted ? 0.1 : 0,
 
-  // Define how likely Replay events are sampled when an error occurs.
-  replaysOnErrorSampleRate: 1.0,
+  // Define how likely Replay events are sampled when an error occurs (nur bei erteilter Einwilligung).
+  replaysOnErrorSampleRate: analyticsGranted ? 1.0 : 0,
 
   // Enable sending user PII (Personally Identifiable Information)
   // https://docs.sentry.io/platforms/javascript/guides/nextjs/configuration/options/#sendDefaultPii

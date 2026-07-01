@@ -7,3 +7,6 @@ export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME?.trim() || "Hearth";
 
 /** Für Kontexte ohne Leerzeichen/Sonderzeichen, z.B. HTTP-Header oder ICS-IDs. */
 export const APP_NAME_SLUG = APP_NAME.replace(/[^a-zA-Z0-9]+/g, "") || "App";
+
+/** Kontakt-E-Mail des Betreibers, u.a. für Nutzungsbedingungen & Datenschutzerklärung. */
+export const CONTACT_EMAIL = process.env.NEXT_PUBLIC_CONTACT_EMAIL?.trim() || "ralf@familiehake.de";

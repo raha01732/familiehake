@@ -1862,3 +1862,16 @@ create table if not exists clerk_user_state (
   locked          boolean not null default false,
   last_synced_at  timestamptz not null default now()
 );
+
+-- ───────────────────────────────────────────────────────────────────
+-- Analytics-Einwilligung (PostHog / Sentry Session Replay)
+-- Geräteübergreifend im Profil gespeichert; das Browser-Cookie
+-- "analytics_consent" bleibt die schnelle lokale Quelle beim Seitenladen
+-- (instrumentation-client.ts läuft vor jedem API-Call) und wird beim
+-- Login mit dem hier gespeicherten Wert abgeglichen.
+-- ───────────────────────────────────────────────────────────────────
+create table if not exists user_analytics_consent (
+  user_id    text primary key,
+  consent    text not null check (consent in ('granted', 'denied')),
+  updated_at timestamptz not null default now()
+);

@@ -13,6 +13,7 @@ import { getSessionInfo } from "@/lib/auth";
 import { env, getClerkPublishableKey } from "@/lib/env";
 import { APP_NAME } from "@/lib/app-name";
 import { PreviewTopBanner } from "@/components/PreviewNotice";
+import AnalyticsConsentBanner from "@/components/AnalyticsConsentBanner";
 
 export function generateMetadata(): Metadata {
   return {
@@ -101,6 +102,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           Datenschutz
         </Link>
       </footer>
+      <AnalyticsConsentBanner />
     </div>
   );
   const analyticsShell = <PostHogProvider enableIdentity={session.signedIn}>{shell}</PostHogProvider>;

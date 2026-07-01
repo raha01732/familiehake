@@ -13,10 +13,11 @@ import {
   useUser,
 } from "@clerk/nextjs";
 import { useEffect, useRef, useState } from "react";
-import { LogOut, Settings, ChevronDown, Bell } from "lucide-react";
+import { LogOut, Settings, ChevronDown, Bell, ShieldCheck } from "lucide-react";
 import { createRoot, type Root } from "react-dom/client";
 import NotificationBell from "@/components/NotificationBell";
 import NotificationSettings from "@/components/NotificationSettings";
+import AnalyticsConsentSettings from "@/components/AnalyticsConsentSettings";
 import { APP_NAME } from "@/lib/app-name";
 
 type HeaderProps = {
@@ -256,6 +257,14 @@ function buildCustomPages() {
       mountIcon: (el: HTMLDivElement) => mountReact(el, <Bell size={15} aria-hidden />),
       unmountIcon: unmountReact,
       mount: (el: HTMLDivElement) => mountReact(el, <NotificationSettings />),
+      unmount: unmountReact,
+    },
+    {
+      label: "Analytics",
+      url: "analytics",
+      mountIcon: (el: HTMLDivElement) => mountReact(el, <ShieldCheck size={15} aria-hidden />),
+      unmountIcon: unmountReact,
+      mount: (el: HTMLDivElement) => mountReact(el, <AnalyticsConsentSettings />),
       unmount: unmountReact,
     },
   ];
