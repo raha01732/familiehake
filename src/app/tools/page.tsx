@@ -1,15 +1,15 @@
 import Link from "next/link";
 import { getSessionInfo } from "@/lib/auth";
-import { TOOL_LINKS } from "@/lib/navigation";
+import { TOOL_LINKS, type NavLink, type ToolGroup } from "@/lib/navigation";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 import { normalizeRouteKey } from "@/lib/route-access";
-import { getToolStatusMap } from "@/lib/tool-status";
+import { getToolStatusMap, type ToolStatusMap } from "@/lib/tool-status";
 import { getLockedWorkspaceKeys } from "@/lib/workspace-locks";
 import { getWorkspaceForRoute } from "@/lib/workspaces";
 import {
   FolderOpen, BookOpen, Film, CalendarClock, Calendar,
   MessageSquare, HardDrive, Monitor, type LucideIcon,
-  Wrench, Wallet, Lock, ListChecks, Salad,
+  Wrench, Wallet, Lock, ListChecks, Salad, Users, Clapperboard, ShieldCheck,
 } from "lucide-react";
 
 export const metadata = { title: "Werkzeuge" };
@@ -27,6 +27,20 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "tools/vault":        Lock,
   "tools/tasks":        ListChecks,
   "tools/nutrition":    Salad,
+};
+
+// Gleiche Gruppierung/Labels wie in der Sidebar (HomePageContent.tsx).
+const GROUP_ORDER: ToolGroup[] = ["personal", "family", "cinema", "system"];
+const GROUP_LABELS: Record<ToolGroup, string> = {
+  personal: "Personal-Workspace",
+  family: "Family-Bereich",
+  cinema: "Kino-Workspace",
+  system: "System",
+};
+const GROUP_ICONS: Partial<Record<ToolGroup, LucideIcon>> = {
+  family: Users,
+  cinema: Clapperboard,
+  system: ShieldCheck,
 };
 
 export default async function ToolsPage() {
@@ -109,84 +123,110 @@ export default async function ToolsPage() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {visible.map((t) => {
-            const Icon = ICON_MAP[t.routeKey] ?? Wrench;
-            const toolStatus = toolStatusMap[t.routeKey];
-            const ws = getWorkspaceForRoute(t.routeKey);
-            const workspaceLocked = !isSuper && !!ws && lockedWorkspaces.has(ws.key);
-            const enabled = (toolStatus?.enabled ?? true) && !workspaceLocked;
-            const maintenanceMessage = workspaceLocked
-              ? null
-              : toolStatus?.maintenanceMessage?.trim() || null;
-            const badgeLabel = workspaceLocked
-              ? "Gesperrt"
-              : maintenanceMessage
-                ? "Wartung"
-                : "Deaktiviert";
+        <div className="flex flex-col gap-8">
+          {GROUP_ORDER.map((group) => {
+            const groupTools = visible.filter((t) => (t.group ?? "personal") === group);
+            if (groupTools.length === 0) return null;
+            const GroupIcon = GROUP_ICONS[group];
 
             return (
-              <Link
-                key={t.routeKey}
-                href={t.href}
-                className="feature-card group flex flex-col gap-4 p-5"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div
-                    className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl transition-transform group-hover:scale-110"
-                    style={{
-                      background: enabled
-                        ? "hsl(var(--primary) / 0.12)"
-                        : "hsl(var(--muted))",
-                      color: enabled
-                        ? "hsl(var(--primary))"
-                        : "hsl(var(--muted-foreground))",
-                    }}
+              <div key={group} className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  {GroupIcon && (
+                    <GroupIcon size={14} style={{ color: "hsl(var(--muted-foreground))" }} aria-hidden />
+                  )}
+                  <h2
+                    className="text-xs font-semibold uppercase tracking-[0.15em]"
+                    style={{ color: "hsl(var(--muted-foreground))" }}
                   >
-                    <Icon size={19} strokeWidth={2} aria-hidden />
-                  </div>
-                  {!enabled && (
-                    <span
-                      className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                      style={{
-                        borderColor: "hsl(27 96% 61% / 0.4)",
-                        background: "hsl(27 96% 61% / 0.1)",
-                        color: "hsl(27 96% 50%)",
-                      }}
-                    >
-                      {badgeLabel}
-                    </span>
-                  )}
+                    {GROUP_LABELS[group]}
+                  </h2>
                 </div>
-                <div>
-                  <h3
-                    className="text-sm font-semibold group-hover:underline"
-                    style={{ color: "hsl(var(--foreground))" }}
-                  >
-                    {t.label}
-                  </h3>
-                  {t.description && (
-                    <p
-                      className="mt-1 text-xs leading-relaxed"
-                      style={{ color: "hsl(var(--muted-foreground))" }}
-                    >
-                      {t.description}
-                    </p>
-                  )}
-                  {!enabled && maintenanceMessage && (
-                    <p
-                      className="mt-2 text-xs line-clamp-2"
-                      style={{ color: "hsl(27 96% 50%)" }}
-                    >
-                      {maintenanceMessage}
-                    </p>
-                  )}
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {groupTools.map((t) => (
+                    <ToolCard
+                      key={t.routeKey}
+                      tool={t}
+                      isSuper={isSuper}
+                      toolStatusMap={toolStatusMap}
+                      lockedWorkspaces={lockedWorkspaces}
+                    />
+                  ))}
                 </div>
-              </Link>
+              </div>
             );
           })}
         </div>
       )}
     </section>
+  );
+}
+
+function ToolCard({
+  tool,
+  isSuper,
+  toolStatusMap,
+  lockedWorkspaces,
+}: {
+  tool: NavLink;
+  isSuper: boolean;
+  toolStatusMap: ToolStatusMap;
+  lockedWorkspaces: Set<string>;
+}) {
+  const Icon = ICON_MAP[tool.routeKey] ?? Wrench;
+  const toolStatus = toolStatusMap[tool.routeKey];
+  const ws = getWorkspaceForRoute(tool.routeKey);
+  const workspaceLocked = !isSuper && !!ws && lockedWorkspaces.has(ws.key);
+  const enabled = (toolStatus?.enabled ?? true) && !workspaceLocked;
+  const maintenanceMessage = workspaceLocked
+    ? null
+    : toolStatus?.maintenanceMessage?.trim() || null;
+  const badgeLabel = workspaceLocked
+    ? "Gesperrt"
+    : maintenanceMessage
+      ? "Wartung"
+      : "Deaktiviert";
+
+  return (
+    <Link href={tool.href} className="feature-card group flex flex-col gap-4 p-5">
+      <div className="flex items-start justify-between gap-2">
+        <div
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl transition-transform group-hover:scale-110"
+          style={{
+            background: enabled ? "hsl(var(--primary) / 0.12)" : "hsl(var(--muted))",
+            color: enabled ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
+          }}
+        >
+          <Icon size={19} strokeWidth={2} aria-hidden />
+        </div>
+        {!enabled && (
+          <span
+            className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+            style={{
+              borderColor: "hsl(27 96% 61% / 0.4)",
+              background: "hsl(27 96% 61% / 0.1)",
+              color: "hsl(27 96% 50%)",
+            }}
+          >
+            {badgeLabel}
+          </span>
+        )}
+      </div>
+      <div>
+        <h3 className="text-sm font-semibold group-hover:underline" style={{ color: "hsl(var(--foreground))" }}>
+          {tool.label}
+        </h3>
+        {tool.description && (
+          <p className="mt-1 text-xs leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>
+            {tool.description}
+          </p>
+        )}
+        {!enabled && maintenanceMessage && (
+          <p className="mt-2 text-xs line-clamp-2" style={{ color: "hsl(27 96% 50%)" }}>
+            {maintenanceMessage}
+          </p>
+        )}
+      </div>
+    </Link>
   );
 }
