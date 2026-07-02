@@ -2,6 +2,7 @@
 import AdminErrorBanner from "@/components/AdminErrorBanner";
 import CommandMenu from "@/components/CommandMenu";
 import Header from "@/components/Header";
+import MessagingKeyBootstrap from "@/components/MessagingKeyBootstrap";
 import { getSessionInfo } from "@/lib/auth";
 import { getActiveTheme, getThemeCssVars } from "@/lib/theme";
 
@@ -51,7 +52,12 @@ export default async function DynamicUserChrome({ clerkEnabled, signInUrl }: Dyn
       <style id="dynamic-theme-vars">{`:root { ${cssVarsToString(themeCssVars)} }`}</style>
       <AdminErrorBanner isAdmin={isAdmin} />
       <Header clerkEnabled={isSignedIn} signInUrl={signInUrl} isAdmin={isAdmin} />
-      {isSignedIn ? <CommandMenu /> : null}
+      {isSignedIn ? (
+        <>
+          <CommandMenu />
+          <MessagingKeyBootstrap />
+        </>
+      ) : null}
     </>
   );
 }

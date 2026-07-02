@@ -3,14 +3,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { decryptWith, encryptFor, generateRSA, importPrivateKey, importPublicKey } from "@/lib/crypto";
+import { Loader2, Lock, MessageSquare, Send, ShieldAlert } from "lucide-react";
+import { decryptWith, encryptFor, importPrivateKey, importPublicKey } from "@/lib/crypto";
+import { ensureKeyPublished, getLocalPrivateKey } from "@/lib/e2e-keys";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 import type { UserDirectoryEntry } from "@/app/api/users/list/route";
 import type { ConversationEntry } from "@/app/api/messages/conversations/route";
 
 type Msg = { id: string; sender_id: string; recipient_id: string; ciphertext: string; created_at: string };
-
-type RevealFn = (ciphertext: string) => Promise<string>;
 
 type KeyStatus = "checking" | "ready" | "error";
 
@@ -21,13 +21,21 @@ const MAX_MESSAGE_CHARS = 4000;
 
 const POLL_INTERVAL_MS = 8000;
 
+function initials(name: string): string {
+  return (
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s) => s[0]?.toUpperCase() ?? "")
+      .join("") || "?"
+  );
+}
+
 export default function MessagesPage() {
   const isPreview = process.env.NEXT_PUBLIC_VERCEL_ENV === "preview";
   const { userId } = useAuth();
-  const [privPEM, setPrivPEM] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem("e2e_private_pem");
-  });
+  const [privPEM, setPrivPEM] = useState<string | null>(() => getLocalPrivateKey());
   const [keyStatus, setKeyStatus] = useState<KeyStatus>("checking");
 
   const [directory, setDirectory] = useState<UserDirectoryEntry[]>([]);
@@ -36,6 +44,7 @@ export default function MessagesPage() {
   const [newPeerId, setNewPeerId] = useState<string>("");
   const [peerHasKey, setPeerHasKey] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [decryptedText, setDecryptedText] = useState<Record<string, string>>({});
   const [plain, setPlain] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -69,43 +78,24 @@ export default function MessagesPage() {
     }
   }, []);
 
-  // Schlüsselpaar (RSA-OAEP-2048) automatisch einrichten: einmalig lokal
-  // erzeugen (privater Teil verlässt nie den Browser, localStorage) und den
-  // öffentlichen Teil bei jedem Besuch (erneut) veröffentlichen – idempotent,
-  // holt eine zuvor fehlgeschlagene Veröffentlichung automatisch nach.
-  const ensureKeyPublished = useCallback(async () => {
-    let priv = localStorage.getItem("e2e_private_pem");
-    let pub = localStorage.getItem("e2e_public_pem");
-    if (!priv || !pub) {
-      const kp = await generateRSA();
-      priv = kp.privatePEM;
-      pub = kp.publicPEM;
-      localStorage.setItem("e2e_private_pem", priv);
-      localStorage.setItem("e2e_public_pem", pub);
-      setPrivPEM(priv);
-    }
-    try {
-      const res = await fetch("/api/keys", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ public_key_pem: pub }),
-      });
-      const json = await res.json();
-      setKeyStatus(json?.ok ? "ready" : "error");
-    } catch {
-      setKeyStatus("error");
-    }
+  // Schlüsselpaar (RSA-OAEP-2048) einrichten – die eigentliche Logik ist in
+  // src/lib/e2e-keys.ts geteilt, damit MessagingKeyBootstrap sie auch global
+  // (für jeden eingeloggten Nutzer, unabhängig vom Besuch dieses Tools)
+  // anstoßen kann. Hier wird sie zusätzlich erneut ausgeführt und das
+  // Ergebnis für die Status-Anzeige übernommen.
+  const ensureKey = useCallback(async () => {
+    const result = await ensureKeyPublished();
+    setPrivPEM(result.privPEM);
+    setKeyStatus(result.ok ? "ready" : "error");
   }, []);
 
   // Adressbuch, bisherige Unterhaltungen & Schlüssel-Einrichtung einmalig
   // laden (gewolltes Fetch-on-mount, kein externes Subscription-Ziel vorhanden).
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     void loadDirectory();
     void loadConversations();
-    void ensureKeyPublished();
-  }, [loadDirectory, loadConversations, ensureKeyPublished]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+    void ensureKey();
+  }, [loadDirectory, loadConversations, ensureKey]);
 
   async function loadChat(peerId: string) {
     if (!peerId) return;
@@ -202,27 +192,42 @@ export default function MessagesPage() {
     return messages.map((m) => ({ m, mine: m.sender_id === userId }));
   }, [messages, userId]);
 
-  async function reveal(ciphertext: string) {
-    if (!privPEM) return "—";
-    const privKey = await importPrivateKey(privPEM);
-    try {
-      return await decryptWith(privKey, ciphertext);
-    } catch {
-      return "Entschlüsselung fehlgeschlagen";
-    }
-  }
+  // Nachrichten direkt beim Laden entschlüsseln, statt jede einzeln per Klick
+  // aufdecken zu müssen.
+  useEffect(() => {
+    if (!privPEM) return;
+    let cancelled = false;
+    (async () => {
+      const privKey = await importPrivateKey(privPEM);
+      for (const m of messages) {
+        if (decryptedText[m.id] !== undefined) continue;
+        let text: string;
+        try {
+          text = await decryptWith(privKey, m.ciphertext);
+        } catch {
+          text = "Entschlüsselung fehlgeschlagen";
+        }
+        if (cancelled) return;
+        setDecryptedText((prev) => ({ ...prev, [m.id]: text }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, privPEM]);
 
   if (!userId) {
     return (
-      <section className="p-6">
-        <div className="text-sm text-zinc-400">Bitte anmelden.</div>
+      <section>
+        <div className="text-sm text-muted-foreground">Bitte anmelden.</div>
       </section>
     );
   }
 
   if (isPreview) {
     return (
-      <section className="p-6">
+      <section>
         <PreviewPlaceholder
           title="Nachrichten (Preview)"
           description="E2E-Nachrichten und Schlüsselverwaltung sind in Preview nur als Demo sichtbar."
@@ -233,23 +238,44 @@ export default function MessagesPage() {
   }
 
   const directoryOptions = directory.filter((u) => u.id !== userId);
+  const activePeerName = activePeerId ? nameFor(activePeerId) : "";
 
   return (
-    <section className="p-6 flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-zinc-100">Nachrichten (E2E)</h1>
+    <section className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Nachrichten</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">Ende-zu-Ende-verschlüsselter Chat</p>
+        </div>
+
         {keyStatus === "checking" && (
-          <div className="text-[11px] text-zinc-500">Schlüssel wird eingerichtet…</div>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            <Loader2 size={11} className="animate-spin" aria-hidden />
+            Schlüssel wird eingerichtet…
+          </span>
         )}
         {keyStatus === "ready" && (
-          <div className="text-[11px] text-emerald-400">Sicherer Schlüssel aktiv</div>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+            style={{
+              background: "hsl(142 71% 45% / 0.1)",
+              color: "hsl(142 71% 45%)",
+              border: "1px solid hsl(142 71% 45% / 0.25)",
+            }}
+          >
+            <Lock size={11} aria-hidden />
+            Sicherer Schlüssel aktiv
+          </span>
         )}
         {keyStatus === "error" && (
           <div className="flex items-center gap-2">
-            <div className="text-[11px] text-red-400">Schlüssel konnte nicht veröffentlicht werden</div>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-[11px] font-semibold text-destructive">
+              <ShieldAlert size={11} aria-hidden />
+              Schlüssel nicht veröffentlicht
+            </span>
             <button
-              onClick={() => void ensureKeyPublished()}
-              className="rounded-lg border border-zinc-700 px-2 py-1 text-[11px] hover:bg-zinc-900"
+              onClick={() => void ensureKey()}
+              className="rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-secondary"
             >
               Erneut versuchen
             </button>
@@ -257,33 +283,47 @@ export default function MessagesPage() {
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-[240px_1fr]">
+      <div className="grid gap-4 sm:grid-cols-[260px_1fr]">
         <div className="flex flex-col gap-3">
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 flex flex-col gap-1.5">
-            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Unterhaltungen</div>
+          <div className="rounded-2xl border border-border bg-card p-3">
+            <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Unterhaltungen
+            </div>
             {conversations.length === 0 ? (
-              <div className="text-xs text-zinc-500">Noch keine Unterhaltungen.</div>
+              <div className="px-1 py-1 text-xs text-muted-foreground">Noch keine Unterhaltungen.</div>
             ) : (
-              conversations.map((c) => (
-                <button
-                  key={c.peerId}
-                  onClick={() => openChat(c.peerId)}
-                  className={`rounded-lg px-2 py-1.5 text-left text-sm truncate ${
-                    activePeerId === c.peerId ? "bg-zinc-800 text-zinc-100" : "text-zinc-300 hover:bg-zinc-900"
-                  }`}
-                >
-                  {nameFor(c.peerId)}
-                </button>
-              ))
+              <div className="flex flex-col gap-1">
+                {conversations.map((c) => (
+                  <button
+                    key={c.peerId}
+                    onClick={() => openChat(c.peerId)}
+                    className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
+                      activePeerId === c.peerId
+                        ? "bg-primary/10 text-primary"
+                        : "text-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    <span
+                      className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-semibold"
+                      style={{ background: "hsl(var(--primary) / 0.15)", color: "hsl(var(--primary))" }}
+                    >
+                      {initials(nameFor(c.peerId))}
+                    </span>
+                    <span className="truncate">{nameFor(c.peerId)}</span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
 
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 flex flex-col gap-2">
-            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Neue Unterhaltung</div>
+          <div className="rounded-2xl border border-border bg-card p-3 flex flex-col gap-2">
+            <div className="px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Neue Unterhaltung
+            </div>
             <select
               value={newPeerId}
               onChange={(e) => setNewPeerId(e.target.value)}
-              className="rounded bg-zinc-950 border border-zinc-800 px-2 py-1.5 text-sm text-zinc-200"
+              className="input-field"
             >
               <option value="">Person wählen…</option>
               {directoryOptions.map((u) => (
@@ -298,7 +338,7 @@ export default function MessagesPage() {
                 openChat(newPeerId);
                 setNewPeerId("");
               }}
-              className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Chat öffnen
             </button>
@@ -307,47 +347,64 @@ export default function MessagesPage() {
 
         <div className="flex flex-col gap-3">
           {!activePeerId ? (
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6 text-sm text-zinc-500">
-              Wähle links eine Unterhaltung oder starte eine neue.
+            <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-card p-10 text-center">
+              <div
+                className="flex h-11 w-11 items-center justify-center rounded-2xl"
+                style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+              >
+                <MessageSquare size={20} aria-hidden />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Wähle links eine Unterhaltung oder starte eine neue.
+              </p>
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-medium text-zinc-100">{nameFor(activePeerId)}</div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
+                    style={{ background: "hsl(var(--primary) / 0.15)", color: "hsl(var(--primary))" }}
+                  >
+                    {initials(activePeerName)}
+                  </span>
+                  <div className="text-sm font-medium text-foreground">{activePeerName}</div>
+                </div>
                 {peerHasKey === false && (
-                  <div className="text-[11px] text-amber-400">Kein öffentlicher Schlüssel veröffentlicht</div>
+                  <span className="text-[11px] font-medium" style={{ color: "hsl(27 96% 50%)" }}>
+                    Kein öffentlicher Schlüssel veröffentlicht
+                  </span>
                 )}
               </div>
 
-              {loadError && <div className="text-xs text-red-400">{loadError}</div>}
+              {loadError && <div className="text-xs text-destructive">{loadError}</div>}
 
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+              <div className="flex max-h-[420px] flex-col gap-2 overflow-y-auto rounded-2xl border border-border bg-card p-3">
                 {decrypted.length === 0 ? (
-                  <div className="text-sm text-zinc-500">Noch keine Nachrichten.</div>
+                  <div className="text-sm text-muted-foreground">Noch keine Nachrichten.</div>
                 ) : (
-                  <div className="flex flex-col gap-2">
-                    {decrypted.map(({ m, mine }) => (
+                  decrypted.map(({ m, mine }) => (
+                    <div
+                      key={m.id}
+                      className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${mine ? "self-end" : "self-start"}`}
+                      style={
+                        mine
+                          ? { background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))" }
+                          : { background: "hsl(var(--secondary))", color: "hsl(var(--secondary-foreground))" }
+                      }
+                    >
                       <div
-                        key={m.id}
-                        className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
-                          mine ? "self-end bg-zinc-800" : "self-start bg-zinc-950 border border-zinc-800"
-                        }`}
+                        className="mb-1 text-[10px] opacity-70"
                       >
-                        <div className="text-[10px] text-zinc-500 mb-1">
-                          {mine ? "Ich" : nameFor(m.sender_id)} ·{" "}
-                          {new Date(m.created_at).toLocaleString("de-DE")}
-                        </div>
-                        <details>
-                          <summary className="cursor-pointer text-zinc-300">Nachricht anzeigen</summary>
-                          <AsyncText ciphertext={m.ciphertext} reveal={reveal} />
-                        </details>
+                        {mine ? "Ich" : nameFor(m.sender_id)} · {new Date(m.created_at).toLocaleString("de-DE")}
                       </div>
-                    ))}
-                  </div>
+                      <div className="whitespace-pre-wrap">{decryptedText[m.id] ?? "…entschlüsseln…"}</div>
+                    </div>
+                  ))
                 )}
               </div>
 
-              {sendError && <div className="text-xs text-red-400">{sendError}</div>}
+              {sendError && <div className="text-xs text-destructive">{sendError}</div>}
 
               <div className="flex items-end gap-2">
                 <textarea
@@ -362,9 +419,13 @@ export default function MessagesPage() {
                   }}
                   rows={3}
                   maxLength={MAX_MESSAGE_CHARS}
-                  className="flex-1 resize-none rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-sm"
+                  className="input-field flex-1 resize-none"
                 />
-                <button onClick={send} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900">
+                <button
+                  onClick={send}
+                  className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition hover:opacity-90"
+                >
+                  <Send size={13} aria-hidden />
                   Senden
                 </button>
               </div>
@@ -374,14 +435,4 @@ export default function MessagesPage() {
       </div>
     </section>
   );
-}
-
-function AsyncText({ ciphertext, reveal }: { ciphertext: string; reveal: RevealFn }) {
-  const [txt, setTxt] = useState("…entschlüsseln…");
-
-  useEffect(() => {
-    (async () => setTxt(await reveal(ciphertext)))();
-  }, [ciphertext, reveal]);
-
-  return <div className="mt-1 text-zinc-200 whitespace-pre-wrap">{txt}</div>;
 }
