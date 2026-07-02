@@ -230,7 +230,7 @@ function SignInBtn() {
   );
 }
 
-function buildCustomPages() {
+function buildCustomPages(signedIn: boolean) {
   const roots = new WeakMap<Element, Root>();
 
   function mountReact(el: HTMLDivElement, node: React.ReactNode) {
@@ -264,7 +264,7 @@ function buildCustomPages() {
       url: "analytics",
       mountIcon: (el: HTMLDivElement) => mountReact(el, <ShieldCheck size={15} aria-hidden />),
       unmountIcon: unmountReact,
-      mount: (el: HTMLDivElement) => mountReact(el, <AnalyticsConsentSettings />),
+      mount: (el: HTMLDivElement) => mountReact(el, <AnalyticsConsentSettings signedIn={signedIn} />),
       unmount: unmountReact,
     },
   ];
@@ -378,7 +378,7 @@ function UserMenu() {
               icon={<Settings size={14} aria-hidden />}
               onClick={async () => {
                 setIsOpen(false);
-                await openUserProfile({ customPages: buildCustomPages() });
+                await openUserProfile({ customPages: buildCustomPages(Boolean(user)) });
               }}
             >
               Profil & Einstellungen

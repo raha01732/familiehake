@@ -3,13 +3,22 @@
 
 import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
-import { useUser } from "@clerk/nextjs";
 import { APP_NAME } from "@/lib/app-name";
 import { readAnalyticsConsentCookie, type AnalyticsConsent } from "@/lib/analytics-consent";
 import { decideAnalyticsConsent, syncAnalyticsConsentWithServer } from "@/lib/apply-analytics-consent";
 
-export default function AnalyticsConsentSettings() {
-  const { isSignedIn } = useUser();
+type AnalyticsConsentSettingsProps = {
+  /**
+   * Wird als Clerk-Custom-Page in einem eigenen, von der App losgelösten
+   * React-Root gemountet (siehe Header.tsx buildCustomPages) - dort steht
+   * kein <ClerkProvider />-Kontext zur Verfügung, useUser() würde crashen.
+   * Deshalb wird der Signed-in-Status als Prop von außen übergeben.
+   */
+  signedIn?: boolean;
+};
+
+export default function AnalyticsConsentSettings({ signedIn = true }: AnalyticsConsentSettingsProps) {
+  const isSignedIn = signedIn;
   const [consent, setConsent] = useState<AnalyticsConsent | null>(null);
   const [saved, setSaved] = useState(false);
 

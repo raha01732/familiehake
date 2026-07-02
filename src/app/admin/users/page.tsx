@@ -1071,11 +1071,17 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                                 <ShieldCheck size={13} style={{ color: "hsl(142 71% 45%)" }} aria-label="2FA aktiv" />
                               )}
                               {user.analyticsConsent === "granted" ? (
-                                <Eye size={13} style={{ color: "hsl(142 71% 45%)" }} aria-label="Tracking: zugestimmt" />
+                                <span title="Tracking-Einwilligung: zugestimmt (Analytics & Session Replay erlaubt)">
+                                  <Eye size={13} style={{ color: "hsl(142 71% 45%)" }} aria-label="Tracking: zugestimmt" />
+                                </span>
                               ) : user.analyticsConsent === "denied" ? (
-                                <EyeOff size={13} className="text-muted-foreground" aria-label="Tracking: abgelehnt" />
+                                <span title="Tracking-Einwilligung: abgelehnt (nur Notwendiges)">
+                                  <EyeOff size={13} className="text-muted-foreground" aria-label="Tracking: abgelehnt" />
+                                </span>
                               ) : (
-                                <EyeOff size={13} className="text-muted-foreground/40" aria-label="Tracking: noch nicht entschieden" />
+                                <span title="Tracking-Einwilligung: noch nicht entschieden">
+                                  <EyeOff size={13} className="text-muted-foreground/40" aria-label="Tracking: noch nicht entschieden" />
+                                </span>
                               )}
                             </div>
                             <div className="truncate text-xs text-muted-foreground">{user.email || "—"}</div>
