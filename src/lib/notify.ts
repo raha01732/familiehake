@@ -2,6 +2,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, resolveUserEmail, escapeHtml } from "@/lib/mail";
 import { APP_NAME } from "@/lib/app-name";
+import { listAdminUserIds } from "@/lib/cron-status-report";
 
 export type NotificationKind =
   | "task_assigned"
@@ -10,6 +11,7 @@ export type NotificationKind =
   | "admin_cron_digest"
   | "shift_reminder"
   | "message_received"
+  | "routes_discovered"
   | "security"
   | "system";
 
@@ -181,4 +183,37 @@ export async function notifyMessageReceived(params: {
     body: "Öffne den Chat, um die verschlüsselte Nachricht zu lesen.",
     link: "/tools/messages",
   });
+}
+
+/**
+ * Benachrichtigt alle Admins/Superadmins, wenn der tägliche Routen-Scan
+ * (Cron /api/cron/discover-routes) neue, bisher unkonfigurierte Routen
+ * gefunden hat. Die Routen sind bereits mit "kein Zugriff" für alle Rollen
+ * in access_rules angelegt (sicherer Startwert) – die Benachrichtigung ist
+ * nur ein Hinweis, dass jemand die gewünschten Rechte noch vergeben sollte.
+ */
+export async function notifyAdminsNewRoutes(routes: string[]): Promise<void> {
+  if (routes.length === 0) return;
+
+  const adminIds = await listAdminUserIds();
+  if (adminIds.length === 0) return;
+
+  const routeList = routes.map((r) => `/${r}`).join(", ");
+  const title =
+    routes.length === 1
+      ? "Neue Route ohne Rechte-Konfiguration"
+      : `${routes.length} neue Routen ohne Rechte-Konfiguration`;
+  const body = `${routeList} — bisher hat keine Rolle Zugriff. Rechte in /admin/settings vergeben.`;
+
+  await Promise.all(
+    adminIds.map((uid) =>
+      notify({
+        userId: uid,
+        kind: "routes_discovered",
+        title,
+        body,
+        link: "/admin/settings",
+      })
+    )
+  );
 }

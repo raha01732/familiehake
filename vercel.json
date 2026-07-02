@@ -17,6 +17,10 @@
       "schedule": "15 0 * * *"
     },
     {
+      "path": "/api/cron/discover-routes",
+      "schedule": "20 0 * * *"
+    },
+    {
       "path": "/api/cron/force-logout",
       "schedule": "0 3 * * *"
     },

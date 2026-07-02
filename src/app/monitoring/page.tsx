@@ -153,6 +153,7 @@ const KNOWN_CRON_JOBS = [
   "cache-warmup",
   "upstash-heartbeat",
   "audit-rollup",
+  "discover-routes",
   "force-logout",
   "shift-reminder",
   "clerk-activity-sync",

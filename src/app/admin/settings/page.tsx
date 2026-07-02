@@ -140,11 +140,29 @@ async function getData() {
       messageByWs.set(wsKey, row.message);
     }
   }
+  // Nur Rollen, die laut Zugriffs-Matrix oben überhaupt für mindestens eine
+  // Route des Workspace einen Haken haben, sind für eine Sperre relevant –
+  // alle anderen Rollen hätten dort ohnehin keinen Zugriff, eine Sperre für
+  // sie wäre wirkungslos (siehe getToolGate()/getLockedWorkspaceKeys()).
+  const grantingRolesByWs = new Map<string, Set<string>>();
+  for (const ws of WORKSPACES) {
+    const grantingRoles = new Set<string>();
+    for (const routeKey of ws.routeKeys) {
+      const roleMap = matrix.get(normalizeRouteKey(routeKey));
+      if (!roleMap) continue;
+      for (const [role, allowed] of roleMap) {
+        if (allowed) grantingRoles.add(role);
+      }
+    }
+    grantingRolesByWs.set(ws.key, grantingRoles);
+  }
+
   const workspaceLockList = WORKSPACES.map((ws) => ({
     key: ws.key,
     label: ws.label,
     lockedRoles: lockedRolesByWs.get(ws.key) ?? new Set<string>(),
     message: messageByWs.get(ws.key) ?? "",
+    grantingRoles: grantingRolesByWs.get(ws.key) ?? new Set<string>(),
   }));
 
   return { roles: roleList, routes, matrix, toolStatusList, workspaceLockList };
@@ -481,6 +499,13 @@ export default async function AdminSettingsPage({
               <p className="mt-1.5 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
                 Definiere per Checkbox, welche Rolle eine Route aufrufen darf.
               </p>
+              <p className="mt-1 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+                Die drei Bereiche unten hängen zusammen: <strong>Zugriffs-Matrix</strong> legt fest, wer
+                grundsätzlich welche Route sehen darf – das ist die eigentliche Rechteliste.{" "}
+                <strong>Tool-Wartungsmodus</strong> schaltet ein Tool für <em>alle</em> ab, egal welche
+                Rolle. <strong>Workspace-Sperren</strong> sperrt einen ganzen Werkzeug-Bereich nur für
+                bestimmte Rollen, ohne die Zugriffs-Matrix zu ändern.
+              </p>
             </div>
           </div>
           <div
@@ -541,15 +566,27 @@ export default async function AdminSettingsPage({
             <span className="font-mono" style={{ color: "hsl(var(--foreground))" }}>admin/settings</span>,{" "}
             <span className="font-mono" style={{ color: "hsl(var(--foreground))" }}>monitoring</span>,{" "}
             <span className="font-mono" style={{ color: "hsl(var(--foreground))" }}>tools/files</span>.
+            Die meisten Seiten-Routen erscheinen bereits automatisch in der Zugriffs-Matrix unten
+            (mit „kein Zugriff" als sicherer Startwert) – dieses Feld brauchst du nur für Routen, die
+            die automatische Erkennung nicht findet (z. B. reine API-Endpunkte).
           </div>
         </div>
 
         {/* Matrix */}
         <div className="card p-6">
-          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
+          <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
             <ShieldCheck size={15} className="text-primary" aria-hidden />
             Zugriffs-Matrix
           </div>
+          <p className="mb-4 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Ein Haken = diese Rolle darf die Route aufrufen. Ein Nutzer kann mehrere Rollen haben; es
+            reicht, wenn eine davon einen Haken hat. <strong>user</strong> und <strong>admin</strong>{" "}
+            sind die klassischen Rollen. <strong>personal</strong>, <strong>family</strong> und{" "}
+            <strong>cinema</strong> sind reine „Freischalt-Rollen" für ganze Werkzeug-Bereiche
+            (Workspaces) – wer z. B. die Rolle <em>personal</em> hat, bekommt automatisch Zugriff auf
+            Dateien, Journal, Kalender usw. Superadmin taucht hier nicht auf, weil er ohnehin immer
+            alles darf.
+          </p>
 
           {routes.length === 0 ? (
             <div className="text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>Noch keine Routen vorhanden.</div>
@@ -618,8 +655,10 @@ export default async function AdminSettingsPage({
             Tool-Wartungsmodus
           </div>
           <p className="mb-4 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-            Hier steuerst du pro Tool den globalen Status (aktiv/deaktiviert) und optional eine
-            Wartungsmeldung.
+            Schaltet ein Tool komplett ab – für <strong>alle</strong> Nutzer, unabhängig von ihrer
+            Rolle (z. B. während Wartungsarbeiten). „enabled" angehakt = Tool läuft normal. Ist der
+            Haken weg, sehen Nutzer den Wartungshinweis statt des Tools. Für eine Sperre nur für
+            bestimmte Rollen nutze stattdessen die Workspace-Sperren weiter unten.
           </p>
 
           <form action={upsertToolStatusAction} className="flex flex-col gap-4">
@@ -680,64 +719,74 @@ export default async function AdminSettingsPage({
             Workspace-Sperren
           </div>
           <p className="mb-4 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-            Sperre einen ganzen Workspace für einzelne Rollen. Die Tools bleiben sichtbar, beim
-            Aufruf erscheint nur der Hinweistext. Superadmins werden nie gesperrt.
+            Ein Workspace bündelt mehrere Tools (Personal-Workspace = Dateien, Journal, Kalender
+            usw.). Hier sperrst du den kompletten Bereich für einzelne Rollen – die Tools bleiben in
+            der Übersicht sichtbar, beim Öffnen erscheint aber nur der Hinweistext statt des Tools.
+            Angeboten werden nur Rollen, die laut Zugriffs-Matrix oben überhaupt Zugriff auf den
+            jeweiligen Workspace haben – für alle anderen wäre eine Sperre wirkungslos, weil sie
+            sowieso keinen Zugriff haben. Superadmins werden nie gesperrt.
           </p>
 
           <form action={upsertWorkspaceLocksAction} className="flex flex-col gap-4">
-            <div className="overflow-x-auto rounded-xl border border-border">
-              <table className="min-w-full text-sm">
-                <thead className="border-b border-border bg-secondary/60 text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-semibold">Workspace</th>
-                    {lockableRoles.map((role) => (
-                      <th key={role.name} className="px-4 py-3 text-left font-semibold">
-                        {role.label}
-                      </th>
-                    ))}
-                    <th className="px-4 py-3 text-left font-semibold">Hinweistext</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {workspaceLockList.map((ws) => (
-                    <tr key={ws.key} className="transition-colors hover:bg-secondary/40">
-                      <td className="px-4 py-2.5 text-xs font-medium" style={{ color: "hsl(var(--foreground))" }}>
-                        {ws.label}
-                      </td>
-                      {lockableRoles.map((role) => {
+            {workspaceLockList.map((ws) => {
+              const relevantRoles = lockableRoles.filter((role) =>
+                ws.grantingRoles.has(normalizeRoleKey(role.name))
+              );
+
+              return (
+                <div key={ws.key} className="rounded-xl border border-border p-4">
+                  <div className="mb-1 text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+                    {ws.label}
+                  </div>
+                  <div className="mb-3 text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                    {relevantRoles.length > 0
+                      ? `Zugriff haben aktuell: ${relevantRoles.map((r) => r.label).join(", ")}`
+                      : "Aktuell hat keine Rolle Zugriff auf diesen Workspace."}
+                  </div>
+
+                  {relevantRoles.length === 0 ? (
+                    <p className="mb-3 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      Keine Rolle sperrbar, solange niemand Zugriff hat – vergib zuerst Zugriff in der
+                      Zugriffs-Matrix oben.
+                    </p>
+                  ) : (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {relevantRoles.map((role) => {
                         const roleKey = normalizeRoleKey(role.name);
                         return (
-                          <td key={role.name} className="px-4 py-2">
-                            <label className="inline-flex items-center gap-2" style={{ color: "hsl(var(--foreground))" }}>
-                              <input
-                                type="checkbox"
-                                name={buildWorkspaceLockFieldName(ws.key, roleKey)}
-                                defaultChecked={ws.lockedRoles.has(roleKey)}
-                                className="h-4 w-4 rounded"
-                                style={{ accentColor: "hsl(var(--primary))" }}
-                                aria-label={`Workspace ${ws.label} für ${role.name} sperren`}
-                              />
-                              <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
-                                {role.name}
-                              </span>
-                            </label>
-                          </td>
+                          <label
+                            key={role.name}
+                            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2"
+                            style={{ color: "hsl(var(--foreground))" }}
+                          >
+                            <input
+                              type="checkbox"
+                              name={buildWorkspaceLockFieldName(ws.key, roleKey)}
+                              defaultChecked={ws.lockedRoles.has(roleKey)}
+                              className="h-4 w-4 rounded"
+                              style={{ accentColor: "hsl(var(--primary))" }}
+                              aria-label={`Workspace ${ws.label} für ${role.label} sperren`}
+                            />
+                            <span className="text-xs font-medium">{role.label}</span>
+                            <span className="text-[10px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                              sperren
+                            </span>
+                          </label>
                         );
                       })}
-                      <td className="px-4 py-2">
-                        <input
-                          type="text"
-                          name={buildWorkspaceMessageFieldName(ws.key)}
-                          defaultValue={ws.message}
-                          placeholder="Optional: Hinweistext bei Sperre"
-                          className="w-full input-field text-xs"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                    </div>
+                  )}
+
+                  <input
+                    type="text"
+                    name={buildWorkspaceMessageFieldName(ws.key)}
+                    defaultValue={ws.message}
+                    placeholder="Optional: Hinweistext, der gesperrten Rollen angezeigt wird"
+                    className="w-full input-field text-xs"
+                  />
+                </div>
+              );
+            })}
 
             <div>
               <button className="brand-button inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold">
