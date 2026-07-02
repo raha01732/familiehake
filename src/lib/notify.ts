@@ -9,6 +9,7 @@ export type NotificationKind =
   | "task_overdue"
   | "admin_cron_digest"
   | "shift_reminder"
+  | "message_received"
   | "security"
   | "system";
 
@@ -158,4 +159,26 @@ export async function notifyTaskAssigned(params: {
       })
     )
   );
+}
+
+/**
+ * Benachrichtigt über eine neue Chat-Nachricht. Der Inhalt ist Ende-zu-Ende
+ * verschlüsselt – der Server kennt nur Absender/Empfänger, nie den
+ * Klartext. Titel/Body dürfen daher nur den Namen des Absenders nennen.
+ */
+export async function notifyMessageReceived(params: {
+  recipientId: string;
+  senderId: string;
+  senderName: string;
+}): Promise<void> {
+  const { recipientId, senderId, senderName } = params;
+  if (!recipientId || recipientId === senderId) return;
+
+  await notify({
+    userId: recipientId,
+    kind: "message_received",
+    title: `Neue Nachricht von ${senderName}`,
+    body: "Öffne den Chat, um die verschlüsselte Nachricht zu lesen.",
+    link: "/tools/messages",
+  });
 }

@@ -3,6 +3,7 @@ import AccountActivityTile from "@/components/home/AccountActivityTile";
 import NextShiftsTile from "@/components/home/NextShiftsTile";
 import NotificationsTile from "@/components/home/NotificationsTile";
 import TaskSummaryTile from "@/components/home/TaskSummaryTile";
+import MessagesSummaryTile from "@/components/home/MessagesSummaryTile";
 import WelcomeTileCard, { WelcomeTile } from "@/components/dashboard/WelcomeTileCard";
 import { logAudit } from "@/lib/audit";
 import { getSessionInfo } from "@/lib/auth";
@@ -367,6 +368,8 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
 
   const canSeeTasks =
     session.signedIn && !!session.userId && (session.isSuperAdmin || session.permissions["tools/tasks"]);
+  const canSeeMessages =
+    session.signedIn && !!session.userId && (session.isSuperAdmin || session.permissions["tools/messages"]);
 
   // ── Sidebar-Gruppen (nur freigeschaltete Einträge) ──────────────
   const personalTools = toolLinks.filter((l) => (l.group ?? "personal") === "personal");
@@ -591,6 +594,7 @@ export default async function HomePageContent({ auditTarget }: HomePageContentPr
           <div className="grid gap-5 lg:grid-cols-2">
             <NextShiftsTile />
             {canSeeTasks && session.userId && <TaskSummaryTile userId={session.userId} />}
+            {canSeeMessages && session.userId && <MessagesSummaryTile userId={session.userId} />}
           </div>
         </div>
       </section>

@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
+import { getClerkUserCached } from "@/lib/clerk-cache";
+import { formatUserDisplayName } from "@/lib/user-display";
+import { notifyMessageReceived } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -83,6 +86,26 @@ export async function POST(req: NextRequest) {
     console.error("messages POST error:", error.message);
     return NextResponse.json({ ok: false, error: "db error" }, { status: 500 });
   }
+
+  // Best-effort, nicht blockierend – der Server kennt nur Absender/Empfänger,
+  // nie den Klartext (Ende-zu-Ende-verschlüsselt).
+  void (async () => {
+    const sender = await getClerkUserCached(userId);
+    const senderName = sender
+      ? formatUserDisplayName({
+          id: sender.id,
+          firstName: sender.firstName,
+          lastName: sender.lastName,
+          username: sender.username,
+          emailAddresses: sender.emailAddresses,
+        })
+      : "Jemand";
+    await notifyMessageReceived({
+      recipientId: body.recipient_id!,
+      senderId: userId,
+      senderName,
+    });
+  })().catch((e) => console.error("messages POST notify error:", e));
 
   return NextResponse.json({ ok: true, data });
 }
