@@ -35,6 +35,8 @@ import {
   Activity,
   Globe,
   Fingerprint,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   getClerkUserCached,
@@ -78,6 +80,7 @@ type UserSummary = {
   banned: boolean;
   locked: boolean;
   twoFactorEnabled: boolean;
+  analyticsConsent: "granted" | "denied" | null;
 };
 
 type ExternalAccountInfo = { provider: string; emailAddress: string | null };
@@ -127,6 +130,8 @@ type UserDetail = {
   phoneNumbers: string[];
   sessions: SessionInfo[];
   activity: ActivityItem[];
+  analyticsConsent: "granted" | "denied" | null;
+  analyticsConsentUpdatedAt: number | null;
 };
 
 async function fetchRoles(): Promise<DbRole[]> {
@@ -302,11 +307,36 @@ async function fetchAssignments(userIds: string[], rolesCatalog: DbRole[]): Prom
   return map;
 }
 
+async function fetchAnalyticsConsent(
+  userIds: string[]
+): Promise<Record<string, { consent: "granted" | "denied"; updatedAt: number }>> {
+  if (userIds.length === 0) return {};
+  const sb = createAdminClient();
+  const { data, error } = await sb
+    .from("user_analytics_consent")
+    .select("user_id, consent, updated_at")
+    .in("user_id", userIds);
+
+  if (error) return {};
+
+  const map: Record<string, { consent: "granted" | "denied"; updatedAt: number }> = {};
+  for (const row of data ?? []) {
+    map[row.user_id] = {
+      consent: row.consent as "granted" | "denied",
+      updatedAt: new Date(row.updated_at).getTime(),
+    };
+  }
+  return map;
+}
+
 async function getUsers(rolesCatalog: DbRole[], limit = 100): Promise<UserSummary[]> {
   const client = await clerkClient();
   const list = await client.users.getUserList({ limit, orderBy: "-created_at" });
   const userIds = list.data.map((u) => u.id);
-  const assignments = await fetchAssignments(userIds, rolesCatalog);
+  const [assignments, consentMap] = await Promise.all([
+    fetchAssignments(userIds, rolesCatalog),
+    fetchAnalyticsConsent(userIds),
+  ]);
 
   return list.data.map((u) => ({
     id: u.id,
@@ -323,6 +353,7 @@ async function getUsers(rolesCatalog: DbRole[], limit = 100): Promise<UserSummar
     banned: Boolean((u as { banned?: boolean }).banned),
     locked: Boolean((u as { locked?: boolean }).locked),
     twoFactorEnabled: Boolean((u as { twoFactorEnabled?: boolean }).twoFactorEnabled),
+    analyticsConsent: consentMap[u.id]?.consent ?? null,
   }));
 }
 
@@ -393,10 +424,11 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
     return null;
   }
 
-  const [assignments, sessions, activity] = await Promise.all([
+  const [assignments, sessions, activity, consentMap] = await Promise.all([
     fetchAssignments([userId], rolesCatalog),
     loadUserSessions(userId),
     loadUserActivity(userId),
+    fetchAnalyticsConsent([userId]),
   ]);
 
   const primaryId = u.primaryEmailAddressId ?? undefined;
@@ -447,6 +479,8 @@ async function getOneUser(userId: string, rolesCatalog: DbRole[]): Promise<UserD
     phoneNumbers,
     sessions,
     activity,
+    analyticsConsent: consentMap[userId]?.consent ?? null,
+    analyticsConsentUpdatedAt: consentMap[userId]?.updatedAt ?? null,
   };
 }
 
@@ -1036,6 +1070,13 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                               {user.twoFactorEnabled && (
                                 <ShieldCheck size={13} style={{ color: "hsl(142 71% 45%)" }} aria-label="2FA aktiv" />
                               )}
+                              {user.analyticsConsent === "granted" ? (
+                                <Eye size={13} style={{ color: "hsl(142 71% 45%)" }} aria-label="Tracking: zugestimmt" />
+                              ) : user.analyticsConsent === "denied" ? (
+                                <EyeOff size={13} className="text-muted-foreground" aria-label="Tracking: abgelehnt" />
+                              ) : (
+                                <EyeOff size={13} className="text-muted-foreground/40" aria-label="Tracking: noch nicht entschieden" />
+                              )}
                             </div>
                             <div className="truncate text-xs text-muted-foreground">{user.email || "—"}</div>
                           </div>
@@ -1474,6 +1515,34 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                     <dt className="text-muted-foreground">Telefon</dt>
                     <dd className="mt-0.5 font-medium text-foreground">
                       {editUser.phoneNumbers.length > 0 ? editUser.phoneNumbers.join(", ") : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Tracking-Einwilligung</dt>
+                    <dd
+                      className="mt-1"
+                      title={
+                        editUser.analyticsConsentUpdatedAt
+                          ? new Date(editUser.analyticsConsentUpdatedAt).toLocaleString("de-DE")
+                          : undefined
+                      }
+                    >
+                      {editUser.analyticsConsent === "granted" ? (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                          style={{ background: "hsl(142 71% 45% / 0.1)", color: "hsl(142 71% 45%)", border: "1px solid hsl(142 71% 45% / 0.25)" }}
+                        >
+                          <Eye size={10} aria-hidden /> Zugestimmt
+                        </span>
+                      ) : editUser.analyticsConsent === "denied" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          <EyeOff size={10} aria-hidden /> Abgelehnt
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground/70">
+                          Noch nicht entschieden
+                        </span>
+                      )}
                     </dd>
                   </div>
                   <div className="col-span-2">
