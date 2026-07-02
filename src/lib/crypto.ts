@@ -47,21 +47,35 @@ export async function importPrivateKey(pem: string) {
   );
 }
 
-type Envelope = { v: 2; key: string; iv: string; data: string };
+type EnvelopeV2 = { v: 2; key: string; iv: string; data: string };
+type EnvelopeV3 = { v: 3; keys: string[]; iv: string; data: string };
 
-function isEnvelope(value: unknown): value is Envelope {
-  const v = value as Partial<Envelope> | null;
+function isEnvelopeV2(value: unknown): value is EnvelopeV2 {
+  const v = value as Partial<EnvelopeV2> | null;
+  return (
+    !!v && v.v === 2 && typeof v.key === "string" && typeof v.iv === "string" && typeof v.data === "string"
+  );
+}
+
+function isEnvelopeV3(value: unknown): value is EnvelopeV3 {
+  const v = value as Partial<EnvelopeV3> | null;
   return (
     !!v &&
-    v.v === 2 &&
-    typeof v.key === "string" &&
+    v.v === 3 &&
+    Array.isArray(v.keys) &&
+    v.keys.every((k) => typeof k === "string") &&
     typeof v.iv === "string" &&
     typeof v.data === "string"
   );
 }
 
-/** Verschlüsselt beliebig langen Text für den Inhaber von `pubKey`. */
-export async function encryptFor(pubKey: CryptoKey, text: string): Promise<string> {
+/**
+ * Verschlüsselt beliebig langen Text für alle übergebenen Public Keys
+ * (typischerweise Empfänger + eigener Schlüssel, damit man die selbst
+ * gesendete Nachricht später auch wieder lesen kann – reines RSA-OAEP
+ * für nur den Empfänger würde für den Absender unlesbar bleiben).
+ */
+export async function encryptFor(pubKeys: CryptoKey[], text: string): Promise<string> {
   const aesKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, [
     "encrypt",
     "decrypt",
@@ -71,15 +85,29 @@ export async function encryptFor(pubKey: CryptoKey, text: string): Promise<strin
   const cipherBuf = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, plain);
 
   const rawAesKey = await crypto.subtle.exportKey("raw", aesKey);
-  const wrappedKeyBuf = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, pubKey, rawAesKey);
+  const wrappedKeys = await Promise.all(
+    pubKeys.map(async (pubKey) => toB64(await crypto.subtle.encrypt({ name: "RSA-OAEP" }, pubKey, rawAesKey)))
+  );
 
-  const envelope: Envelope = {
-    v: 2,
-    key: toB64(wrappedKeyBuf),
+  const envelope: EnvelopeV3 = {
+    v: 3,
+    keys: wrappedKeys,
     iv: toB64(iv.buffer as ArrayBuffer),
     data: toB64(cipherBuf),
   };
   return JSON.stringify(envelope);
+}
+
+async function unwrapAesKey(privKey: CryptoKey, wrappedKeys: string[]): Promise<CryptoKey> {
+  for (const wrapped of wrappedKeys) {
+    try {
+      const rawAesKey = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privKey, fromB64(wrapped));
+      return await crypto.subtle.importKey("raw", rawAesKey, { name: "AES-GCM" }, false, ["decrypt"]);
+    } catch {
+      // dieser Wrapped-Key gehört nicht zu diesem privaten Schlüssel – nächsten probieren
+    }
+  }
+  throw new Error("Kein zu diesem Schlüssel passender Envelope-Eintrag gefunden");
 }
 
 /** Entschlüsselt eine mit encryptFor() erzeugte Nachricht (oder eine alte, reine RSA-OAEP-Nachricht). */
@@ -91,7 +119,22 @@ export async function decryptWith(privKey: CryptoKey, payload: string): Promise<
     parsed = null;
   }
 
-  if (!isEnvelope(parsed)) {
+  let aesKey: CryptoKey;
+  let iv: ArrayBuffer;
+  let cipherBuf: ArrayBuffer;
+
+  if (isEnvelopeV3(parsed)) {
+    aesKey = await unwrapAesKey(privKey, parsed.keys);
+    iv = fromB64(parsed.iv);
+    cipherBuf = fromB64(parsed.data);
+  } else if (isEnvelopeV2(parsed)) {
+    // Vor der Dual-Key-Umstellung: AES-Schlüssel war nur für den Empfänger
+    // verschlüsselt, der Absender kann seine eigenen alten Nachrichten hier
+    // nicht mehr entschlüsseln.
+    aesKey = await unwrapAesKey(privKey, [parsed.key]);
+    iv = fromB64(parsed.iv);
+    cipherBuf = fromB64(parsed.data);
+  } else {
     // Legacy-Format: Text direkt per RSA-OAEP verschlüsselt (vor Umstellung
     // auf Envelope-Verschlüsselung, max. ~190 Byte Klartext).
     const buf = fromB64(payload);
@@ -99,10 +142,6 @@ export async function decryptWith(privKey: CryptoKey, payload: string): Promise<
     return new TextDecoder().decode(dec);
   }
 
-  const rawAesKey = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privKey, fromB64(parsed.key));
-  const aesKey = await crypto.subtle.importKey("raw", rawAesKey, { name: "AES-GCM" }, false, ["decrypt"]);
-  const iv = fromB64(parsed.iv);
-  const cipherBuf = fromB64(parsed.data);
   const plainBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(iv) }, aesKey, cipherBuf);
   return new TextDecoder().decode(plainBuf);
 }

@@ -16,6 +16,11 @@ export function getLocalPrivateKey(): string | null {
   return localStorage.getItem(PRIVATE_KEY_STORAGE_KEY);
 }
 
+export function getLocalPublicKey(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(PUBLIC_KEY_STORAGE_KEY);
+}
+
 export type EnsureKeyResult = { ok: boolean; privPEM: string };
 
 /**

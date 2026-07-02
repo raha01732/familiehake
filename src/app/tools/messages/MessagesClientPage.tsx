@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Loader2, Lock, MessageSquare, Send, ShieldAlert } from "lucide-react";
 import { decryptWith, encryptFor, importPrivateKey, importPublicKey } from "@/lib/crypto";
-import { ensureKeyPublished, getLocalPrivateKey } from "@/lib/e2e-keys";
+import { ensureKeyPublished, getLocalPrivateKey, getLocalPublicKey } from "@/lib/e2e-keys";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 import type { UserDirectoryEntry } from "@/app/api/users/list/route";
 import type { ConversationEntry } from "@/app/api/messages/conversations/route";
@@ -161,9 +161,22 @@ export default function MessagesPage() {
     }
     setPeerHasKey(true);
 
+    // Eigener Public Key: die Nachricht wird zusätzlich für uns selbst
+    // verschlüsselt, damit wir sie in der eigenen Chat-Historie später auch
+    // wieder lesen können (reines "nur für den Empfänger" wäre für den
+    // Absender unlesbar).
+    const ownPublicPem = getLocalPublicKey();
+    if (!ownPublicPem) {
+      setSendError("Eigener Schlüssel ist noch nicht bereit. Bitte kurz warten und erneut versuchen.");
+      return;
+    }
+
     try {
-      const pubKey = await importPublicKey(publicPem);
-      const ciphertext = await encryptFor(pubKey, text);
+      const [recipientPubKey, ownPubKey] = await Promise.all([
+        importPublicKey(publicPem),
+        importPublicKey(ownPublicPem),
+      ]);
+      const ciphertext = await encryptFor([recipientPubKey, ownPubKey], text);
 
       const res = await fetch("/api/messages", {
         method: "POST",
