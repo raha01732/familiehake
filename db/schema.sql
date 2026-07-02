@@ -1875,3 +1875,33 @@ create table if not exists user_analytics_consent (
   consent    text not null check (consent in ('granted', 'denied')),
   updated_at timestamptz not null default now()
 );
+
+-- ───────────────────────────────────────────────────────────────────
+-- Nutzer-Nachrichten (E2E-Chat, /tools/messages)
+-- ciphertext ist clientseitig per RSA-OAEP mit dem Public Key des
+-- Empfängers verschlüsselt (siehe src/lib/crypto.ts) – der Server sieht
+-- nie Klartext. user_keys hält den veröffentlichten Public Key pro
+-- Nutzer; der private Schlüssel verlässt nie den Browser (localStorage).
+-- ───────────────────────────────────────────────────────────────────
+create table if not exists user_keys (
+  user_id        text primary key,
+  public_key_pem text not null,
+  updated_at     timestamptz not null default now()
+);
+
+create table if not exists messages (
+  id           uuid primary key default gen_random_uuid(),
+  sender_id    text not null,
+  recipient_id text not null,
+  ciphertext   text not null,
+  created_at   timestamptz not null default now()
+);
+
+-- Deckt sowohl den Konversations-Lookup (sender+recipient in beliebiger
+-- Reihenfolge) als auch die Unterhaltungsliste (alle Nachrichten eines
+-- Nutzers, neueste zuerst) ab.
+create index if not exists messages_sender_idx
+  on messages(sender_id, created_at desc);
+
+create index if not exists messages_recipient_idx
+  on messages(recipient_id, created_at desc);

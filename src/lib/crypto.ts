@@ -1,4 +1,16 @@
-// Hilfen für RSA-OAEP + PEM (Browser WebCrypto)
+// Hilfen für Ende-zu-Ende-Verschlüsselung (Browser WebCrypto).
+//
+// Envelope-Verschlüsselung (Hybrid): RSA-OAEP kann pro Aufruf nur sehr
+// wenig Klartext direkt verschlüsseln (bei 2048 Bit + SHA-256 ca. 190 Byte).
+// Deshalb wird pro Nachricht ein zufälliger AES-256-GCM-Schlüssel erzeugt,
+// der den eigentlichen Text verschlüsselt; nur dieser kurze AES-Schlüssel
+// wird per RSA-OAEP mit dem Public Key des Empfängers verschlüsselt. Damit
+// sind Nachrichten praktisch nicht mehr längenbegrenzt.
+//
+// decryptWith() versteht zusätzlich das alte, reine RSA-OAEP-Format (vor
+// der Umstellung auf Envelope-Verschlüsselung gesendete Nachrichten bleiben
+// lesbar).
+
 export async function generateRSA() {
   const keyPair = await crypto.subtle.generateKey(
     { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
@@ -35,16 +47,64 @@ export async function importPrivateKey(pem: string) {
   );
 }
 
-export async function encryptFor(pubKey: CryptoKey, text: string) {
-  const enc = new TextEncoder().encode(text);
-  const buf = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, pubKey, enc);
-  return toB64(buf);
+type Envelope = { v: 2; key: string; iv: string; data: string };
+
+function isEnvelope(value: unknown): value is Envelope {
+  const v = value as Partial<Envelope> | null;
+  return (
+    !!v &&
+    v.v === 2 &&
+    typeof v.key === "string" &&
+    typeof v.iv === "string" &&
+    typeof v.data === "string"
+  );
 }
 
-export async function decryptWith(privKey: CryptoKey, base64: string) {
-  const buf = fromB64(base64);
-  const dec = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privKey, buf);
-  return new TextDecoder().decode(dec);
+/** Verschlüsselt beliebig langen Text für den Inhaber von `pubKey`. */
+export async function encryptFor(pubKey: CryptoKey, text: string): Promise<string> {
+  const aesKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, [
+    "encrypt",
+    "decrypt",
+  ]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plain = new TextEncoder().encode(text);
+  const cipherBuf = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, plain);
+
+  const rawAesKey = await crypto.subtle.exportKey("raw", aesKey);
+  const wrappedKeyBuf = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, pubKey, rawAesKey);
+
+  const envelope: Envelope = {
+    v: 2,
+    key: toB64(wrappedKeyBuf),
+    iv: toB64(iv.buffer as ArrayBuffer),
+    data: toB64(cipherBuf),
+  };
+  return JSON.stringify(envelope);
+}
+
+/** Entschlüsselt eine mit encryptFor() erzeugte Nachricht (oder eine alte, reine RSA-OAEP-Nachricht). */
+export async function decryptWith(privKey: CryptoKey, payload: string): Promise<string> {
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    parsed = null;
+  }
+
+  if (!isEnvelope(parsed)) {
+    // Legacy-Format: Text direkt per RSA-OAEP verschlüsselt (vor Umstellung
+    // auf Envelope-Verschlüsselung, max. ~190 Byte Klartext).
+    const buf = fromB64(payload);
+    const dec = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privKey, buf);
+    return new TextDecoder().decode(dec);
+  }
+
+  const rawAesKey = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privKey, fromB64(parsed.key));
+  const aesKey = await crypto.subtle.importKey("raw", rawAesKey, { name: "AES-GCM" }, false, ["decrypt"]);
+  const iv = fromB64(parsed.iv);
+  const cipherBuf = fromB64(parsed.data);
+  const plainBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(iv) }, aesKey, cipherBuf);
+  return new TextDecoder().decode(plainBuf);
 }
 
 function spkiToPEM(spki: ArrayBuffer) {
