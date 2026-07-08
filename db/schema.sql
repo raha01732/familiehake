@@ -1894,6 +1894,7 @@ create table if not exists messages (
   sender_id    text not null,
   recipient_id text not null,
   ciphertext   text not null,
+  read_at      timestamptz,
   created_at   timestamptz not null default now()
 );
 
@@ -1905,3 +1906,18 @@ create index if not exists messages_sender_idx
 
 create index if not exists messages_recipient_idx
   on messages(recipient_id, created_at desc);
+
+-- Lesebestätigung: wird gesetzt, sobald der Empfänger den Chat lädt
+-- (siehe GET /api/messages). Nachträglich ergänzt – bestehende Installationen
+-- bekommen die Spalte per ALTER.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'messages'
+      and column_name = 'read_at'
+  ) then
+    alter table messages add column read_at timestamptz;
+  end if;
+end $$;

@@ -3,14 +3,21 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Loader2, Lock, MessageSquare, Send, ShieldAlert } from "lucide-react";
+import { Check, CheckCheck, Loader2, Lock, MessageSquare, Send, ShieldAlert } from "lucide-react";
 import { decryptWith, encryptFor, importPrivateKey, importPublicKey } from "@/lib/crypto";
 import { ensureKeyPublished, getLocalPrivateKey, getLocalPublicKey } from "@/lib/e2e-keys";
 import { PreviewPlaceholder } from "@/components/PreviewNotice";
 import type { UserDirectoryEntry } from "@/app/api/users/list/route";
 import type { ConversationEntry } from "@/app/api/messages/conversations/route";
 
-type Msg = { id: string; sender_id: string; recipient_id: string; ciphertext: string; created_at: string };
+type Msg = {
+  id: string;
+  sender_id: string;
+  recipient_id: string;
+  ciphertext: string;
+  read_at: string | null;
+  created_at: string;
+};
 
 type KeyStatus = "checking" | "ready" | "error";
 
@@ -406,10 +413,16 @@ export default function MessagesPage() {
                           : { background: "hsl(var(--secondary))", color: "hsl(var(--secondary-foreground))" }
                       }
                     >
-                      <div
-                        className="mb-1 text-[10px] opacity-70"
-                      >
-                        {mine ? "Ich" : nameFor(m.sender_id)} · {new Date(m.created_at).toLocaleString("de-DE")}
+                      <div className="mb-1 flex items-center gap-1 text-[10px] opacity-70">
+                        <span>
+                          {mine ? "Ich" : nameFor(m.sender_id)} · {new Date(m.created_at).toLocaleString("de-DE")}
+                        </span>
+                        {mine &&
+                          (m.read_at ? (
+                            <CheckCheck size={12} aria-label="Gelesen" />
+                          ) : (
+                            <Check size={12} aria-label="Gesendet, noch nicht gelesen" />
+                          ))}
                       </div>
                       <div className="whitespace-pre-wrap">{decryptedText[m.id] ?? "…entschlüsseln…"}</div>
                     </div>

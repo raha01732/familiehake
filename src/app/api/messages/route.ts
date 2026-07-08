@@ -30,9 +30,21 @@ export async function GET(req: NextRequest) {
   }
 
   const sb = createAdminClient();
+
+  // Nachrichten des Gegenübers gelten als gelesen, sobald wir den Chat laden.
+  const { error: readError } = await sb
+    .from("messages")
+    .update({ read_at: new Date().toISOString() })
+    .eq("sender_id", peer)
+    .eq("recipient_id", userId)
+    .is("read_at", null);
+  if (readError) {
+    console.error("messages GET mark-read error:", readError.message);
+  }
+
   const { data, error } = await sb
     .from("messages")
-    .select("id,sender_id,recipient_id,ciphertext,created_at")
+    .select("id,sender_id,recipient_id,ciphertext,read_at,created_at")
     .or(
       `and(sender_id.eq.${userId},recipient_id.eq.${peer}),and(sender_id.eq.${peer},recipient_id.eq.${userId})`,
     )
@@ -79,7 +91,7 @@ export async function POST(req: NextRequest) {
       recipient_id: body.recipient_id,
       ciphertext: body.ciphertext,
     })
-    .select("id,sender_id,recipient_id,ciphertext,created_at")
+    .select("id,sender_id,recipient_id,ciphertext,read_at,created_at")
     .single();
 
   if (error) {
