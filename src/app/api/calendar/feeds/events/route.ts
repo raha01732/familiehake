@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
 
   await Promise.all(
     feeds.map(async (feed) => {
-      let url: string | null = null;
+      let url: string | null;
       try {
         url = normalizeFeedUrl(decryptCalendar(feed.url_enc, userId));
       } catch {

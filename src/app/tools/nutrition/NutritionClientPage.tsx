@@ -629,7 +629,8 @@ function FavoritesTab() {
   }, []);
 
   useEffect(() => {
-    load();
+    const id = setTimeout(load, 0);
+    return () => clearTimeout(id);
   }, [load]);
 
   const remove = async (id: string) => {

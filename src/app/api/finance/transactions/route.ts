@@ -53,9 +53,9 @@ export async function GET(req: NextRequest) {
   }
 
   const transactions: FinanceTransaction[] = (data ?? []).map((row) => {
-    let amount = 0;
+    let amount: number;
     let description: string | null = null;
-    let category = "sonstiges";
+    let category: string;
     try {
       amount = parseFloat(decryptValue(row.amount_enc, userId));
     } catch {

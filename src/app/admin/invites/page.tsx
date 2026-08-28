@@ -43,7 +43,7 @@ export default async function AdminInvitesPage() {
 
   // Einladungen aus Clerk holen; die API-Signatur hat je nach Version leichte Unterschiede,
   // deswegen mit defensiver Normalisierung.
-  let invites: InviteItem[] = [];
+  let invites: InviteItem[];
   try {
     // Manche Clerk-Versionen liefern { data: [...] }, andere direkt ein Array
     const client = await clerkClient();

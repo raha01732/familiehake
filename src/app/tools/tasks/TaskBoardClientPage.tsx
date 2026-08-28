@@ -852,8 +852,11 @@ export default function TaskBoardClientPage() {
   }, []);
 
   useEffect(() => {
-    fetchTasks();
-    fetchUsers();
+    const id = setTimeout(() => {
+      fetchTasks();
+      fetchUsers();
+    }, 0);
+    return () => clearTimeout(id);
   }, [fetchTasks, fetchUsers]);
 
   const openAdd = (status: Task["status"]) =>

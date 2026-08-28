@@ -112,7 +112,7 @@ async function unwrapAesKey(privKey: CryptoKey, wrappedKeys: string[]): Promise<
 
 /** Entschlüsselt eine mit encryptFor() erzeugte Nachricht (oder eine alte, reine RSA-OAEP-Nachricht). */
 export async function decryptWith(privKey: CryptoKey, payload: string): Promise<string> {
-  let parsed: unknown = null;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(payload);
   } catch {

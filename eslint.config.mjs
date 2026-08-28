@@ -57,6 +57,10 @@ export default [
       // React Hooks
       ...reactHooks.configs.recommended.rules,
 
+      // React Compiler ist bei uns nicht aktiv (next.config.mjs) – die Compiler-Readiness-
+      // Analyse dieser Regel ist ohne Compiler nicht laufzeitrelevant.
+      "react-hooks/preserve-manual-memoization": "off",
+
       // Aufräumen: Basis-Regel deaktivieren, damit unused-imports/no-unused-vars allein greift
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": "off",

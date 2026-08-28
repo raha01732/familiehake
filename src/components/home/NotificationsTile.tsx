@@ -57,9 +57,12 @@ export default function NotificationsTile() {
   }, []);
 
   useEffect(() => {
-    load();
-    const id = setInterval(load, POLL_MS);
-    return () => clearInterval(id);
+    const timeoutId = setTimeout(load, 0);
+    const intervalId = setInterval(load, POLL_MS);
+    return () => {
+      clearTimeout(timeoutId);
+      clearInterval(intervalId);
+    };
   }, [load]);
 
   const markRead = useCallback(async (id: string) => {

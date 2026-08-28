@@ -43,9 +43,9 @@ export async function GET(req: NextRequest) {
   }
 
   const entries: VaultEntry[] = (data ?? []).map((row) => {
-    let label = "";
+    let label: string;
     let username: string | null = null;
-    let password = "";
+    let password: string;
     let url: string | null = null;
     let notes: string | null = null;
 

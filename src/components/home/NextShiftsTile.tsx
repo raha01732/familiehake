@@ -88,7 +88,7 @@ export default function NextShiftsTile() {
   }, []);
 
   useEffect(() => {
-    void fetchShifts();
+    const timeout = setTimeout(fetchShifts, 0);
     const interval = setInterval(fetchShifts, POLL_INTERVAL_MS);
 
     function onVisibility() {
@@ -100,6 +100,7 @@ export default function NextShiftsTile() {
     window.addEventListener("focus", fetchShifts);
 
     return () => {
+      clearTimeout(timeout);
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", fetchShifts);

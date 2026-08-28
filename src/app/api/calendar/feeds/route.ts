@@ -24,7 +24,7 @@ type FeedRow = {
 };
 
 function present(row: FeedRow, userId: string) {
-  let url = "";
+  let url: string;
   try {
     url = decryptCalendar(row.url_enc, userId);
   } catch {

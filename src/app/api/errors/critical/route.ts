@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     return rateLimit;
   }
 
-  let payload: CriticalErrorPayload = {};
+  let payload: CriticalErrorPayload;
   try {
     payload = (await req.json()) as CriticalErrorPayload;
   } catch {

@@ -641,7 +641,8 @@ export default function VaultClientPage() {
   }, []);
 
   useEffect(() => {
-    fetchEntries();
+    const id = setTimeout(fetchEntries, 0);
+    return () => clearTimeout(id);
   }, [fetchEntries]);
 
   const openAdd = () => setModal({ open: true, entry: null });

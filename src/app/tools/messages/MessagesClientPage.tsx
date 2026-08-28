@@ -99,9 +99,12 @@ export default function MessagesPage() {
   // Adressbuch, bisherige Unterhaltungen & Schlüssel-Einrichtung einmalig
   // laden (gewolltes Fetch-on-mount, kein externes Subscription-Ziel vorhanden).
   useEffect(() => {
-    void loadDirectory();
-    void loadConversations();
-    void ensureKey();
+    const id = setTimeout(() => {
+      void loadDirectory();
+      void loadConversations();
+      void ensureKey();
+    }, 0);
+    return () => clearTimeout(id);
   }, [loadDirectory, loadConversations, ensureKey]);
 
   async function loadChat(peerId: string) {

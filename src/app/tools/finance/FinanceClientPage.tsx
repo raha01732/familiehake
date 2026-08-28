@@ -123,7 +123,8 @@ export default function FinanceClientPage() {
   }, []);
 
   useEffect(() => {
-    fetchTransactions(monthKey);
+    const id = setTimeout(() => fetchTransactions(monthKey), 0);
+    return () => clearTimeout(id);
   }, [monthKey, fetchTransactions]);
 
   // ── Summary ──────────────────────────────────────────────────────────────
