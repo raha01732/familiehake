@@ -1921,3 +1921,223 @@ begin
     alter table messages add column read_at timestamptz;
   end if;
 end $$;
+
+-- ─────────────────────────────────────────────
+-- Portugiesisch / Vokabeltrainer (Spaced Repetition + KI-Übungen)
+-- ─────────────────────────────────────────────
+
+create table if not exists portuguese_words (
+  id uuid primary key default gen_random_uuid(),
+  unit integer not null,
+  term_pt text not null,
+  term_de text not null,
+  example_pt text,
+  example_de text,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists portuguese_words_unit_term_idx
+  on portuguese_words(unit, term_pt);
+
+create index if not exists portuguese_words_unit_idx
+  on portuguese_words(unit);
+
+-- Fortschritt pro Nutzer & Vokabel (Leitner-System, siehe src/lib/portuguese/leitner.ts).
+-- box 0 = noch nicht gelernt, 1-5 = wachsende Wiederholungsabstände.
+create table if not exists portuguese_progress (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  word_id uuid not null references portuguese_words(id) on delete cascade,
+  box integer not null default 0,
+  next_review_at timestamptz not null default now(),
+  correct_count integer not null default 0,
+  wrong_count integer not null default 0,
+  last_reviewed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, word_id)
+);
+
+create index if not exists portuguese_progress_due_idx
+  on portuguese_progress(user_id, next_review_at)
+  where box >= 1;
+
+create index if not exists portuguese_progress_user_idx
+  on portuguese_progress(user_id);
+
+-- Seed-Vokabular (Einheiten siehe src/lib/portuguese/units.ts). Re-Run-sicher
+-- über den Unique-Index (unit, term_pt) – bestehende Zeilen bleiben unverändert.
+insert into portuguese_words (unit, term_pt, term_de, example_pt, example_de) values
+  -- Einheit 1: Begrüßung & Grundfloskeln
+  (1, 'olá', 'hallo', 'Olá, tudo bem?', 'Hallo, alles gut?'),
+  (1, 'bom dia', 'guten Morgen', 'Bom dia, professora!', 'Guten Morgen, Frau Lehrerin!'),
+  (1, 'boa tarde', 'guten Tag', 'Boa tarde a todos.', 'Guten Tag an alle.'),
+  (1, 'boa noite', 'guten Abend / gute Nacht', 'Boa noite, até amanhã.', 'Guten Abend, bis morgen.'),
+  (1, 'tchau', 'tschüss', 'Tchau, até logo!', 'Tschüss, bis gleich!'),
+  (1, 'por favor', 'bitte', 'Um café, por favor.', 'Einen Kaffee, bitte.'),
+  (1, 'obrigado', 'danke (männlich)', 'Muito obrigado pela ajuda.', 'Vielen Dank für die Hilfe.'),
+  (1, 'obrigada', 'danke (weiblich)', 'Muito obrigada pela ajuda.', 'Vielen Dank für die Hilfe.'),
+  (1, 'de nada', 'gern geschehen', 'De nada, foi um prazer.', 'Gern geschehen, war mir ein Vergnügen.'),
+  (1, 'sim', 'ja', 'Sim, eu quero.', 'Ja, ich will.'),
+  (1, 'não', 'nein', 'Não, obrigado.', 'Nein, danke.'),
+  (1, 'desculpa', 'Entschuldigung', 'Desculpa o atraso.', 'Entschuldigung für die Verspätung.'),
+  (1, 'com licença', 'Verzeihung / Entschuldigen Sie', 'Com licença, posso passar?', 'Entschuldigen Sie, darf ich vorbei?'),
+
+  -- Einheit 2: Zahlen 0-20
+  (2, 'zero', 'null', 'Marquei zero pontos.', 'Ich habe null Punkte erzielt.'),
+  (2, 'um', 'eins', 'Tenho um irmão.', 'Ich habe einen Bruder.'),
+  (2, 'dois', 'zwei', 'Tenho dois filhos.', 'Ich habe zwei Kinder.'),
+  (2, 'três', 'drei', 'São três horas.', 'Es ist drei Uhr.'),
+  (2, 'quatro', 'vier', 'A mesa tem quatro cadeiras.', 'Der Tisch hat vier Stühle.'),
+  (2, 'cinco', 'fünf', 'Moro há cinco anos aqui.', 'Ich wohne seit fünf Jahren hier.'),
+  (2, 'seis', 'sechs', 'O filme começa às seis.', 'Der Film beginnt um sechs.'),
+  (2, 'sete', 'sieben', 'A semana tem sete dias.', 'Die Woche hat sieben Tage.'),
+  (2, 'oito', 'acht', 'Trabalho oito horas por dia.', 'Ich arbeite acht Stunden am Tag.'),
+  (2, 'nove', 'neun', 'Ele chega às nove.', 'Er kommt um neun an.'),
+  (2, 'dez', 'zehn', 'Espera dez minutos.', 'Warte zehn Minuten.'),
+  (2, 'onze', 'elf', 'A loja abre às onze.', 'Der Laden öffnet um elf.'),
+  (2, 'doze', 'zwölf', 'Há doze meses no ano.', 'Es gibt zwölf Monate im Jahr.'),
+  (2, 'vinte', 'zwanzig', 'Ela tem vinte anos.', 'Sie ist zwanzig Jahre alt.'),
+
+  -- Einheit 3: Pronomen & sein/haben
+  (3, 'eu', 'ich', 'Eu sou de Berlim.', 'Ich bin aus Berlin.'),
+  (3, 'tu', 'du', 'Tu és meu amigo.', 'Du bist mein Freund.'),
+  (3, 'ele', 'er', 'Ele mora em Lisboa.', 'Er wohnt in Lissabon.'),
+  (3, 'ela', 'sie', 'Ela fala português.', 'Sie spricht Portugiesisch.'),
+  (3, 'nós', 'wir', 'Nós somos amigos.', 'Wir sind Freunde.'),
+  (3, 'eles', 'sie (Plural, männlich/gemischt)', 'Eles moram aqui.', 'Sie wohnen hier.'),
+  (3, 'ser', 'sein (dauerhaft)', 'Eu sou professor.', 'Ich bin Lehrer.'),
+  (3, 'estar', 'sein (Zustand/Ort)', 'Eu estou cansado.', 'Ich bin müde.'),
+  (3, 'ter', 'haben', 'Eu tenho um carro.', 'Ich habe ein Auto.'),
+  (3, 'eu sou', 'ich bin (dauerhaft)', 'Eu sou alemão.', 'Ich bin Deutscher.'),
+  (3, 'eu estou', 'ich bin (gerade)', 'Eu estou em casa.', 'Ich bin zuhause.'),
+  (3, 'eu tenho', 'ich habe', 'Eu tenho fome.', 'Ich habe Hunger.'),
+
+  -- Einheit 4: Familie
+  (4, 'família', 'Familie', 'A minha família é grande.', 'Meine Familie ist groß.'),
+  (4, 'mãe', 'Mutter', 'A minha mãe cozinha bem.', 'Meine Mutter kocht gut.'),
+  (4, 'pai', 'Vater', 'O meu pai trabalha muito.', 'Mein Vater arbeitet viel.'),
+  (4, 'filho', 'Sohn', 'O meu filho tem dez anos.', 'Mein Sohn ist zehn Jahre alt.'),
+  (4, 'filha', 'Tochter', 'A minha filha estuda alemão.', 'Meine Tochter lernt Deutsch.'),
+  (4, 'irmão', 'Bruder', 'Tenho um irmão mais velho.', 'Ich habe einen älteren Bruder.'),
+  (4, 'irmã', 'Schwester', 'A minha irmã mora em Porto.', 'Meine Schwester wohnt in Porto.'),
+  (4, 'avô', 'Großvater', 'O meu avô conta boas histórias.', 'Mein Großvater erzählt gute Geschichten.'),
+  (4, 'avó', 'Großmutter', 'A minha avó faz bolos.', 'Meine Großmutter backt Kuchen.'),
+  (4, 'marido', 'Ehemann', 'O meu marido chama-se Pedro.', 'Mein Ehemann heißt Pedro.'),
+  (4, 'esposa', 'Ehefrau', 'A minha esposa é médica.', 'Meine Ehefrau ist Ärztin.'),
+  (4, 'criança', 'Kind', 'A criança brinca no jardim.', 'Das Kind spielt im Garten.'),
+
+  -- Einheit 5: Farben & Adjektive
+  (5, 'vermelho', 'rot', 'O carro é vermelho.', 'Das Auto ist rot.'),
+  (5, 'azul', 'blau', 'O céu está azul.', 'Der Himmel ist blau.'),
+  (5, 'verde', 'grün', 'A relva é verde.', 'Das Gras ist grün.'),
+  (5, 'amarelo', 'gelb', 'O sol é amarelo.', 'Die Sonne ist gelb.'),
+  (5, 'preto', 'schwarz', 'O gato é preto.', 'Die Katze ist schwarz.'),
+  (5, 'branco', 'weiß', 'A casa é branca.', 'Das Haus ist weiß.'),
+  (5, 'grande', 'groß', 'A cidade é grande.', 'Die Stadt ist groß.'),
+  (5, 'pequeno', 'klein', 'O apartamento é pequeno.', 'Die Wohnung ist klein.'),
+  (5, 'bom', 'gut', 'O café está bom.', 'Der Kaffee ist gut.'),
+  (5, 'ruim', 'schlecht', 'O tempo está ruim.', 'Das Wetter ist schlecht.'),
+  (5, 'novo', 'neu', 'Comprei um telemóvel novo.', 'Ich habe ein neues Handy gekauft.'),
+  (5, 'velho', 'alt', 'Este livro é muito velho.', 'Dieses Buch ist sehr alt.'),
+
+  -- Einheit 6: Zeit & Wochentage
+  (6, 'hoje', 'heute', 'Hoje está sol.', 'Heute scheint die Sonne.'),
+  (6, 'amanhã', 'morgen', 'Amanhã tenho trabalho.', 'Morgen habe ich Arbeit.'),
+  (6, 'ontem', 'gestern', 'Ontem choveu muito.', 'Gestern hat es viel geregnet.'),
+  (6, 'segunda-feira', 'Montag', 'Segunda-feira começa a semana.', 'Am Montag beginnt die Woche.'),
+  (6, 'terça-feira', 'Dienstag', 'Na terça-feira tenho aula.', 'Am Dienstag habe ich Unterricht.'),
+  (6, 'quarta-feira', 'Mittwoch', 'Quarta-feira é meio da semana.', 'Mittwoch ist die Wochenmitte.'),
+  (6, 'quinta-feira', 'Donnerstag', 'Vou ao médico na quinta-feira.', 'Ich gehe am Donnerstag zum Arzt.'),
+  (6, 'sexta-feira', 'Freitag', 'Sexta-feira é o último dia.', 'Freitag ist der letzte Tag.'),
+  (6, 'sábado', 'Samstag', 'Aos sábados eu descanso.', 'Samstags ruhe ich mich aus.'),
+  (6, 'domingo', 'Sonntag', 'Domingo é dia de família.', 'Sonntag ist Familientag.'),
+  (6, 'hora', 'Stunde / Uhrzeit', 'Que horas são?', 'Wie spät ist es?'),
+  (6, 'semana', 'Woche', 'Esta semana foi longa.', 'Diese Woche war lang.'),
+
+  -- Einheit 7: Essen & Trinken
+  (7, 'água', 'Wasser', 'Quero um copo de água.', 'Ich möchte ein Glas Wasser.'),
+  (7, 'pão', 'Brot', 'O pão está fresco.', 'Das Brot ist frisch.'),
+  (7, 'café', 'Kaffee', 'Bebo café de manhã.', 'Ich trinke morgens Kaffee.'),
+  (7, 'leite', 'Milch', 'O bebé bebe leite.', 'Das Baby trinkt Milch.'),
+  (7, 'arroz', 'Reis', 'Cozinho arroz para o jantar.', 'Ich koche Reis zum Abendessen.'),
+  (7, 'carne', 'Fleisch', 'Não como carne.', 'Ich esse kein Fleisch.'),
+  (7, 'peixe', 'Fisch', 'O peixe é fresco.', 'Der Fisch ist frisch.'),
+  (7, 'fruta', 'Obst', 'Gosto de fruta fresca.', 'Ich mag frisches Obst.'),
+  (7, 'legumes', 'Gemüse', 'Os legumes são saudáveis.', 'Gemüse ist gesund.'),
+  (7, 'queijo', 'Käse', 'Adoro queijo português.', 'Ich liebe portugiesischen Käse.'),
+  (7, 'a conta, por favor', 'die Rechnung, bitte', 'A conta, por favor!', 'Die Rechnung, bitte!'),
+  (7, 'restaurante', 'Restaurant', 'Vamos a um restaurante.', 'Wir gehen in ein Restaurant.'),
+
+  -- Einheit 8: Orte & Richtungen
+  (8, 'aqui', 'hier', 'Eu moro aqui.', 'Ich wohne hier.'),
+  (8, 'ali', 'dort', 'O carro está ali.', 'Das Auto ist dort.'),
+  (8, 'esquerda', 'links', 'Vire à esquerda.', 'Biegen Sie links ab.'),
+  (8, 'direita', 'rechts', 'Vire à direita.', 'Biegen Sie rechts ab.'),
+  (8, 'perto', 'nah', 'A escola é perto.', 'Die Schule ist nah.'),
+  (8, 'longe', 'weit', 'O aeroporto é longe.', 'Der Flughafen ist weit.'),
+  (8, 'casa', 'Haus / zuhause', 'Vou para casa.', 'Ich gehe nach Hause.'),
+  (8, 'rua', 'Straße', 'A loja fica nesta rua.', 'Der Laden ist in dieser Straße.'),
+  (8, 'cidade', 'Stadt', 'Berlim é uma cidade grande.', 'Berlin ist eine große Stadt.'),
+  (8, 'escola', 'Schule', 'As crianças vão à escola.', 'Die Kinder gehen zur Schule.'),
+  (8, 'trabalho', 'Arbeit', 'O meu trabalho é interessante.', 'Meine Arbeit ist interessant.'),
+  (8, 'onde', 'wo', 'Onde fica a estação?', 'Wo ist der Bahnhof?'),
+
+  -- Einheit 9: Verben im Präsens
+  (9, 'falar', 'sprechen', 'Eu falo um pouco de português.', 'Ich spreche ein bisschen Portugiesisch.'),
+  (9, 'comer', 'essen', 'Nós comemos às oito.', 'Wir essen um acht.'),
+  (9, 'beber', 'trinken', 'Ela bebe muita água.', 'Sie trinkt viel Wasser.'),
+  (9, 'morar', 'wohnen', 'Eu moro em Munique.', 'Ich wohne in München.'),
+  (9, 'trabalhar', 'arbeiten', 'Ele trabalha num escritório.', 'Er arbeitet in einem Büro.'),
+  (9, 'estudar', 'lernen / studieren', 'Nós estudamos português.', 'Wir lernen Portugiesisch.'),
+  (9, 'ir', 'gehen', 'Eu vou ao mercado.', 'Ich gehe zum Markt.'),
+  (9, 'querer', 'wollen', 'Eu quero aprender mais.', 'Ich möchte mehr lernen.'),
+  (9, 'poder', 'können', 'Você pode me ajudar?', 'Kannst du mir helfen?'),
+  (9, 'gostar de', 'mögen', 'Eu gosto de música.', 'Ich mag Musik.'),
+  (9, 'fazer', 'machen / tun', 'O que você está fazendo?', 'Was machst du gerade?'),
+  (9, 'viver', 'leben', 'Eles vivem em Portugal.', 'Sie leben in Portugal.'),
+
+  -- Einheit 10: Small Talk
+  (10, 'Como você se chama?', 'Wie heißt du?', 'Olá, como você se chama?', 'Hallo, wie heißt du?'),
+  (10, 'Eu me chamo...', 'Ich heiße...', 'Eu me chamo Ana.', 'Ich heiße Ana.'),
+  (10, 'Como está?', 'Wie geht''s?', 'Olá! Como está?', 'Hallo! Wie geht''s?'),
+  (10, 'Estou bem, obrigado.', 'Mir geht''s gut, danke.', 'Estou bem, obrigado. E você?', 'Mir geht''s gut, danke. Und dir?'),
+  (10, 'De onde você é?', 'Woher kommst du?', 'De onde você é?', 'Woher kommst du?'),
+  (10, 'Eu sou da Alemanha.', 'Ich bin aus Deutschland.', 'Eu sou da Alemanha, e você?', 'Ich bin aus Deutschland, und du?'),
+  (10, 'Quantos anos você tem?', 'Wie alt bist du?', 'Quantos anos você tem?', 'Wie alt bist du?'),
+  (10, 'Prazer em conhecê-lo.', 'Freut mich, dich kennenzulernen.', 'Prazer em conhecê-lo!', 'Freut mich, dich kennenzulernen!'),
+  (10, 'Fala alemão?', 'Sprichst du Deutsch?', 'Desculpe, fala alemão?', 'Entschuldigung, sprichst du Deutsch?'),
+  (10, 'Não entendo.', 'Ich verstehe nicht.', 'Desculpa, não entendo.', 'Entschuldigung, ich verstehe nicht.'),
+  (10, 'Pode repetir, por favor?', 'Kannst du das bitte wiederholen?', 'Pode repetir, por favor?', 'Kannst du das bitte wiederholen?'),
+  (10, 'Até logo!', 'Bis bald!', 'Tchau, até logo!', 'Tschüss, bis bald!')
+on conflict (unit, term_pt) do nothing;
+
+insert into tool_status (route_key, enabled, maintenance_message)
+values
+  ('tools/portugiesisch', true, null)
+on conflict (route_key) do nothing;
+
+with portuguese_perms(role_name, route, level) as (
+  values
+    ('user',  'tools/portugiesisch', 2),
+    ('admin', 'tools/portugiesisch', 3)
+)
+insert into role_permissions (role_id, route, level)
+select r.id, pp.route, pp.level
+from portuguese_perms pp
+join roles r on r.name = pp.role_name
+on conflict (role_id, route) do update
+  set level = excluded.level,
+      updated_at = now();
+
+with portuguese_perms(role_name, route, level) as (
+  values
+    ('user',  'tools/portugiesisch', 2),
+    ('admin', 'tools/portugiesisch', 3)
+)
+insert into access_rules (route, role, allowed)
+select pp.route, pp.role_name, (pp.level > 0)
+from portuguese_perms pp
+on conflict (route, role) do update
+  set allowed = excluded.allowed,
+      updated_at = now();

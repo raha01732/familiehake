@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { applyRateLimit } from "@/lib/ratelimit";
-import { geminiEnabled, chat } from "@/lib/nutrition/gemini";
+import { geminiEnabled, chat } from "@/lib/gemini";
 import { search as tavilySearch, tavilyEnabled, type TavilyResult } from "@/lib/nutrition/tavily";
 import { allergyLabels, dietLabel } from "@/lib/nutrition/constants";
 

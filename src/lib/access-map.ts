@@ -111,6 +111,12 @@ export const ROUTE_DESCRIPTORS: RouteDescriptor[] = [
     description: "Rezepte, Zutaten-Suche und Ernährungstipps.",
     defaults: { user: true, admin: true },
   },
+  {
+    route: "tools/portugiesisch",
+    label: "Portugiesisch",
+    description: "Vokabeltrainer mit Spaced Repetition und KI-generierten Übungen.",
+    defaults: { user: true, admin: true },
+  },
 ];
 
 export function getRouteDescriptor(route: string): RouteDescriptor | undefined {

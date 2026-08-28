@@ -10,6 +10,7 @@ import {
   FolderOpen, BookOpen, Film, CalendarClock, Calendar,
   MessageSquare, HardDrive, Monitor, type LucideIcon,
   Wrench, Wallet, Lock, ListChecks, Salad, Users, Clapperboard, ShieldCheck,
+  Languages,
 } from "lucide-react";
 
 export const metadata = { title: "Werkzeuge" };
@@ -27,6 +28,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "tools/vault":        Lock,
   "tools/tasks":        ListChecks,
   "tools/nutrition":    Salad,
+  "tools/portugiesisch": Languages,
 };
 
 // Gleiche Gruppierung/Labels wie in der Sidebar (HomePageContent.tsx).

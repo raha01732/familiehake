@@ -75,6 +75,13 @@ export const TOOL_LINKS: NavLink[] = [
     group: "personal",
   },
   {
+    routeKey: "tools/portugiesisch",
+    href: "/tools/portugiesisch",
+    label: "Portugiesisch",
+    description: "Vokabeltrainer mit Spaced Repetition & KI-Übungen",
+    group: "personal",
+  },
+  {
     routeKey: "tools/messages",
     href: "/tools/messages",
     label: "Nachrichten",

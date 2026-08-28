@@ -1,5 +1,6 @@
-// src/lib/nutrition/gemini.ts
+// src/lib/gemini.ts
 // Direct fetch to Google Gemini (OpenAI-compatible REST endpoint).
+// Gemeinsam genutzt von mehreren Tools (Ernährung, Portugiesisch, ...).
 import { env } from "@/lib/env";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai";

@@ -27,6 +27,7 @@ import {
   FolderOpen,
   HardDrive,
   KeyRound,
+  Languages,
   ListChecks,
   Lock,
   MessageSquare,
@@ -55,6 +56,7 @@ const TOOL_ICON_MAP: Record<string, LucideIcon> = {
   "tools/vault":          KeyRound,
   "tools/tasks":          ListChecks,
   "tools/nutrition":      Apple,
+  "tools/portugiesisch":  Languages,
 };
 
 const ADMIN_ICON_MAP: Record<string, LucideIcon> = {

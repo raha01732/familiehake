@@ -10,7 +10,7 @@ import {
 import {
   geminiEnabled,
   chatJson,
-} from "@/lib/nutrition/gemini";
+} from "@/lib/gemini";
 import {
   mapDietToSpoonacular,
   mapAllergiesToSpoonacular,
