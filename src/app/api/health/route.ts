@@ -100,9 +100,16 @@ export async function GET() {
     checks.db.ok = errors.length === 0 && tableNames.length > 0;
     checks.db.info = `Tabellen erreichbar: ${checks.db.tables.reachable}/${checks.db.tables.total}`;
 
+    if (!checks.db.ok) {
+      reportError(new Error("db_tables_unreachable"), { errors: checks.db.tables.errors });
+      status = "degraded";
+    }
+
     if (heartbeatResult.error) {
       checks.db.heartbeat.ok = false;
       checks.db.heartbeat.info = heartbeatResult.error.message;
+      reportError(new Error("db_heartbeat_query_failed"), { message: heartbeatResult.error.message });
+      status = "degraded";
     } else {
       const lastPing = heartbeatResult.data?.[0]?.pinged_at ?? null;
       const today = new Date().toISOString().slice(0, 10);
