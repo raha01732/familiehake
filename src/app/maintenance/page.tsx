@@ -8,14 +8,16 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-// Lädt die Seite alle 30s neu, damit man nach Ende der Wartung nicht
-// manuell refreshen muss (harmlos, falls MAINTENANCE_MODE noch aktiv ist).
+// Springt alle 30s zur Startseite statt sich selbst neu zu laden: "/" läuft
+// wieder durch die Middleware-Prüfung, die bei aktivem MAINTENANCE_MODE sofort
+// hierher zurückleitet - ist der Modus aber aus, landet man automatisch auf
+// der echten Startseite statt ewig auf /maintenance zu bleiben.
 const AUTO_REFRESH_SECONDS = 30;
 
 export default function MaintenancePage() {
   return (
     <section className="flex min-h-[70vh] items-center justify-center px-4">
-      <meta httpEquiv="refresh" content={String(AUTO_REFRESH_SECONDS)} />
+      <meta httpEquiv="refresh" content={`${AUTO_REFRESH_SECONDS};url=/`} />
       <div
         className="card animate-fade-up flex max-w-md flex-col items-center gap-4 p-8 text-center"
       >
