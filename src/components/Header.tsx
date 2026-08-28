@@ -6,8 +6,7 @@ import Link from "next/link";
 import {
   ClerkLoaded,
   ClerkLoading,
-  SignedIn,
-  SignedOut,
+  Show,
   SignInButton,
   useClerk,
   useUser,
@@ -87,7 +86,7 @@ export default function Header({ clerkEnabled = true, signInUrl, isAdmin = false
               />
             </ClerkLoading>
             <ClerkLoaded>
-              <SignedOut>
+              <Show when="signed-out">
                 {signInUrl ? (
                   <Link href={signInUrl}>
                     <SignInBtn />
@@ -97,15 +96,15 @@ export default function Header({ clerkEnabled = true, signInUrl, isAdmin = false
                     <SignInBtn />
                   </SignInButton>
                 )}
-              </SignedOut>
-              <SignedIn>
+              </Show>
+              <Show when="signed-in">
                 <div className="relative z-[560]">
                   <NotificationBell />
                 </div>
                 <div className="relative z-[560]">
                   <UserMenu />
                 </div>
-              </SignedIn>
+              </Show>
             </ClerkLoaded>
           </div>
         ) : (

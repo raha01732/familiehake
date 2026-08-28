@@ -15,7 +15,7 @@
     "migrate:finance-categories": "node --env-file=.env.local scripts/migrate-finance-categories.mjs"
   },
   "dependencies": {
-    "@clerk/nextjs": "^6.36.10",
+    "@clerk/nextjs": "^7.8.2",
     "@sentry/nextjs": "^10.36.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.91.1",

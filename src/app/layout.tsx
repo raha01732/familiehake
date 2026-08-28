@@ -39,7 +39,7 @@ const clerkAppearance = {
     colorInputText: "hsl(222 35% 14%)",
     colorNeutral: "hsl(215 30% 86%)",
   },
-  layout: {
+  options: {
     logoPlacement: "inside",
     showOptionalFields: false,
     socialButtonsPlacement: "bottom",

@@ -46,7 +46,8 @@ export default async function AdminInvitesPage() {
   let invites: InviteItem[] = [];
   try {
     // Manche Clerk-Versionen liefern { data: [...] }, andere direkt ein Array
-    const raw: any = await (clerkClient as any).invitations.getInvitationList?.();
+    const client = await clerkClient();
+    const raw: any = await client.invitations.getInvitationList();
     const list: any[] = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
 
     invites = list.map((i: any) => ({
