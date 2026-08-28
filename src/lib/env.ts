@@ -21,6 +21,9 @@ const baseSchema = z.object({
   SENTRY_ENVIRONMENT: z.string().optional(),
   PREVIEW_USER: z.string().optional(),
   PREVIEW_PASS: z.string().optional(),
+  // Wartungsmodus: "true" leitet alle Seiten (außer Health/Cron/QStash) auf /maintenance um.
+  // Wird direkt in middleware.ts aus process.env gelesen (Edge-Runtime), hier nur zur Validierung.
+  MAINTENANCE_MODE: z.string().optional(),
   SENTRY_API_TOKEN: z.string().optional(),
   SENTRY_ORG_SLUG: z.string().optional(),
   SENTRY_PROJECT_SLUG: z.string().optional(),

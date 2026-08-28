@@ -12,6 +12,7 @@ const isPublicRoute = createRouteMatcher([
   "/sign-up(.*)",
   "/api/health(.*)",
   "/api/keepalive",
+  "/maintenance",
 
   // Legal pages — publicly accessible without login
   "/legal(.*)",
@@ -45,6 +46,31 @@ const BLOCKED_IPS = (process.env.BLOCKED_IPS ?? "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+
+/**
+ * Wartungsmodus: MAINTENANCE_MODE=true in den Vercel-Env-Vars setzen (Redeploy
+ * noetig, damit die neue Env-Var greift) leitet alle Seiten per Temporary
+ * Redirect (307) auf /maintenance um. Health-Checks, Cron/QStash-Callbacks
+ * und der Sentry-Tunnel bleiben erreichbar.
+ */
+const MAINTENANCE_MODE = process.env.MAINTENANCE_MODE === "true";
+const MAINTENANCE_BYPASS_PREFIXES = [
+  "/maintenance",
+  "/api/health",
+  "/api/keepalive",
+  "/api/sentry-tunnel",
+  "/api/cron",
+  "/api/qstash",
+];
+
+function handleMaintenanceMode(req: NextRequest) {
+  if (!MAINTENANCE_MODE) return null;
+  const { pathname } = new URL(req.url);
+  if (MAINTENANCE_BYPASS_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    return null;
+  }
+  return NextResponse.redirect(new URL("/maintenance", req.url), 307);
+}
 
 /** Preview-Umgebung absichern (Basic Auth) */
 function handlePreviewProtection(req: NextRequest) {
@@ -137,6 +163,9 @@ function isClerkSignInRoute(req: NextRequest) {
 }
 
 const fallbackMiddleware = (req: NextRequest) => {
+  const maintenance = handleMaintenanceMode(req);
+  if (maintenance) return withLocaleCookie(req, withSecurityHeaders(maintenance));
+
   const preview = handlePreviewProtection(req);
   if (preview) return withLocaleCookie(req, withSecurityHeaders(preview));
 
@@ -147,6 +176,9 @@ const fallbackMiddleware = (req: NextRequest) => {
 };
 
 const clerkEnabledMiddleware = clerkMiddleware(async (auth, req) => {
+  const maintenance = handleMaintenanceMode(req);
+  if (maintenance) return withLocaleCookie(req, withSecurityHeaders(maintenance));
+
   const preview = handlePreviewProtection(req);
   if (preview) return withLocaleCookie(req, withSecurityHeaders(preview));
 
