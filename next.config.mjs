@@ -27,7 +27,7 @@ const sentryConfig = withSentryConfig(nextConfig, {
 
   org: "ralf-hake",
 
-  project: "javascript-nextjs",
+  project: "hearth",
 
   // Only print logs for uploading source maps in CI
   silent: !process.env.CI,
