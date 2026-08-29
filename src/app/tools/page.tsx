@@ -10,7 +10,7 @@ import {
   FolderOpen, BookOpen, Film, CalendarClock, Calendar,
   MessageSquare, HardDrive, Monitor, type LucideIcon,
   Wrench, Wallet, Lock, ListChecks, Salad, Users, Clapperboard, ShieldCheck,
-  Languages,
+  Languages, CalendarHeart, FolderHeart,
 } from "lucide-react";
 
 export const metadata = { title: "Werkzeuge" };
@@ -27,6 +27,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "tools/finance":      Wallet,
   "tools/vault":        Lock,
   "tools/tasks":        ListChecks,
+  "tools/family-calendar": CalendarHeart,
+  "tools/family-storage": FolderHeart,
   "tools/nutrition":    Salad,
   "tools/portugiesisch": Languages,
 };

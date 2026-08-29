@@ -2141,3 +2141,76 @@ from portuguese_perms pp
 on conflict (route, role) do update
   set allowed = excluded.allowed,
       updated_at = now();
+
+-- ─────────────────────────────────────────────
+-- Family-Bereich: Geteilter Kalender & Geteilter Storage
+-- Beides "voll geteilt" wie tools/tasks: keine user_id-Eigentuemerschaft,
+-- jeder mit Family-Rolle sieht/bearbeitet alles gleichberechtigt.
+-- Deshalb bewusst unverschluesselt (anders als der persoenliche Kalender) -
+-- Inhalte sind ja ohnehin fuer die ganze Familie sichtbar.
+-- ─────────────────────────────────────────────
+
+create table if not exists family_calendar_events (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
+  location text,
+  description text,
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists family_calendar_events_starts_idx
+  on family_calendar_events(starts_at);
+
+create table if not exists family_folders (
+  id uuid primary key default gen_random_uuid(),
+  parent_id uuid references family_folders(id) on delete cascade,
+  name text not null,
+  deleted_at timestamptz,
+  created_by text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists family_folders_parent_idx
+  on family_folders(parent_id) where deleted_at is null;
+
+-- Nutzt denselben Storage-Bucket "files" wie die persoenlichen Dateien,
+-- aber mit "family/..." statt "{userId}/..." als Pfad-Praefix.
+create table if not exists family_files_meta (
+  id uuid primary key default gen_random_uuid(),
+  folder_id uuid references family_folders(id) on delete set null,
+  storage_path text not null,
+  file_name text not null,
+  file_size bigint,
+  mime_type text,
+  deleted_at timestamptz,
+  created_by text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists family_files_meta_folder_idx
+  on family_files_meta(folder_id) where deleted_at is null;
+
+insert into tool_status (route_key, enabled, maintenance_message)
+values
+  ('tools/family-calendar', true, null),
+  ('tools/family-storage', true, null)
+on conflict (route_key) do nothing;
+
+with family_tools_access(route, role, allowed) as (
+  values
+    ('tools/family-calendar', 'family', true),
+    ('tools/family-calendar', 'user', false),
+    ('tools/family-calendar', 'admin', true),
+    ('tools/family-storage',  'family', true),
+    ('tools/family-storage',  'user', false),
+    ('tools/family-storage',  'admin', true)
+)
+insert into access_rules (route, role, allowed)
+select route, role, allowed from family_tools_access
+on conflict (route, role) do update
+  set allowed = excluded.allowed,
+      updated_at = now();

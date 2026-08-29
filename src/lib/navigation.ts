@@ -96,6 +96,20 @@ export const TOOL_LINKS: NavLink[] = [
     group: "family",
   },
   {
+    routeKey: "tools/family-calendar",
+    href: "/tools/family-calendar",
+    label: "Geteilter Kalender",
+    description: "Gemeinsamer Familienkalender für alle",
+    group: "family",
+  },
+  {
+    routeKey: "tools/family-storage",
+    href: "/tools/family-storage",
+    label: "Geteilter Storage",
+    description: "Gemeinsam genutzter Speicher für alle",
+    group: "family",
+  },
+  {
     routeKey: "tools/dispoplaner",
     href: "/tools/dispoplaner",
     label: "Dispoplaner",
@@ -126,20 +140,7 @@ export const TOOL_LINKS: NavLink[] = [
 ];
 
 /** Platzhalter im Family-Bereich – inaktiv, bis das echte Tool existiert. */
-export const PLACEHOLDER_LINKS: PlaceholderLink[] = [
-  {
-    key: "family/calendar",
-    label: "Geteilter Kalender",
-    description: "Gemeinsamer Familienkalender",
-    group: "family",
-  },
-  {
-    key: "family/storage",
-    label: "Geteilter Storage",
-    description: "Gemeinsam genutzter Speicher",
-    group: "family",
-  },
-];
+export const PLACEHOLDER_LINKS: PlaceholderLink[] = [];
 
 export const ADMIN_LINKS: NavLink[] = [
   { routeKey: "admin", href: "/admin", label: "Admin", group: "system" },
