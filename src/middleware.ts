@@ -216,8 +216,12 @@ export default isClerkEnabled ? clerkEnabledMiddleware : fallbackMiddleware;
 
 export const config = {
   matcher: [
-    // alles außer statische Dateien
-    "/((?!.+\\.[\\w]+$|_next).*)",
+    // alles außer statische Dateien und Vercel-interne Pfade (_next, _vercel/*
+    // z.B. Speed Insights/Web Analytics Script + Beacon-Requests - die dürfen
+    // nicht hinter Clerk-Auth/Preview-Basic-Auth landen, sonst gehen sie für
+    // anonyme/preview Requests verloren und es kommen keine Daten im
+    // Dashboard an)
+    "/((?!.+\\.[\\w]+$|_next|_vercel).*)",
     "/",
     // optional: APIs / trpc
     "/(api|trpc)(.*)",

@@ -38,3 +38,6 @@ Thumbs.db
 src/lib/crypto.ts
 .vercel
 .env*.local
+
+# Scratch tooling (e.g. schema.sql dry-run scripts, may contain local secrets)
+.scratch-pg-test/

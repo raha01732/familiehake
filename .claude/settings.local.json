@@ -30,7 +30,11 @@
       "Bash(sed -n '440,442p' src/app/tools/auslassplanung/actions.ts)",
       "Bash(git stash *)",
       "Bash(npm test *)",
-      "PowerShell(git *)"
+      "PowerShell(git *)",
+      "mcp__plugin_vercel_vercel__check_domain_availability_and_price",
+      "mcp__plugin_vercel_vercel__list_projects",
+      "mcp__plugin_vercel_vercel__get_runtime_errors",
+      "mcp__plugin_vercel_vercel__get_runtime_logs"
     ]
   }
 }
