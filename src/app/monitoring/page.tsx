@@ -7,8 +7,9 @@ import { type StorageUsageSummary } from "@/lib/stats";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { headers } from "next/headers";
 import { Card, CardContent } from "@/components/ui/card";
-import { KNOWN_CRON_JOB_NAMES } from "@/lib/cron-registry";
+import { KNOWN_CRON_JOB_NAMES, cronJobLabel } from "@/lib/cron-registry";
 import RunCronButton from "@/components/monitoring/RunCronButton";
+import CronRunDetailsButton from "@/components/monitoring/CronRunDetailsButton";
 import { getSessionInfo } from "@/lib/auth";
 
 export const metadata = { title: "System Monitoring" };
@@ -69,6 +70,7 @@ type CronJobRun = {
   duration_ms: number | null;
   error_message: string | null;
   finished_at: string;
+  details: unknown;
 };
 
 type SentryStats = Awaited<ReturnType<typeof fetchSentryStats>>;
@@ -156,7 +158,7 @@ async function fetchCronJobRuns(): Promise<CronJobRun[]> {
     const sb = createAdminClient();
     const { data } = await sb
       .from("cron_job_runs")
-      .select("id, job_name, run_day, trigger, success, skipped, duration_ms, error_message, finished_at")
+      .select("id, job_name, run_day, trigger, success, skipped, duration_ms, error_message, finished_at, details")
       .order("finished_at", { ascending: false })
       .limit(40);
     return (data ?? []) as CronJobRun[];
@@ -611,7 +613,14 @@ function CronJobTable({ runs, isAdmin }: { runs: CronJobRun[]; isAdmin: boolean 
               className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 flex flex-col gap-1"
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs" style={{ color: "hsl(var(--foreground))" }}>{jobName}</span>
+                <div>
+                  <div className="text-sm font-medium" style={{ color: "hsl(var(--foreground))" }}>
+                    {cronJobLabel(jobName)}
+                  </div>
+                  <div className="font-mono text-[10px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                    {jobName}
+                  </div>
+                </div>
                 <span className={`rounded-lg border px-2 py-0.5 text-[11px] font-medium ${statusColor}`}>
                   {statusLabel}
                 </span>
@@ -652,6 +661,7 @@ function CronJobTable({ runs, isAdmin }: { runs: CronJobRun[]; isAdmin: boolean 
                 <th className="px-3 py-2 font-medium">Dauer</th>
                 <th className="px-3 py-2 font-medium">Abgeschlossen</th>
                 <th className="px-3 py-2 font-medium">Fehler</th>
+                <th className="px-3 py-2 font-medium">Details</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[hsl(var(--border))]">
@@ -664,7 +674,10 @@ function CronJobTable({ runs, isAdmin }: { runs: CronJobRun[]; isAdmin: boolean 
                 const statusLabel = run.skipped ? "Skip" : run.success ? "OK" : "Fehler";
                 return (
                   <tr key={run.id}>
-                    <td className="px-3 py-2 text-xs font-mono whitespace-nowrap" style={{ color: "hsl(var(--foreground))" }}>{run.job_name}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <div className="text-xs" style={{ color: "hsl(var(--foreground))" }}>{cronJobLabel(run.job_name)}</div>
+                      <div className="font-mono text-[10px]" style={{ color: "hsl(var(--muted-foreground))" }}>{run.job_name}</div>
+                    </td>
                     <td className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: "hsl(var(--muted-foreground))" }}>{run.run_day}</td>
                     <td className="px-3 py-2 text-xs">
                       <span className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${statusColor}`}>
@@ -677,6 +690,13 @@ function CronJobTable({ runs, isAdmin }: { runs: CronJobRun[]; isAdmin: boolean 
                     </td>
                     <td className="px-3 py-2 text-xs whitespace-nowrap" style={{ color: "hsl(var(--foreground))" }}>{formatDate(run.finished_at)}</td>
                     <td className="px-3 py-2 text-[11px]" style={{ color: "hsl(0 84% 60%)" }}>{run.error_message ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <CronRunDetailsButton
+                        jobName={run.job_name}
+                        finishedAt={formatDate(run.finished_at)}
+                        details={run.details}
+                      />
+                    </td>
                   </tr>
                 );
               })}
