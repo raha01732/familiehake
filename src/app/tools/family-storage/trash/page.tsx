@@ -62,7 +62,7 @@ async function hardDeleteFileAction(formData: FormData) {
   const { data: row } = await sb.from("family_files_meta").select("storage_path,file_name").eq("id", id).single();
   if (!row) return;
 
-  await sb.storage.from("files").remove([row.storage_path]);
+  await sb.storage.from("family-files").remove([row.storage_path]);
   await sb.from("family_files_meta").delete().eq("id", id);
   try {
     await logAudit({ action: "file_delete", actorUserId: userId, actorEmail: null, target: row.storage_path, detail: { file: row.file_name, hard: true, from: "trash", scope: "family" } });

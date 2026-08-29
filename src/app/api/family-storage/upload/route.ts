@@ -1,7 +1,9 @@
 // src/app/api/family-storage/upload/route.ts
-// Upload in den geteilten Familien-Storage. Nutzt denselben Supabase-
-// Storage-Bucket "files" wie die persoenlichen Dateien, aber mit
-// "family/..." statt "{userId}/..." als Pfad-Praefix.
+// Upload in den geteilten Familien-Storage. Eigener Bucket "family-files"
+// (nicht derselbe wie die persoenlichen Dateien) - der Zugriffsschutz laeuft
+// hier komplett ueber unseren eigenen Code (Service-Role-Client, keine
+// Storage-RLS), ein separater Bucket ist daher die einzige echte
+// Sicherheitsgrenze zwischen privaten und geteilten Dateien.
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -50,11 +52,11 @@ export async function POST(req: Request) {
     const { y, m, d } = ymd();
     const rand = Math.random().toString(36).slice(2, 10);
     const ts = Date.now();
-    const storagePath = `family/${y}/${m}/${d}/${ts}_${rand}_${fileName}`;
+    const storagePath = `${y}/${m}/${d}/${ts}_${rand}_${fileName}`;
 
     const sb = createAdminClient();
 
-    const { error: upErr } = await sb.storage.from("files").upload(storagePath, file, {
+    const { error: upErr } = await sb.storage.from("family-files").upload(storagePath, file, {
       contentType,
       upsert: false,
     });
@@ -74,7 +76,7 @@ export async function POST(req: Request) {
     });
 
     if (dbErr) {
-      await sb.storage.from("files").remove([storagePath]).catch(() => {});
+      await sb.storage.from("family-files").remove([storagePath]).catch(() => {});
       return NextResponse.json({ ok: false, error: dbErr.message }, { status: 500 });
     }
 

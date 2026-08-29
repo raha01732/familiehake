@@ -19,9 +19,6 @@ export async function GET(req: NextRequest) {
 
   const path = new URL(req.url).searchParams.get("path");
   if (!path) return NextResponse.json({ ok: false, error: "missing path" }, { status: 400 });
-  if (!path.startsWith("family/")) {
-    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
-  }
 
   const sb = createAdminClient();
   const { data: row } = await sb
@@ -31,7 +28,7 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
   if (!row) return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
 
-  const { data, error } = await sb.storage.from("files").createSignedUrl(path, 60);
+  const { data, error } = await sb.storage.from("family-files").createSignedUrl(path, 60);
   if (error || !data?.signedUrl) {
     return NextResponse.json({ ok: false, error: error?.message || "signed url failed" }, { status: 500 });
   }
