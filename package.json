@@ -2,6 +2,7 @@
   "comment": "/workspace/familiehake/package.json",
   "name": "my-private-app",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
