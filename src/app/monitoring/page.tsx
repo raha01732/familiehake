@@ -693,6 +693,12 @@ function CronJobTable({ runs, isAdmin }: { runs: CronJobRun[]; isAdmin: boolean 
                     <td className="px-3 py-2">
                       <CronRunDetailsButton
                         jobName={run.job_name}
+                        runDay={run.run_day}
+                        trigger={run.trigger}
+                        success={run.success}
+                        skipped={run.skipped}
+                        durationMs={run.duration_ms}
+                        errorMessage={run.error_message}
                         finishedAt={formatDate(run.finished_at)}
                         details={run.details}
                       />

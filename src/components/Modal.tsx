@@ -1,7 +1,8 @@
 // src/components/Modal.tsx
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 export function Modal({
   open,
   onClose,
@@ -21,9 +22,21 @@ export function Modal({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  // Erst nach dem Mount rendern (document.body existiert serverseitig nicht) -
+  // ausserdem: per Portal direkt an document.body haengen, statt an der
+  // Aufrufstelle im DOM zu bleiben. Ein Vorfahre mit backdrop-filter/filter/
+  // transform (z.B. die .card-Klasse nutzt backdrop-filter) erzeugt sonst
+  // einen eigenen Containing Block fuer position:fixed, wodurch das Modal
+  // relativ zu dieser Karte statt zum Viewport positioniert wuerde.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(id);
+  }, []);
 
-  return (
+  if (!open || !mounted) return null;
+
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative card w-[min(100%-2rem,960px)] max-w-none p-0 overflow-hidden">
@@ -38,6 +51,7 @@ export function Modal({
         </div>
         <div className="p-5">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
