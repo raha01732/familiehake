@@ -7,6 +7,9 @@ import { type StorageUsageSummary } from "@/lib/stats";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { headers } from "next/headers";
 import { Card, CardContent } from "@/components/ui/card";
+import { KNOWN_CRON_JOB_NAMES } from "@/lib/cron-registry";
+import RunCronButton from "@/components/monitoring/RunCronButton";
+import { getSessionInfo } from "@/lib/auth";
 
 export const metadata = { title: "System Monitoring" };
 
@@ -148,17 +151,6 @@ async function fetchHeartbeatEvents(): Promise<HeartbeatEvent[]> {
   }
 }
 
-const KNOWN_CRON_JOBS = [
-  "keepalive",
-  "cache-warmup",
-  "upstash-heartbeat",
-  "audit-rollup",
-  "discover-routes",
-  "force-logout",
-  "shift-reminder",
-  "clerk-activity-sync",
-];
-
 async function fetchCronJobRuns(): Promise<CronJobRun[]> {
   try {
     const sb = createAdminClient();
@@ -184,7 +176,12 @@ function formatBytes(bytes: number | null) {
 function formatDate(value?: string | null) {
   if (!value) return "—";
   const d = new Date(value);
-  return isNaN(d.getTime()) ? String(value) : d.toLocaleString();
+  if (isNaN(d.getTime())) return String(value);
+  return new Intl.DateTimeFormat("de-DE", {
+    timeZone: "Europe/Berlin",
+    dateStyle: "short",
+    timeStyle: "medium",
+  }).format(d);
 }
 
 function serverInfo() {
@@ -199,6 +196,10 @@ function serverInfo() {
 }
 
 export default async function MonitoringPage() {
+  const session = await getSessionInfo();
+  const isAdmin =
+    session.signedIn && (session.isSuperAdmin || session.roles.some((r) => r.name === "admin"));
+
   const [healthResult, summaryResult, auditResult, heartbeatResult, cronRunsResult] = await Promise.allSettled([
     getHealth(),
     getMonitoringSummary(),
@@ -443,7 +444,7 @@ export default async function MonitoringPage() {
         </div>
 
         {/* Cron Jobs */}
-        <CronJobTable runs={cronJobRuns} />
+        <CronJobTable runs={cronJobRuns} isAdmin={isAdmin} />
 
         {/* DB Keep-Alive */}
         <div className="card p-6 flex flex-col gap-4">
@@ -565,10 +566,10 @@ function EnvRow({ label, ok }: { label: string; ok: boolean }) {
   );
 }
 
-function CronJobTable({ runs }: { runs: CronJobRun[] }) {
+function CronJobTable({ runs, isAdmin }: { runs: CronJobRun[]; isAdmin: boolean }) {
   const today = new Date().toISOString().slice(0, 10);
 
-  const latestByJob = KNOWN_CRON_JOBS.map((jobName) => {
+  const latestByJob = KNOWN_CRON_JOB_NAMES.map((jobName) => {
     const jobRuns = runs.filter((r) => r.job_name === jobName);
     const lastRun = jobRuns[0] ?? null;
     const ranToday = jobRuns.some((r) => r.run_day === today && r.success && !r.skipped);
@@ -625,6 +626,11 @@ function CronJobTable({ runs }: { runs: CronJobRun[] }) {
                 </div>
               ) : (
                 <div className="text-[11px]" style={{ color: "hsl(var(--muted-foreground) / 0.5)" }}>Kein Eintrag in cron_job_runs</div>
+              )}
+              {isAdmin && (
+                <div className="mt-1">
+                  <RunCronButton jobName={jobName} />
+                </div>
               )}
             </div>
           );

@@ -21,9 +21,13 @@ function getRequestActor(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   const hasBearer = Boolean(authHeader?.startsWith("Bearer "));
   const userAgent = req.headers.get("user-agent");
-  const xVercelCron = req.headers.get("x-vercel-cron");
+  // Vercel Cron sendet keinen "x-vercel-cron"-Header (den gibt es nicht) - echte
+  // Erkennungsmerkmale sind der Header "x-vercel-cron-schedule" (Cron-Ausdruck)
+  // und der User-Agent "vercel-cron/1.0". Siehe https://vercel.com/docs/cron-jobs
+  const cronSchedule = req.headers.get("x-vercel-cron-schedule");
+  const isVercelCron = Boolean(cronSchedule) || Boolean(userAgent?.startsWith("vercel-cron/"));
   const xForwardedFor = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
-  const trigger = xVercelCron ? "vercel-cron" : hasBearer ? "authorized-manual" : "manual";
+  const trigger = isVercelCron ? "vercel-cron" : hasBearer ? "authorized-manual" : "manual";
 
   return {
     actor: trigger,

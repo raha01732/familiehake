@@ -134,6 +134,9 @@ export const AUDIT_ACTIONS = [
   "system_message_delete",
   "system_report_resend",
 
+  // System / Cron
+  "cron_manual_trigger",
+
   // Errors
   "critical_error",
 ] as const;

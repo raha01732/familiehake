@@ -229,6 +229,7 @@ const ACTION_LABELS: Record<string, string> = {
   system_message_delete: "Systemnachricht gelöscht",
   system_report_resend: "Systemreport erneut gesendet",
   critical_error: "Kritischer Fehler",
+  cron_manual_trigger: "Cron-Job manuell ausgeführt",
 };
 
 /** Prettify einer unbekannten Action: "foo_bar_baz" -> "Foo bar baz". */
