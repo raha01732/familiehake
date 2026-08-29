@@ -1,6 +1,6 @@
 // /workspace/familiehake/src/app/admin/settings/page.tsx
 import RoleGate from "@/components/RoleGate";
-import { Settings2, Plus, Save, ShieldCheck, Wrench, Lock } from "lucide-react";
+import { Settings2, Plus, Save, ShieldCheck, Wrench, Lock, Power } from "lucide-react";
 import { ROUTE_DESCRIPTORS } from "@/lib/access-map";
 import { checkDatabaseLive } from "@/lib/access-db";
 import { TOOL_LINKS } from "@/lib/navigation";
@@ -11,6 +11,7 @@ import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
+import { getMaintenanceStatus, setMaintenanceRedisFlag } from "@/lib/maintenance";
 import { currentUser } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -434,6 +435,37 @@ async function upsertWorkspaceLocksAction(formData: FormData): Promise<void> {
   redirect("/admin/settings?workspaceLockSaved=1");
 }
 
+async function setSiteMaintenanceAction(formData: FormData): Promise<void> {
+  "use server";
+  const { isAdmin } = await getAdminStatus();
+  if (!isAdmin) {
+    redirect("/admin/settings?error=1&errorDetail=forbidden");
+  }
+
+  const enabled = formData.has("siteMaintenanceEnabled");
+
+  try {
+    await setMaintenanceRedisFlag(enabled);
+
+    const actor = await currentUser();
+    await logAudit({
+      action: "maintenance_mode_toggle",
+      actorUserId: actor?.id ?? null,
+      actorEmail: actor?.emailAddresses?.[0]?.emailAddress ?? null,
+      target: "site",
+      detail: { enabled },
+    });
+  } catch (error) {
+    console.error("maintenance_toggle_failed", error);
+    revalidatePath("/admin/settings");
+    const errorDetail = error instanceof Error ? error.message : "unknown_error";
+    redirect(`/admin/settings?error=1&errorDetail=${encodeURIComponent(errorDetail)}`);
+  }
+
+  revalidatePath("/admin/settings");
+  redirect("/admin/settings?maintenanceSaved=1");
+}
+
 /* ===================== Page ===================== */
 
 type SettingsSearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -443,8 +475,8 @@ export default async function AdminSettingsPage({
 }: {
   searchParams: SettingsSearchParams;
 }) {
-  const [{ roles, routes, matrix, toolStatusList, workspaceLockList }, { isAdmin }, liveStatus, sp] =
-    await Promise.all([getData(), getAdminStatus(), checkDatabaseLive(), searchParams]);
+  const [{ roles, routes, matrix, toolStatusList, workspaceLockList }, { isAdmin }, liveStatus, sp, maintenanceStatus] =
+    await Promise.all([getData(), getAdminStatus(), checkDatabaseLive(), searchParams, getMaintenanceStatus()]);
 
   // Superadmin wird ohnehin durchgelassen → in der Sperr-Matrix nicht anbieten.
   const lockableRoles = roles.filter((role) => normalizeRoleKey(role.name) !== "superadmin");
@@ -464,6 +496,10 @@ export default async function AdminSettingsPage({
   const workspaceLockSaved =
     sp?.workspaceLockSaved === "1" ||
     (Array.isArray(sp?.workspaceLockSaved) && sp?.workspaceLockSaved.includes("1"));
+
+  const maintenanceSaved =
+    sp?.maintenanceSaved === "1" ||
+    (Array.isArray(sp?.maintenanceSaved) && sp?.maintenanceSaved.includes("1"));
 
   const error =
     sp?.error === "1" ||
@@ -519,7 +555,7 @@ export default async function AdminSettingsPage({
           </div>
         </div>
 
-        {(saved || added || toolStatusSaved || workspaceLockSaved || error) && (
+        {(saved || added || toolStatusSaved || workspaceLockSaved || maintenanceSaved || error) && (
           <div
             className="rounded-xl border px-4 py-3 text-sm"
             style={
@@ -532,6 +568,7 @@ export default async function AdminSettingsPage({
             {!error && added && "Die Route wurde hinzugefügt."}
             {!error && toolStatusSaved && "Der Tool-Status wurde gespeichert."}
             {!error && workspaceLockSaved && "Die Workspace-Sperren wurden gespeichert."}
+            {!error && maintenanceSaved && "Der Website-Wartungsmodus wurde gespeichert."}
             {error && "Es ist ein Fehler aufgetreten."}
             {error && errorDetail && (
               <pre
@@ -709,6 +746,63 @@ export default async function AdminSettingsPage({
                 Tool-Status speichern
               </button>
             </div>
+          </form>
+        </div>
+
+        {/* Website-Wartungsmodus */}
+        <div className="card p-6">
+          <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Power size={15} className="text-primary" aria-hidden />
+            Website-Wartungsmodus
+          </div>
+          <p className="mb-4 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+            Leitet <strong>die gesamte Website</strong> für alle Besucher auf eine Wartungsseite um –
+            außer Anmeldung, diese Seite und interne Health-/Cron-Endpunkte, damit du dich zum
+            Deaktivieren jederzeit einloggen kannst. Wirkung ist sofort (Redis-Schalter), kein
+            Deployment nötig.
+          </p>
+
+          {maintenanceStatus.envFlag && (
+            <div
+              className="mb-4 rounded-xl border px-4 py-3 text-xs"
+              style={{
+                borderColor: "hsl(27 96% 61% / 0.4)",
+                background: "hsl(27 96% 61% / 0.08)",
+                color: "hsl(27 96% 45%)",
+              }}
+            >
+              Die Umgebungsvariable <span className="font-mono">MAINTENANCE_MODE</span> ist zusätzlich
+              gesetzt und erzwingt den Wartungsmodus unabhängig von diesem Schalter. Zum vollständigen
+              Deaktivieren musst du sie in den Vercel-Projekteinstellungen entfernen und neu deployen.
+            </div>
+          )}
+
+          <form action={setSiteMaintenanceAction} className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex items-center gap-2" style={{ color: "hsl(var(--foreground))" }}>
+              <input
+                type="checkbox"
+                name="siteMaintenanceEnabled"
+                defaultChecked={maintenanceStatus.redisFlag}
+                className="h-4 w-4 rounded"
+                style={{ accentColor: "hsl(var(--primary))" }}
+                aria-label="Website-Wartungsmodus aktiv"
+              />
+              <span className="text-xs">Wartungsmodus aktiv</span>
+            </label>
+            <button className="brand-button inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold">
+              <Save size={13} aria-hidden />
+              Speichern
+            </button>
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium"
+              style={
+                maintenanceStatus.active
+                  ? { borderColor: "hsl(0 84% 60% / 0.4)", background: "hsl(0 84% 60% / 0.08)", color: "hsl(0 72% 51%)" }
+                  : { borderColor: "hsl(142 71% 45% / 0.4)", background: "hsl(142 71% 45% / 0.08)", color: "hsl(142 71% 35%)" }
+              }
+            >
+              {maintenanceStatus.active ? "Aktiv – Website im Wartungsmodus" : "Inaktiv – Website läuft normal"}
+            </span>
           </form>
         </div>
 

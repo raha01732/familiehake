@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { Buffer } from "buffer";
 import { getClerkPublishableKey } from "@/lib/env";
+import { getMaintenanceStatus } from "@/lib/maintenance";
 
 /** Öffentliche Routen (ohne Login erreichbar) */
 const isPublicRoute = createRouteMatcher([
@@ -48,14 +49,20 @@ const BLOCKED_IPS = (process.env.BLOCKED_IPS ?? "")
   .filter(Boolean);
 
 /**
- * Wartungsmodus: MAINTENANCE_MODE=true in den Vercel-Env-Vars setzen (Redeploy
- * noetig, damit die neue Env-Var greift) leitet alle Seiten per Temporary
- * Redirect (307) auf /maintenance um. Health-Checks, Cron/QStash-Callbacks
- * und der Sentry-Tunnel bleiben erreichbar.
+ * Wartungsmodus: aktiv, wenn ENTWEDER die Env-Var MAINTENANCE_MODE=true gesetzt
+ * ist (Backup/harter Override, braucht ein Redeploy) ODER der Redis-Schalter
+ * unter /admin/settings gesetzt wurde (sofort wirksam, kein Redeploy nötig).
+ * Leitet in dem Fall alle Seiten per Temporary Redirect (307) auf /maintenance
+ * um. Sign-in/-up und /admin/settings bleiben erreichbar, damit ein
+ * Superadmin sich einloggen und den Schalter wieder zurückdrehen kann;
+ * Health-Checks, Cron/QStash-Callbacks und der Sentry-Tunnel bleiben ebenfalls
+ * erreichbar, damit Monitoring und geplante Jobs weiterlaufen.
  */
-const MAINTENANCE_MODE = process.env.MAINTENANCE_MODE === "true";
 const MAINTENANCE_BYPASS_PREFIXES = [
   "/maintenance",
+  "/sign-in",
+  "/sign-up",
+  "/admin/settings",
   "/api/health",
   "/api/keepalive",
   "/api/sentry-tunnel",
@@ -63,12 +70,13 @@ const MAINTENANCE_BYPASS_PREFIXES = [
   "/api/qstash",
 ];
 
-function handleMaintenanceMode(req: NextRequest) {
-  if (!MAINTENANCE_MODE) return null;
+async function handleMaintenanceMode(req: NextRequest) {
   const { pathname } = new URL(req.url);
   if (MAINTENANCE_BYPASS_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return null;
   }
+  const { active } = await getMaintenanceStatus();
+  if (!active) return null;
   return NextResponse.redirect(new URL("/maintenance", req.url), 307);
 }
 
@@ -162,8 +170,8 @@ function isClerkSignInRoute(req: NextRequest) {
   return pathname === normalizedSignInPath || pathname.startsWith(`${normalizedSignInPath}/`);
 }
 
-const fallbackMiddleware = (req: NextRequest) => {
-  const maintenance = handleMaintenanceMode(req);
+const fallbackMiddleware = async (req: NextRequest) => {
+  const maintenance = await handleMaintenanceMode(req);
   if (maintenance) return withLocaleCookie(req, withSecurityHeaders(maintenance));
 
   const preview = handlePreviewProtection(req);
@@ -176,7 +184,7 @@ const fallbackMiddleware = (req: NextRequest) => {
 };
 
 const clerkEnabledMiddleware = clerkMiddleware(async (auth, req) => {
-  const maintenance = handleMaintenanceMode(req);
+  const maintenance = await handleMaintenanceMode(req);
   if (maintenance) return withLocaleCookie(req, withSecurityHeaders(maintenance));
 
   const preview = handlePreviewProtection(req);

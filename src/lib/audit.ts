@@ -136,6 +136,7 @@ export const AUDIT_ACTIONS = [
 
   // System / Cron
   "cron_manual_trigger",
+  "maintenance_mode_toggle",
 
   // Errors
   "critical_error",

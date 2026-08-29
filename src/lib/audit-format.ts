@@ -230,6 +230,7 @@ const ACTION_LABELS: Record<string, string> = {
   system_report_resend: "Systemreport erneut gesendet",
   critical_error: "Kritischer Fehler",
   cron_manual_trigger: "Cron-Job manuell ausgeführt",
+  maintenance_mode_toggle: "Website-Wartungsmodus geändert",
 };
 
 /** Prettify einer unbekannten Action: "foo_bar_baz" -> "Foo bar baz". */
