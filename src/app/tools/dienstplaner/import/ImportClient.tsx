@@ -79,13 +79,17 @@ type ScheduleParseResponse = {
 type ScheduleDraft = {
   date: string;
   rawName: string;
-  employeeId: number | null;
-  confidence: MatchConfidence;
-  candidates: EmployeeOption[];
   position: string;
   startTime: string;
   endTime: string;
   include: boolean;
+};
+
+type ScheduleNameMeta = {
+  rawName: string;
+  confidence: MatchConfidence;
+  candidates: EmployeeOption[];
+  count: number;
 };
 
 function SchedulePanel({
@@ -105,6 +109,8 @@ function SchedulePanel({
   const [error, setError] = useState<string | null>(null);
   const [parsed, setParsed] = useState<ScheduleParseResponse | null>(null);
   const [drafts, setDrafts] = useState<ScheduleDraft[]>([]);
+  const [nameMeta, setNameMeta] = useState<ScheduleNameMeta[]>([]);
+  const [nameMap, setNameMap] = useState<Record<string, number | null>>({});
   const [result, setResult] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -138,15 +144,32 @@ function SchedulePanel({
         data.scheduleRows.map((r) => ({
           date: r.date,
           rawName: r.rawName,
-          employeeId: r.matchedEmployeeId,
-          confidence: r.matchConfidence,
-          candidates: r.matchCandidates,
           position: r.position ?? "",
           startTime: r.startTime ?? "",
           endTime: r.endTime ?? "",
           include: true,
         }))
       );
+
+      // Eine Zuordnungs-Entscheidung je eindeutigem Namen statt je Schicht.
+      const metaByName = new Map<string, ScheduleNameMeta>();
+      const map: Record<string, number | null> = {};
+      for (const r of data.scheduleRows) {
+        const existing = metaByName.get(r.rawName);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          metaByName.set(r.rawName, {
+            rawName: r.rawName,
+            confidence: r.matchConfidence,
+            candidates: r.matchCandidates,
+            count: 1,
+          });
+          map[r.rawName] = r.matchedEmployeeId;
+        }
+      }
+      setNameMeta([...metaByName.values()].sort((a, b) => b.count - a.count));
+      setNameMap(map);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload fehlgeschlagen");
     } finally {
@@ -157,12 +180,26 @@ function SchedulePanel({
   function updateDraft(idx: number, patch: Partial<ScheduleDraft>) {
     setDrafts((prev) => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
   }
+  function setName(rawName: string, employeeId: number | null) {
+    setNameMap((prev) => ({ ...prev, [rawName]: employeeId }));
+  }
+  function setIncludeForUnresolved(include: boolean) {
+    setDrafts((prev) =>
+      prev.map((d) => (nameMap[d.rawName] ? d : { ...d, include }))
+    );
+  }
+
+  const empName = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const e of employees) m.set(e.id, e.name);
+    return m;
+  }, [employees]);
 
   function handleConfirm() {
     if (!parsed) return;
     const payload = drafts.map((d) => ({
       date: d.date,
-      employeeId: d.employeeId,
+      employeeId: nameMap[d.rawName] ?? null,
       employeeName: d.rawName,
       position: d.position.trim() || null,
       startTime: d.startTime.trim() || null,
@@ -179,6 +216,8 @@ function SchedulePanel({
         setResult(`${r.written} historische Schicht(en) gespeichert.`);
         setParsed(null);
         setDrafts([]);
+        setNameMeta([]);
+        setNameMap({});
         if (fileRef.current) fileRef.current.value = "";
         onDone();
       } catch (err) {
@@ -188,7 +227,8 @@ function SchedulePanel({
   }
 
   const includedCount = drafts.filter((d) => d.include).length;
-  const unresolved = drafts.filter((d) => d.include && !d.employeeId).length;
+  const unresolvedNames = nameMeta.filter((m) => !nameMap[m.rawName]).length;
+  const unresolvedShifts = drafts.filter((d) => d.include && !nameMap[d.rawName]).length;
 
   return (
     <div className="flex flex-col gap-4">
@@ -256,10 +296,10 @@ function SchedulePanel({
               </span>
             </div>
             <div className="text-xs text-[hsl(var(--muted-foreground))]">
-              {includedCount} von {drafts.length} übernehmen
-              {unresolved > 0 && (
+              {includedCount} von {drafts.length} Schichten · {nameMeta.length} Personen
+              {unresolvedNames > 0 && (
                 <span className="ml-2 text-amber-400">
-                  · {unresolved} ohne Mitarbeiter-Zuordnung
+                  · {unresolvedNames} ohne Zuordnung
                 </span>
               )}
             </div>
@@ -273,13 +313,68 @@ function SchedulePanel({
             </ul>
           )}
 
-          <div className="max-h-[460px] overflow-auto rounded-md border border-[hsl(var(--border))]">
+          {nameMeta.length > 0 && (
+            <div className="mb-3 rounded-md border border-[hsl(var(--border))] p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
+                  Namen zuordnen ({nameMeta.length})
+                </h4>
+                {unresolvedShifts > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-[hsl(var(--muted-foreground))] underline"
+                    onClick={() => setIncludeForUnresolved(false)}
+                  >
+                    Schichten ohne Zuordnung ausschließen
+                  </button>
+                )}
+              </div>
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {nameMeta.map((m) => {
+                  const options = mergeCandidates(
+                    m.candidates,
+                    employees,
+                    nameMap[m.rawName] ?? null
+                  );
+                  return (
+                    <div
+                      key={m.rawName}
+                      className="flex items-center gap-2 rounded border border-[hsl(var(--border))] px-2 py-1.5 text-sm"
+                    >
+                      <span className="flex-1 truncate" title={m.rawName}>
+                        {m.rawName}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-[hsl(var(--muted-foreground))]">
+                        {m.count}×
+                      </span>
+                      {confidenceBadge(m.confidence)}
+                      <select
+                        value={nameMap[m.rawName] ?? ""}
+                        onChange={(e) =>
+                          setName(m.rawName, e.target.value ? Number(e.target.value) : null)
+                        }
+                        className={`${inputCls} min-w-[8rem] max-w-[11rem]`}
+                      >
+                        <option value="">— nicht zuordnen</option>
+                        {options.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="max-h-[420px] overflow-auto rounded-md border border-[hsl(var(--border))]">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-[hsl(var(--card))] text-left text-xs text-[hsl(var(--muted-foreground))]">
                 <tr>
                   <th className="p-2"> </th>
                   <th className="p-2">Datum</th>
-                  <th className="p-2">Name im Plan</th>
                   <th className="p-2">Mitarbeiter</th>
                   <th className="p-2">Position</th>
                   <th className="p-2">Von</th>
@@ -288,7 +383,8 @@ function SchedulePanel({
               </thead>
               <tbody>
                 {drafts.map((d, idx) => {
-                  const options = mergeCandidates(d.candidates, employees, d.employeeId);
+                  const mappedId = nameMap[d.rawName] ?? null;
+                  const shown = mappedId ? empName.get(mappedId) ?? d.rawName : d.rawName;
                   return (
                     <tr
                       key={idx}
@@ -305,28 +401,15 @@ function SchedulePanel({
                       </td>
                       <td className="whitespace-nowrap p-2 font-mono text-xs">{d.date}</td>
                       <td className="p-2">
-                        <div className="flex items-center gap-1.5">
-                          <span>{d.rawName}</span>
-                          {confidenceBadge(d.confidence)}
-                        </div>
-                      </td>
-                      <td className="p-2">
-                        <select
-                          value={d.employeeId ?? ""}
-                          onChange={(e) =>
-                            updateDraft(idx, {
-                              employeeId: e.target.value ? Number(e.target.value) : null,
-                            })
-                          }
-                          className={`${inputCls} min-w-[9rem]`}
-                        >
-                          <option value="">— nicht zuordnen</option>
-                          {options.map((o) => (
-                            <option key={o.id} value={o.id}>
-                              {o.name}
-                            </option>
-                          ))}
-                        </select>
+                        <span className={mappedId ? "" : "text-amber-400"}>{shown}</span>
+                        {!mappedId && (
+                          <span
+                            className="ml-1 text-[hsl(var(--muted-foreground))]"
+                            title="Kein Mitarbeiter zugeordnet — wird ohne Verknüpfung gespeichert"
+                          >
+                            (roh)
+                          </span>
+                        )}
                       </td>
                       <td className="p-2">
                         <input
@@ -373,6 +456,8 @@ function SchedulePanel({
               onClick={() => {
                 setParsed(null);
                 setDrafts([]);
+                setNameMeta([]);
+                setNameMap({});
               }}
               disabled={pending}
             >

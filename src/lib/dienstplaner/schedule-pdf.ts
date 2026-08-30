@@ -29,7 +29,7 @@ Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt nach diesem Schema. Kein
   "period_start": "YYYY-MM-DD oder null",
   "period_end": "YYYY-MM-DD oder null",
   "shifts": [
-    { "date": "YYYY-MM-DD", "name": "voller Name wie im Plan", "position": "Rolle/Bereich oder null", "start": "HH:MM oder null", "end": "HH:MM oder null" }
+    { "date": "YYYY-MM-DD", "name": "vollständiger Name", "position": "Rolle/Bereich oder null", "start": "HH:MM oder null", "end": "HH:MM oder null" }
   ],
   "notes": "kurzer Hinweis auf Unsicherheiten oder null"
 }
@@ -38,8 +38,29 @@ Regeln:
 - Datum immer als ISO YYYY-MM-DD. Wenn nur Tag und Monat sichtbar sind: Jahr aus Kopfzeile/Kontext ableiten.
 - Zeiten im 24h-Format als HH:MM. "9-14" -> start "09:00", end "14:00". Unklar -> null.
 - Nur echte Schichtzuordnungen ausgeben. Urlaub, frei, krank, Feiertag NICHT als Schicht ausgeben.
-- Namen exakt wie im Plan übernehmen, keine Abkürzungen auflösen oder erfinden.
-- Lieber eine unsichere Zeile weglassen als raten.`;
+- NAMEN: In Dienstplänen sind Namen oft abgekürzt, nur als Vorname, nur als Initialen
+  oder mit gekürztem Nachnamen (z.B. "Lüb.-Nyssen", "D. Möders.") geschrieben.
+  * Ermittle für jede Zelle die gemeinte Person aus dem GESAMTEN Dokument
+    (Legende, Kopfzeile, andere Zellen derselben Person) und gib den
+    vollständigen "Vorname Nachname" aus.
+  * Wenn eine Liste BEKANNTE MITARBEITER mitgegeben ist: gleiche jede Person
+    dagegen ab und übernimm exakt die dortige Schreibweise, sobald es dieselbe
+    Person ist — auch bei Abkürzung, Initialen oder nur Vorname.
+  * Nur wenn sich keine Person zuordnen lässt: gib den Namen so aus, wie er
+    im Plan steht, und erwähne die Unsicherheit in "notes".
+- Erfinde keine Namen und keine Zeilen. Lieber eine unsichere Zeile weglassen als raten.`;
+
+function knownEmployeeBlock(employees: NameMatchInput[]): string {
+  if (employees.length === 0) return "";
+  const list = employees
+    .map((e) => e.name.trim())
+    .filter(Boolean)
+    .slice(0, 200)
+    .map((name) => `- ${name}`)
+    .join("\n");
+  if (!list) return "";
+  return `\n\nBEKANNTE MITARBEITER (bevorzugte Schreibweise, gegen diese Liste abgleichen):\n${list}`;
+}
 
 type GeminiNativeResponse = {
   candidates?: Array<{
@@ -67,9 +88,10 @@ export async function extractScheduleFromPdf(params: {
     );
   }
 
-  const promptText = params.fallbackYear
-    ? `${EXTRACT_PROMPT}\n\nWenn im Plan kein Jahr steht, nimm ${params.fallbackYear}.`
-    : EXTRACT_PROMPT;
+  const promptText =
+    EXTRACT_PROMPT +
+    knownEmployeeBlock(params.employees) +
+    (params.fallbackYear ? `\n\nWenn im Plan kein Jahr steht, nimm ${params.fallbackYear}.` : "");
 
   const res = await fetch(
     `${GEMINI_NATIVE_BASE}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,

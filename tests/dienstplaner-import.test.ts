@@ -38,6 +38,25 @@ test("matchEmployeeName resolves exact and reordered names", () => {
   assert.ok(reordered.matchConfidence === "high" || reordered.matchConfidence === "exact");
 });
 
+test("matchEmployeeName resolves abbreviated surnames from a duty plan", () => {
+  const employees = [
+    { id: 10, name: "Dirk Lübbe Nyssen" },
+    { id: 11, name: "Daria Möders Vagtmeier" },
+    { id: 12, name: "Mia Petersen" },
+  ];
+  const dirk = matchEmployeeName("Dirk Lüb. Nyssen", employees);
+  assert.equal(dirk.matchedEmployeeId, 10);
+  assert.ok(dirk.matchConfidence === "high" || dirk.matchConfidence === "exact");
+
+  const daria = matchEmployeeName("D. Möders. Vagtmeier", employees);
+  assert.equal(daria.matchedEmployeeId, 11);
+
+  // Nur Vorname bleibt unsicher (nicht automatisch "high").
+  const mia = matchEmployeeName("Mia", employees);
+  assert.equal(mia.matchedEmployeeId, 12);
+  assert.equal(mia.matchConfidence, "low");
+});
+
 test("matchEmployeeName flags unknown names as none", () => {
   const employees = [{ id: 1, name: "Anna Weber" }];
   const res = matchEmployeeName("Xaver Zwiebel", employees);

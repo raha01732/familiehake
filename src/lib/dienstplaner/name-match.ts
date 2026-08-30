@@ -64,6 +64,30 @@ function similarity(a: string, b: string): number {
   const tb = tokens(b);
   if (ta.length === 0 || tb.length === 0) return 0;
 
+  // Abkürzungs-Match: gleich viele Namensteile und jedes Token des einen Namens
+  // ist Präfix eines eigenen Tokens des anderen ("Dirk Lüb. Nyssen" ↔
+  // "Dirk Lübbe Nyssen", "D. Möders. Vagtmeier" ↔ "Daria Möders Vagtmeier").
+  if (ta.length === tb.length && ta.length >= 2) {
+    const used = new Array<boolean>(tb.length).fill(false);
+    let allPrefix = true;
+    for (const t of ta) {
+      const j = tb.findIndex(
+        (other, k) => !used[k] && (other.startsWith(t) || t.startsWith(other))
+      );
+      if (j === -1) {
+        allPrefix = false;
+        break;
+      }
+      used[j] = true;
+    }
+    if (allPrefix) {
+      const exactTokens = ta.filter((t, i) => t === tb[i]).length;
+      if (exactTokens === ta.length) return 1;
+      // Mindestens ein Namensteil exakt gleich → als Abkürzung behandeln.
+      if (exactTokens >= 1) return 0.85;
+    }
+  }
+
   const setA = new Set(ta);
   const setB = new Set(tb);
   let shared = 0;
