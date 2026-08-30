@@ -18,6 +18,7 @@ import {
   computeHistoryInsights,
   type HistoryShift,
 } from "../src/lib/dienstplaner/history-insights";
+import { looksLikePersonName } from "../src/lib/dienstplaner/schedule-pdf";
 
 test("normalizeName strips case, diacritics and punctuation", () => {
   assert.equal(normalizeName("Müller, Jörg"), "muller jorg");
@@ -137,6 +138,18 @@ test("salvageScheduleJson rescues complete shifts from a truncated response", ()
   assert.equal(salvaged?.period_start, "2026-05-01");
   assert.equal(salvaged?.period_end, "2026-05-31");
   assert.equal((salvaged?.shifts[1] as { name: string }).name, "Mara Kern");
+});
+
+test("looksLikePersonName rejects position labels, summary columns and codes", () => {
+  assert.equal(looksLikePersonName("Erhan Akkoyun"), true);
+  assert.equal(looksLikePersonName("Mia"), true);
+  assert.equal(looksLikePersonName("Projektion"), false);
+  assert.equal(looksLikePersonName("Serviceleitung"), false);
+  assert.equal(looksLikePersonName("Ist"), false);
+  assert.equal(looksLikePersonName("Urlaubstage"), false);
+  assert.equal(looksLikePersonName("F"), false);
+  assert.equal(looksLikePersonName("7,50"), false);
+  assert.equal(looksLikePersonName("-"), false);
 });
 
 test("salvageScheduleJson returns null when nothing is recoverable", () => {

@@ -21,34 +21,48 @@ export function schedulePdfImportEnabled(): boolean {
   return Boolean(env().GEMINI_API_KEY);
 }
 
-const EXTRACT_PROMPT = `Du extrahierst Schichten aus einem exportierten oder gescannten Dienstplan (Kino/Gastronomie).
-Gib ALLE Einträge zurück, bei denen eine Person an einem Datum eine konkrete Schicht hat.
+const EXTRACT_PROMPT = `Du extrahierst Schichten aus einem exportierten Dienstplan (Kino/Gastronomie).
+
+DIESER PLAN IST EINE MATRIX:
+- Die MITARBEITER stehen als SPALTENÜBERSCHRIFTEN oben, darunter jeweils ihre Rolle
+  (Serviceleitung / Projektionsleitung / Projektion).
+- Das DATUM steht als Zeilenkopf ganz links (Format DD.MM.YYYY, daneben der Wochentag).
+- Jeder Tag umfasst MEHRERE Zeilen. In der Spalte eines Mitarbeiters steht bei einer
+  Schicht die Startzeit und direkt darunter die Endzeit (z.B. "16:00" / "24:00").
+
+SO GEHST DU VOR:
+- Arbeite Spalte für Spalte (Mitarbeiter für Mitarbeiter). Lies in der Spalte GENAU
+  dieses Mitarbeiters von oben nach unten je Datumszeile die Start-/Endzeit.
+- Eine Schicht (Mitarbeiter, Datum) gibst du NUR aus, wenn die Zeit eindeutig in der
+  Spalte dieses Mitarbeiters steht. Bist du dir bei der Spaltenzuordnung nicht sicher:
+  weglassen.
+- Pro Mitarbeiter und Datum höchstens EINE Schicht.
+
+WAS NICHT AUSGEGEBEN WIRD:
+- Die Spalte ganz links neben dem Datum ist die BEMERKUNGS-/EREIGNISSPALTE
+  (z.B. "19:00 Uhr MET: ...", "11:00 Uhr MEK: Heidi", "15:00 +17:30 Uhr MILKAU:...").
+  Diese Zeiten gehören zu KEINEM Mitarbeiter — niemals als Schicht ausgeben.
+- Die Spalten ganz rechts (Ist, Soll, Urlaubstage, Krankheitstage) ignorieren.
+- "F", "U", "K", "frei", "Urlaub", "krank", "Geburtstag", "Inventur", "Parkhaus",
+  Feiertage und Dezimalzahlen wie "7,50" oder "8,00" sind KEINE Schichtzeiten.
 
 Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt nach diesem Schema. Kein Markdown, keine Code-Fences, kein Text davor oder danach:
 {
   "period_start": "YYYY-MM-DD oder null",
   "period_end": "YYYY-MM-DD oder null",
   "shifts": [
-    { "date": "YYYY-MM-DD", "name": "vollständiger Name", "position": "Rolle/Bereich oder null", "start": "HH:MM oder null", "end": "HH:MM oder null" }
+    { "date": "YYYY-MM-DD", "name": "Spaltenüberschrift des Mitarbeiters", "position": "Rolle oder null", "start": "HH:MM oder null", "end": "HH:MM oder null" }
   ],
   "notes": "kurzer Hinweis auf Unsicherheiten oder null"
 }
 
 Regeln:
-- Datum immer als ISO YYYY-MM-DD. Wenn nur Tag und Monat sichtbar sind: Jahr aus Kopfzeile/Kontext ableiten.
-- Zeiten im 24h-Format als HH:MM. "9-14" -> start "09:00", end "14:00". Unklar -> null.
-- Nur echte Schichtzuordnungen ausgeben. Urlaub, frei, krank, Feiertag NICHT als Schicht ausgeben.
-- NAMEN: In Dienstplänen sind Namen oft abgekürzt, nur als Vorname, nur als Initialen
-  oder mit gekürztem Nachnamen (z.B. "Lüb.-Nyssen", "D. Möders.") geschrieben.
-  * Ermittle für jede Zelle die gemeinte Person aus dem GESAMTEN Dokument
-    (Legende, Kopfzeile, andere Zellen derselben Person) und gib den
-    vollständigen "Vorname Nachname" aus.
-  * Wenn eine Liste BEKANNTE MITARBEITER mitgegeben ist: gleiche jede Person
-    dagegen ab und übernimm exakt die dortige Schreibweise, sobald es dieselbe
-    Person ist — auch bei Abkürzung, Initialen oder nur Vorname.
-  * Nur wenn sich keine Person zuordnen lässt: gib den Namen so aus, wie er
-    im Plan steht, und erwähne die Unsicherheit in "notes".
-- Erfinde keine Namen und keine Zeilen. Lieber eine unsichere Zeile weglassen als raten.`;
+- Datum immer als ISO YYYY-MM-DD. Jahr aus Kopfzeile/Kontext ableiten.
+- Zeiten im 24h-Format als HH:MM. "9-14" -> start "09:00", end "14:00".
+- "name" MUSS exakt eine der Spaltenüberschriften sein. Ist eine Liste BEKANNTE
+  MITARBEITER mitgegeben: "name" MUSS exakt ein Eintrag daraus sein. Passt ein
+  gelesener Wert zu keiner Spalte/keinem Eintrag, lass die Zeile weg.
+- Erfinde keine Namen, keine Zeiten und keine Zeilen. Lieber weglassen als raten.`;
 
 function knownEmployeeBlock(employees: NameMatchInput[]): string {
   if (employees.length === 0) return "";
@@ -59,7 +73,42 @@ function knownEmployeeBlock(employees: NameMatchInput[]): string {
     .map((name) => `- ${name}`)
     .join("\n");
   if (!list) return "";
-  return `\n\nBEKANNTE MITARBEITER (bevorzugte Schreibweise, gegen diese Liste abgleichen):\n${list}`;
+  return (
+    `\n\nBEKANNTE MITARBEITER (die Spaltenüberschriften des Plans; "name" MUSS exakt einer davon sein):\n` +
+    list
+  );
+}
+
+// Namen, die keine Personen sind, aber in Zellen/Spalten auftauchen und von der
+// KI gelegentlich als "name" ausgegeben werden.
+const NON_PERSON_NAMES = new Set([
+  "ist",
+  "soll",
+  "urlaubstage",
+  "krankheitstage",
+  "frei",
+  "urlaub",
+  "krank",
+  "inventur",
+  "parkhaus",
+  "geburtstag",
+  "bemerkung",
+  "datum",
+  "wotag",
+  "projektion",
+  "serviceleitung",
+  "projektionsleitung",
+  "f",
+  "u",
+  "k",
+]);
+
+export function looksLikePersonName(name: string): boolean {
+  const trimmed = name.trim();
+  if (trimmed.length < 2) return false;
+  if (!/\p{L}/u.test(trimmed)) return false; // keine Buchstaben
+  if (NON_PERSON_NAMES.has(trimmed.toLowerCase())) return false;
+  return true;
 }
 
 type GeminiNativeResponse = {
@@ -109,13 +158,16 @@ export async function extractScheduleFromPdf(params: {
           },
         ],
         generationConfig: {
-          temperature: 0.1,
+          temperature: 0,
           responseMimeType: "application/json",
           // Gemini 2.5 Flash rechnet Thinking-Tokens gegen maxOutputTokens.
           // Für die reine Extraktion ist Thinking unnötig und würde bei vollen
           // Monatsplänen den JSON-Output abschneiden.
           thinkingConfig: { thinkingBudget: 0 },
           maxOutputTokens: 65536,
+          // Höhere Render-Auflösung des PDFs — nötig, damit die KI bei sehr
+          // breiten, eng gedruckten Matrix-Plänen die Spaltenzuordnung trifft.
+          mediaResolution: "MEDIA_RESOLUTION_HIGH",
         },
       }),
       cache: "no-store",
@@ -166,19 +218,57 @@ export async function extractScheduleFromPdf(params: {
 
   const raw = parsed as Record<string, unknown>;
   const shiftsRaw = Array.isArray(raw.shifts) ? raw.shifts : [];
+  // Bei ausreichend bekannten Mitarbeitern werden Namen verworfen, die zu
+  // KEINEM Eintrag passen (erfundene Namen, grobe Lesefehler). Unsichere
+  // Treffer ("low") bleiben erhalten und werden im Review markiert.
+  const restrictToKnown = params.employees.length >= 3;
+
   const rows: ParsedScheduleRow[] = [];
   let idx = 0;
+  let droppedNonPerson = 0;
+  let droppedNoTime = 0;
+  let droppedUnknown = 0;
+  const seen = new Set<string>();
+
   for (const entry of shiftsRaw) {
     if (!entry || typeof entry !== "object") continue;
     const r = entry as Record<string, unknown>;
     const date = normalizeIsoDate(r.date, params.fallbackYear);
     if (!date) continue;
     const rawName = typeof r.name === "string" ? r.name.trim() : "";
-    if (!rawName) continue;
+    if (!rawName || !looksLikePersonName(rawName)) {
+      droppedNonPerson += 1;
+      continue;
+    }
+
+    const startTime = normalizeHm(r.start);
+    const endTime = normalizeHm(r.end);
+    // Aus diesem Plantyp ist ein "Eintrag" ohne jede Uhrzeit fast immer ein
+    // fehlinterpretiertes F/U/K oder eine Notiz.
+    if (!startTime && !endTime) {
+      droppedNoTime += 1;
+      continue;
+    }
+    // Start == Ende ist keine Schicht.
+    if (startTime && endTime && startTime === endTime) {
+      droppedNoTime += 1;
+      continue;
+    }
+
+    const match = matchEmployeeName(rawName, params.employees);
+    if (restrictToKnown && match.matchConfidence === "none") {
+      droppedUnknown += 1;
+      continue;
+    }
+
+    // Pro Mitarbeiter/Tag höchstens eine Schicht (die erste gewinnt).
+    const dedupKey = `${date}|${(match.matchedEmployeeId ?? rawName).toString().toLowerCase()}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+
     const position =
       typeof r.position === "string" && r.position.trim() ? r.position.trim().slice(0, 120) : null;
     idx += 1;
-    const match = matchEmployeeName(rawName, params.employees);
     rows.push({
       rowIndex: idx,
       date,
@@ -187,8 +277,8 @@ export async function extractScheduleFromPdf(params: {
       matchConfidence: match.matchConfidence,
       matchCandidates: match.matchCandidates,
       position,
-      startTime: normalizeHm(r.start),
-      endTime: normalizeHm(r.end),
+      startTime,
+      endTime,
     });
   }
 
@@ -199,10 +289,20 @@ export async function extractScheduleFromPdf(params: {
   if (rows.length === 0) {
     notes.push("Es konnten keine Schichten aus dem PDF gelesen werden.");
   }
+  const droppedTotal = droppedNonPerson + droppedNoTime + droppedUnknown;
+  if (droppedTotal > 0) {
+    notes.push(
+      `${droppedTotal} unplausible Zeile(n) automatisch entfernt ` +
+        `(${droppedUnknown} nicht zuordenbar, ${droppedNoTime} ohne gültige Zeit, ${droppedNonPerson} kein Name).`
+    );
+  }
   const unmatched = rows.filter((r) => !r.matchedEmployeeId).length;
   if (unmatched > 0) {
     notes.push(`${unmatched} von ${rows.length} Namen ohne sichere Zuordnung — bitte im Review prüfen.`);
   }
+  notes.push(
+    "Matrix-Plan: bitte jede Zeile prüfen — bei eng gedruckten Spalten kann eine Zeit der falschen Person zugeordnet werden."
+  );
 
   const periodStart =
     normalizeIsoDate(raw.period_start, params.fallbackYear) ?? rows[0]?.date ?? null;
