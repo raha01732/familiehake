@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { applyRateLimit } from "@/lib/ratelimit";
 import { logAudit, actorFromUser } from "@/lib/audit";
 import { assertDienstplanImportAdmin } from "@/lib/dienstplaner/import-guard";
-import { extractScheduleFromPdf, schedulePdfImportEnabled } from "@/lib/dienstplaner/schedule-pdf";
+import { extractScheduleFromPdf } from "@/lib/dienstplaner/schedule-pdf";
 import { parseAvailabilityWorkbook } from "@/lib/dienstplaner/availability-xlsx";
 import type { ImportKind } from "@/lib/dienstplaner/import-types";
 
@@ -68,12 +68,6 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { ok: false, error: `Datei zu groß (${(file.size / 1024 / 1024).toFixed(1)} MB, max. 12 MB).` },
       { status: 413 }
-    );
-  }
-  if (kind === "schedule_pdf" && !schedulePdfImportEnabled()) {
-    return NextResponse.json(
-      { ok: false, error: "PDF-Auslesen ist nicht verfügbar (GEMINI_API_KEY fehlt)." },
-      { status: 503 }
     );
   }
 

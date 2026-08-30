@@ -19,6 +19,10 @@ import {
   type HistoryShift,
 } from "../src/lib/dienstplaner/history-insights";
 import { looksLikePersonName } from "../src/lib/dienstplaner/schedule-pdf";
+import {
+  parseScheduleTextItems,
+  type PdfTextItem,
+} from "../src/lib/dienstplaner/schedule-pdf-text";
 
 test("normalizeName strips case, diacritics and punctuation", () => {
   assert.equal(normalizeName("Müller, Jörg"), "muller jorg");
@@ -191,6 +195,71 @@ test("computeHistoryInsights aggregates weekday headcount and affinity", () => {
     (a) => a.employeeName === "Anna Weber" && a.position === "Serviceleitung"
   );
   assert.equal(anna?.count, 6);
+});
+
+test("parseScheduleTextItems reconstructs a matrix plan from positioned text", () => {
+  const it = (str: string, x: number, y: number, w = 10, page = 1): PdfTextItem => ({
+    str,
+    x,
+    y,
+    w,
+    page,
+  });
+  const items: PdfTextItem[] = [
+    // Kopfzeile (Mitarbeiter = Spalten)
+    it("Anna Weber", 100, 100, 40),
+    it("Bob Klein", 200, 100, 40),
+    it("Cara Lang", 300, 100, 40),
+    // Rollenzeile
+    it("Serviceleitung", 100, 93, 40),
+    it("Projektion", 200, 93, 40),
+    it("Projektion", 300, 93, 40),
+    // Datumsspalte
+    it("01.06.2026", 10, 80),
+    it("02.06.2026", 10, 67),
+    it("03.06.2026", 10, 54),
+    // 01.06: Anna 09:00-17:00, Bob 16:00-00:00
+    it("09:00", 100, 82),
+    it("17:00", 100, 79),
+    it("16:00", 200, 82),
+    it("00:00", 200, 79),
+    // 02.06: Cara 12:00-20:00
+    it("12:00", 300, 69),
+    it("20:00", 300, 66),
+    // 03.06: Anna 10:00-18:00
+    it("10:00", 100, 56),
+    it("18:00", 100, 53),
+  ];
+  const employees = [
+    { id: 1, name: "Anna Weber" },
+    { id: 2, name: "Bob Klein" },
+    { id: 3, name: "Cara Lang" },
+  ];
+
+  const res = parseScheduleTextItems(items, employees, 2026);
+  assert.ok(res, "should return a result");
+  assert.equal(res?.rows.length, 4);
+  assert.equal(res?.periodStart, "2026-06-01");
+  assert.equal(res?.periodEnd, "2026-06-03");
+
+  const first = res!.rows.find((r) => r.date === "2026-06-01" && r.rawName === "Anna Weber");
+  assert.equal(first?.startTime, "09:00");
+  assert.equal(first?.endTime, "17:00");
+  assert.equal(first?.matchedEmployeeId, 1);
+  assert.equal(first?.position, "Serviceleitung");
+
+  const bob = res!.rows.find((r) => r.date === "2026-06-01" && r.rawName === "Bob Klein");
+  assert.equal(bob?.endTime, "00:00");
+
+  // Cara hat am 01.06. keine Zeit -> keine Schicht (kein Phantom-Eintrag)
+  assert.equal(
+    res!.rows.some((r) => r.date === "2026-06-01" && r.rawName === "Cara Lang"),
+    false
+  );
+});
+
+test("parseScheduleTextItems returns null without a usable matrix", () => {
+  assert.equal(parseScheduleTextItems([], [{ id: 1, name: "A B" }], 2026), null);
 });
 
 test("buildHistoryPromptBlock stays empty below the data threshold", () => {

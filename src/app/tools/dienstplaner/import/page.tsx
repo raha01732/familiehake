@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getSessionInfo } from "@/lib/auth";
 import { getToolGate } from "@/lib/workspace-locks";
 import ToolMaintenanceNotice from "@/components/ToolMaintenanceNotice";
-import { schedulePdfImportEnabled } from "@/lib/dienstplaner/schedule-pdf";
+import { schedulePdfAiFallbackEnabled } from "@/lib/dienstplaner/schedule-pdf";
 import {
   computeHistoryInsights,
   type HistoryInsights,
@@ -79,7 +79,7 @@ export default async function DienstplanerImportPage() {
         employees={employees}
         recentImports={recentImports}
         insights={insights}
-        pdfEnabled={schedulePdfImportEnabled()}
+        aiFallbackEnabled={schedulePdfAiFallbackEnabled()}
         confirmScheduleImportAction={confirmScheduleImportAction}
         confirmAvailabilityImportAction={confirmAvailabilityImportAction}
         discardImportAction={discardImportAction}

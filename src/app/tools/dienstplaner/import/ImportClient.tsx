@@ -16,7 +16,7 @@ type Props = {
   employees: EmployeeOption[];
   recentImports: ImportRecord[];
   insights: HistoryInsights;
-  pdfEnabled: boolean;
+  aiFallbackEnabled: boolean;
   confirmScheduleImportAction: (fd: FormData) => Promise<{ written: number }>;
   confirmAvailabilityImportAction: (
     fd: FormData
@@ -94,12 +94,12 @@ type ScheduleNameMeta = {
 
 function SchedulePanel({
   employees,
-  pdfEnabled,
+  aiFallbackEnabled,
   confirmAction,
   onDone,
 }: {
   employees: EmployeeOption[];
-  pdfEnabled: boolean;
+  aiFallbackEnabled: boolean;
   confirmAction: Props["confirmScheduleImportAction"];
   onDone: () => void;
 }) {
@@ -234,13 +234,15 @@ function SchedulePanel({
     <div className="flex flex-col gap-4">
       <div className={card}>
         <p className="text-sm text-[hsl(var(--muted-foreground))]">
-          Lade einen bereits erstellten Dienstplan als PDF hoch. Die erkannten Schichten
-          landen als <strong>Analysebasis</strong> (nicht im aktuellen Monatsplan) und
-          verbessern die KI-Vorschläge sowie die Bedarfsanalyse.
+          Lade einen bereits erstellten Dienstplan als PDF hoch. Pläne mit Textebene
+          (Excel-/Software-Export) werden direkt aus den Zellen rekonstruiert. Die
+          erkannten Schichten landen als <strong>Analysebasis</strong> (nicht im
+          aktuellen Monatsplan) und verbessern KI-Vorschläge und Bedarfsanalyse.
         </p>
-        {!pdfEnabled && (
-          <p className="mt-2 rounded-md bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
-            PDF-Auslesen ist nicht konfiguriert (GEMINI_API_KEY fehlt).
+        {!aiFallbackEnabled && (
+          <p className="mt-2 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+            Hinweis: rein gescannte PDFs ohne Textebene brauchen zusätzlich einen
+            GEMINI_API_KEY (hier nicht gesetzt).
           </p>
         )}
         <div className="mt-3 flex flex-wrap items-end gap-3">
@@ -266,7 +268,7 @@ function SchedulePanel({
             type="button"
             className={primaryBtn}
             onClick={handleParse}
-            disabled={busy || !pdfEnabled}
+            disabled={busy}
           >
             {busy ? "Wird ausgelesen…" : "PDF auslesen"}
           </button>
@@ -1060,7 +1062,7 @@ export default function ImportClient({
   employees,
   recentImports,
   insights,
-  pdfEnabled,
+  aiFallbackEnabled,
   confirmScheduleImportAction,
   confirmAvailabilityImportAction,
   discardImportAction,
@@ -1116,7 +1118,7 @@ export default function ImportClient({
       {tab === "pdf" && (
         <SchedulePanel
           employees={employees}
-          pdfEnabled={pdfEnabled}
+          aiFallbackEnabled={aiFallbackEnabled}
           confirmAction={confirmScheduleImportAction}
           onDone={refresh}
         />

@@ -11,13 +11,17 @@ import {
   parseLooseJson,
   salvageScheduleJson,
 } from "./schedule-parse";
+import { extractScheduleFromPdfText } from "./schedule-pdf-text";
 import type { ParsedScheduleResult, ParsedScheduleRow } from "./import-types";
 
 const GEMINI_NATIVE_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const MAX_PDF_MB = 18;
 
-export function schedulePdfImportEnabled(): boolean {
+// PDF-Import ist immer verfügbar: der Textebenen-Parser braucht keinen API-Key.
+// Ein GEMINI_API_KEY wird nur für den Fallback bei gescannten PDFs (ohne
+// Textebene) gebraucht.
+export function schedulePdfAiFallbackEnabled(): boolean {
   return Boolean(env().GEMINI_API_KEY);
 }
 
@@ -120,8 +124,41 @@ type GeminiNativeResponse = {
   error?: { message?: string; status?: string };
 };
 
+/**
+ * Liest Schichten aus einem PDF-Altdienstplan. Primär deterministisch über die
+ * PDF-Textebene (exakte Spalten-/Zeilenrekonstruktion). Nur wenn das PDF keine
+ * brauchbare Textebene hat (z.B. reiner Scan), Fallback auf die multimodale KI.
+ */
 export async function extractScheduleFromPdf(params: {
   pdf: ArrayBuffer | Buffer;
+  employees: NameMatchInput[];
+  fallbackYear?: number;
+}): Promise<ParsedScheduleResult> {
+  const bytes = Buffer.isBuffer(params.pdf) ? params.pdf : Buffer.from(params.pdf);
+  const fallbackYear = params.fallbackYear ?? new Date().getFullYear();
+
+  try {
+    const textResult = await extractScheduleFromPdfText({
+      pdf: bytes,
+      employees: params.employees,
+      fallbackYear,
+    });
+    if (textResult && textResult.rows.length > 0) return textResult;
+  } catch {
+    // Textebene nicht lesbar → KI-Fallback versuchen.
+  }
+
+  if (!env().GEMINI_API_KEY) {
+    throw new Error(
+      "Das PDF hat keine auswertbare Textebene (vermutlich ein Scan). Für gescannte PDFs " +
+        "wird ein GEMINI_API_KEY benötigt, der hier nicht konfiguriert ist."
+    );
+  }
+  return extractScheduleViaGemini({ pdf: bytes, employees: params.employees, fallbackYear });
+}
+
+async function extractScheduleViaGemini(params: {
+  pdf: Buffer;
   employees: NameMatchInput[];
   fallbackYear?: number;
 }): Promise<ParsedScheduleResult> {
@@ -129,7 +166,7 @@ export async function extractScheduleFromPdf(params: {
   if (!key) throw new Error("GEMINI_API_KEY ist nicht konfiguriert");
   const model = env().GEMINI_MODEL || DEFAULT_MODEL;
 
-  const bytes = Buffer.isBuffer(params.pdf) ? params.pdf : Buffer.from(params.pdf);
+  const bytes = params.pdf;
   const sizeMb = bytes.byteLength / (1024 * 1024);
   if (sizeMb > MAX_PDF_MB) {
     throw new Error(
