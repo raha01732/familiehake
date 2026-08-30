@@ -10,6 +10,7 @@ export type HistoryShift = {
   position: string | null;
   start_time: string | null; // HH:MM(:SS)
   end_time: string | null;
+  source_note?: string | null;
 };
 
 const WEEKDAY_LABELS = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
@@ -43,6 +44,8 @@ export type EmployeePositionAffinity = {
   count: number;
 };
 
+export type NoteSample = { note: string; count: number };
+
 export type HistoryInsights = {
   totalShifts: number;
   distinctDays: number;
@@ -51,6 +54,9 @@ export type HistoryInsights = {
   weekdayPosition: WeekdayPositionStat[];
   commonTimes: ShiftTimeStat[];
   employeeAffinity: EmployeePositionAffinity[];
+  /** Häufigste Schicht-Notizen (Kontext / Verfügbarkeitshinweise). */
+  commonNotes: NoteSample[];
+  notedShifts: number;
 };
 
 function hm(value: string | null): string | null {
@@ -209,6 +215,21 @@ export function computeHistoryInsights(shifts: HistoryShift[]): HistoryInsights 
     .sort((a, b) => b.count - a.count || a.employeeName.localeCompare(b.employeeName, "de"))
     .slice(0, 30);
 
+  // ── Häufigste Schicht-Notizen ─────────────────────────────────────────
+  const noteCounts = new Map<string, number>();
+  let notedShifts = 0;
+  for (const s of clean) {
+    const note = (s.source_note ?? "").trim();
+    if (!note) continue;
+    notedShifts += 1;
+    const key = note.length > 80 ? note.slice(0, 80) : note;
+    noteCounts.set(key, (noteCounts.get(key) ?? 0) + 1);
+  }
+  const commonNotes: NoteSample[] = [...noteCounts.entries()]
+    .map(([note, count]) => ({ note, count }))
+    .sort((a, b) => b.count - a.count || a.note.localeCompare(b.note, "de"))
+    .slice(0, 20);
+
   return {
     totalShifts: clean.length,
     distinctDays,
@@ -217,6 +238,8 @@ export function computeHistoryInsights(shifts: HistoryShift[]): HistoryInsights 
     weekdayPosition,
     commonTimes,
     employeeAffinity,
+    commonNotes,
+    notedShifts,
   };
 }
 
@@ -263,6 +286,15 @@ export function buildHistoryPromptBlock(insights: HistoryInsights): string {
       .slice(0, 12)
       .map((a) => `${a.employeeName}→${a.position} (${a.count}×)`);
     lines.push(`- Positions-Affinität: ${parts.join(", ")}`);
+  }
+
+  if (insights.commonNotes.length > 0) {
+    const parts = insights.commonNotes
+      .slice(0, 8)
+      .map((n) => `"${n.note}"${n.count > 1 ? ` (${n.count}×)` : ""}`);
+    lines.push(
+      `- Wiederkehrende Schicht-Notizen (Kontext/Verfügbarkeit): ${parts.join(", ")}`
+    );
   }
 
   return lines.join("\n");

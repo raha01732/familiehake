@@ -55,7 +55,7 @@ Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt nach diesem Schema. Kein
   "period_start": "YYYY-MM-DD oder null",
   "period_end": "YYYY-MM-DD oder null",
   "shifts": [
-    { "date": "YYYY-MM-DD", "name": "Spaltenüberschrift des Mitarbeiters", "position": "Rolle oder null", "start": "HH:MM oder null", "end": "HH:MM oder null" }
+    { "date": "YYYY-MM-DD", "name": "Spaltenüberschrift des Mitarbeiters", "position": "Rolle oder null", "start": "HH:MM oder null", "end": "HH:MM oder null", "note": "Freitext aus der Zelle (z.B. 'erst ab 16 Uhr', 'Uni bis 18') oder null" }
   ],
   "notes": "kurzer Hinweis auf Unsicherheiten oder null"
 }
@@ -305,6 +305,12 @@ async function extractScheduleViaGemini(params: {
 
     const position =
       typeof r.position === "string" && r.position.trim() ? r.position.trim().slice(0, 120) : null;
+    const comment =
+      typeof r.note === "string" && r.note.trim()
+        ? r.note.trim().slice(0, 240)
+        : typeof r.comment === "string" && r.comment.trim()
+          ? r.comment.trim().slice(0, 240)
+          : null;
     idx += 1;
     rows.push({
       rowIndex: idx,
@@ -316,6 +322,7 @@ async function extractScheduleViaGemini(params: {
       position,
       startTime,
       endTime,
+      comment,
     });
   }
 

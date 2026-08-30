@@ -2080,7 +2080,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     sb.from("dienstplan_employment_hour_defaults").select("employment_type, vacation_hours_per_day"),
     sb
       .from("dienstplan_history_shifts")
-      .select("shift_date, employee_name, employee_id, position, start_time, end_time")
+      .select("shift_date, employee_name, employee_id, position, start_time, end_time, source_note")
       .order("shift_date", { ascending: false })
       .limit(4000),
   ]);

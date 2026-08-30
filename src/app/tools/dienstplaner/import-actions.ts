@@ -168,6 +168,7 @@ type ConfirmScheduleRow = {
   position: string | null;
   startTime: string | null;
   endTime: string | null;
+  comment: string | null;
   include: boolean;
 };
 
@@ -201,6 +202,7 @@ export async function confirmScheduleImportAction(formData: FormData) {
     position: string | null;
     start_time: string | null;
     end_time: string | null;
+    source_note: string | null;
   };
   const seen = new Set<string>();
   const inserts: HistoryInsert[] = [];
@@ -218,6 +220,10 @@ export async function confirmScheduleImportAction(formData: FormData) {
       typeof row.position === "string" && row.position.trim()
         ? row.position.trim().slice(0, 120)
         : null;
+    const sourceNote =
+      typeof row.comment === "string" && row.comment.trim()
+        ? row.comment.trim().slice(0, 400)
+        : null;
     const dedupKey = `${row.date}|${employeeName.toLowerCase()}|${startTime ?? ""}|${endTime ?? ""}`;
     if (seen.has(dedupKey)) continue;
     seen.add(dedupKey);
@@ -229,6 +235,7 @@ export async function confirmScheduleImportAction(formData: FormData) {
       position,
       start_time: startTime,
       end_time: endTime,
+      source_note: sourceNote,
     });
   }
 
@@ -287,7 +294,7 @@ export async function applyHistoryWeekdayHeadcountAction() {
   const sb = createAdminClient();
   const { data } = await sb
     .from("dienstplan_history_shifts")
-    .select("shift_date, employee_name, employee_id, position, start_time, end_time")
+    .select("shift_date, employee_name, employee_id, position, start_time, end_time, source_note")
     .order("shift_date", { ascending: false })
     .limit(6000);
 
@@ -315,4 +322,116 @@ export async function applyHistoryWeekdayHeadcountAction() {
   revalidatePath("/tools/dienstplaner/einstellungen");
   revalidatePath(IMPORT_PATH);
   return { updated: upserts.map((u) => ({ weekday: u.weekday, requiredShifts: u.required_shifts })) };
+}
+
+// ── Trainingsdaten nachträglich bearbeiten ───────────────────────────────
+// Bestätigte historische Schichten (dienstplan_history_shifts) bleiben jederzeit
+// korrigierbar, falls später ein Lesefehler auffällt.
+
+export async function updateHistoryShiftAction(formData: FormData) {
+  const user = await assertDienstplanImportAdmin();
+
+  const id = Number(formData.get("id"));
+  if (!Number.isFinite(id) || id <= 0) throw new Error("INVALID_ID");
+
+  const updates: Record<string, unknown> = {};
+
+  if (formData.has("employee_id")) {
+    const raw = String(formData.get("employee_id") || "").trim();
+    updates.employee_id = raw ? Number(raw) : null;
+    if (raw && !Number.isFinite(updates.employee_id)) throw new Error("INVALID_EMPLOYEE_ID");
+  }
+  if (formData.has("employee_name")) {
+    const name = String(formData.get("employee_name") || "").trim().slice(0, 160);
+    if (!name) throw new Error("EMPLOYEE_NAME_REQUIRED");
+    updates.employee_name = name;
+  }
+  if (formData.has("shift_date")) {
+    const d = String(formData.get("shift_date") || "").trim();
+    if (!isIsoDate(d)) throw new Error("INVALID_DATE");
+    updates.shift_date = d;
+  }
+  if (formData.has("start_time")) {
+    const raw = String(formData.get("start_time") || "").trim();
+    updates.start_time = raw ? normTime(raw) : null;
+    if (raw && !updates.start_time) throw new Error("INVALID_START_TIME");
+  }
+  if (formData.has("end_time")) {
+    const raw = String(formData.get("end_time") || "").trim();
+    updates.end_time = raw ? normTime(raw) : null;
+    if (raw && !updates.end_time) throw new Error("INVALID_END_TIME");
+  }
+  if (formData.has("position")) {
+    const p = String(formData.get("position") || "").trim().slice(0, 120);
+    updates.position = p || null;
+  }
+  if (formData.has("source_note")) {
+    const n = String(formData.get("source_note") || "").trim().slice(0, 400);
+    updates.source_note = n || null;
+  }
+
+  if (Object.keys(updates).length === 0) return { updated: 0 };
+
+  const sb = createAdminClient();
+  const { error } = await sb.from("dienstplan_history_shifts").update(updates).eq("id", id);
+  if (error) throw new Error(`DB-Fehler: ${error.message}`);
+
+  await logAudit({
+    action: "dienstplan_history_edit",
+    ...actorFromUser(user),
+    target: `history:${id}`,
+    detail: { fields: Object.keys(updates) },
+  });
+
+  revalidatePath(IMPORT_PATH);
+  revalidatePath(PLAN_PATH);
+  return { updated: 1 };
+}
+
+export async function deleteHistoryShiftAction(formData: FormData) {
+  const user = await assertDienstplanImportAdmin();
+  const id = Number(formData.get("id"));
+  if (!Number.isFinite(id) || id <= 0) throw new Error("INVALID_ID");
+
+  const sb = createAdminClient();
+  const { error } = await sb.from("dienstplan_history_shifts").delete().eq("id", id);
+  if (error) throw new Error(`DB-Fehler: ${error.message}`);
+
+  await logAudit({
+    action: "dienstplan_history_delete",
+    ...actorFromUser(user),
+    target: `history:${id}`,
+  });
+
+  revalidatePath(IMPORT_PATH);
+  revalidatePath(PLAN_PATH);
+  return { deleted: 1 };
+}
+
+/** Löscht alle historischen Schichten eines Imports und markiert ihn als verworfen. */
+export async function deleteImportHistoryAction(formData: FormData) {
+  const user = await assertDienstplanImportAdmin();
+  const importId = Number(formData.get("import_id"));
+  if (!Number.isFinite(importId) || importId <= 0) throw new Error("INVALID_IMPORT_ID");
+
+  const sb = createAdminClient();
+  const { data: removed, error } = await sb
+    .from("dienstplan_history_shifts")
+    .delete()
+    .eq("import_id", importId)
+    .select("id");
+  if (error) throw new Error(`DB-Fehler: ${error.message}`);
+
+  await sb.from("dienstplan_imports").update({ status: "discarded" }).eq("id", importId);
+
+  await logAudit({
+    action: "dienstplan_history_delete",
+    ...actorFromUser(user),
+    target: `import:${importId}`,
+    detail: { deleted: removed?.length ?? 0 },
+  });
+
+  revalidatePath(IMPORT_PATH);
+  revalidatePath(PLAN_PATH);
+  return { deleted: removed?.length ?? 0 };
 }

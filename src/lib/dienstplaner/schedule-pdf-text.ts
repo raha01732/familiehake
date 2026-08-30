@@ -12,6 +12,18 @@ export type PdfTextItem = { str: string; x: number; y: number; w: number; page: 
 const TIME_RE = /^(\d{1,2}):(\d{2})$/;
 const DATE_RE = /^(\d{2})\.(\d{2})\.(\d{4})$/;
 const ROLE_RE = /(leitung|projektion|service)/i;
+const DECIMAL_RE = /^\d{1,3}([,.]\d{1,2})?$/; // Stundenwerte wie "7,50", "8,00", "128"
+const ROLE_WORD_RE = /^(serviceleitung|projektionsleitung|projektion|service)$/i;
+
+/** Ist das Fragment eine echte Zellnotiz (kein Zeit-/Zahlen-/Rollen-Token)? */
+function isCommentFragment(s: string): boolean {
+  const t = s.trim();
+  if (t.length < 2) return false; // F/U/K, Satzzeichen
+  if (TIME_RE.test(t)) return false;
+  if (DECIMAL_RE.test(t)) return false;
+  if (ROLE_WORD_RE.test(t)) return false;
+  return true;
+}
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -222,13 +234,13 @@ function parsePage(
     };
   });
 
-  // ── Zeit-Items einsammeln pro (Datum, Mitarbeiter) ─────────────────────
-  const timeItems = items.filter((it) => TIME_RE.test(it.str) && it.x > 90);
+  // ── Zellen einsammeln pro (Datum, Mitarbeiter): Zeiten + Freitext-Notiz ─
+  const bodyItems = items.filter((it) => it.x > 90 && it.y < firstDateY + 10);
   const rows: ParsedScheduleRow[] = [];
   let idx = 0;
   for (const band of bands) {
     for (const dc of dataCenters) {
-      const inCell = timeItems
+      const inCell = bodyItems
         .filter(
           (it) => it.y <= band.yTop && it.y > band.yBot && Math.abs(it.x - dc.cx) < halfCol
         )
@@ -236,12 +248,20 @@ function parsePage(
       if (inCell.length === 0) continue;
 
       const times: string[] = [];
+      const noteParts: string[] = [];
       for (const it of inCell) {
         const t = normTime(it.str);
-        if (t && !times.includes(t)) times.push(t);
-        if (times.length >= 2) break;
+        if (t) {
+          if (times.length < 2 && !times.includes(t)) times.push(t);
+        } else if (isCommentFragment(it.str)) {
+          const frag = it.str.trim();
+          if (!noteParts.includes(frag)) noteParts.push(frag);
+        }
       }
       if (times.length === 0) continue;
+
+      let comment = noteParts.join(" ").replace(/\s+/g, " ").trim();
+      if (comment.length > 240) comment = comment.slice(0, 240).trim();
 
       idx += 1;
       const match = matchEmployeeName(dc.name, employees);
@@ -255,6 +275,7 @@ function parsePage(
         position: roleByEmp.get(dc.empId) ?? null,
         startTime: times[0] ?? null,
         endTime: times[1] ?? null,
+        comment: comment || null,
       });
     }
   }

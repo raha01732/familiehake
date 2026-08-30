@@ -172,7 +172,15 @@ function sampleHistory(): HistoryShift[] {
     rows.push({ shift_date: d, employee_name: "Jörg Müller", employee_id: 2, position: "Projektion", start_time: "18:00", end_time: "23:00" });
   }
   for (const d of mondays) {
-    rows.push({ shift_date: d, employee_name: "Anna Weber", employee_id: 1, position: "Serviceleitung", start_time: "12:00", end_time: "18:00" });
+    rows.push({
+      shift_date: d,
+      employee_name: "Anna Weber",
+      employee_id: 1,
+      position: "Serviceleitung",
+      start_time: "12:00",
+      end_time: "18:00",
+      source_note: "Uni bis 18",
+    });
   }
   return rows;
 }
@@ -195,6 +203,10 @@ test("computeHistoryInsights aggregates weekday headcount and affinity", () => {
     (a) => a.employeeName === "Anna Weber" && a.position === "Serviceleitung"
   );
   assert.equal(anna?.count, 6);
+
+  assert.equal(insights.notedShifts, 3);
+  assert.equal(insights.commonNotes[0]?.note, "Uni bis 18");
+  assert.equal(insights.commonNotes[0]?.count, 3);
 });
 
 test("parseScheduleTextItems reconstructs a matrix plan from positioned text", () => {
@@ -218,9 +230,11 @@ test("parseScheduleTextItems reconstructs a matrix plan from positioned text", (
     it("01.06.2026", 10, 80),
     it("02.06.2026", 10, 67),
     it("03.06.2026", 10, 54),
-    // 01.06: Anna 09:00-17:00, Bob 16:00-00:00
+    // 01.06: Anna 09:00-17:00 (+ Notiz), Bob 16:00-00:00
     it("09:00", 100, 82),
     it("17:00", 100, 79),
+    it("Uni bis 18", 100, 76, 22),
+    it("7,50", 118, 79), // Stundenwert -> keine Notiz
     it("16:00", 200, 82),
     it("00:00", 200, 79),
     // 02.06: Cara 12:00-20:00
@@ -247,9 +261,11 @@ test("parseScheduleTextItems reconstructs a matrix plan from positioned text", (
   assert.equal(first?.endTime, "17:00");
   assert.equal(first?.matchedEmployeeId, 1);
   assert.equal(first?.position, "Serviceleitung");
+  assert.equal(first?.comment, "Uni bis 18"); // Zellnotiz erkannt, Stundenwert "7,50" nicht
 
   const bob = res!.rows.find((r) => r.date === "2026-06-01" && r.rawName === "Bob Klein");
   assert.equal(bob?.endTime, "00:00");
+  assert.equal(bob?.comment, null);
 
   // Cara hat am 01.06. keine Zeit -> keine Schicht (kein Phantom-Eintrag)
   assert.equal(

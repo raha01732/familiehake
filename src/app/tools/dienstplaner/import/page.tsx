@@ -12,12 +12,15 @@ import {
   type HistoryShift,
 } from "@/lib/dienstplaner/history-insights";
 import type { ImportRecord } from "@/lib/dienstplaner/import-types";
-import ImportClient from "./ImportClient";
+import ImportClient, { type HistoryRow } from "./ImportClient";
 import {
   confirmScheduleImportAction,
   confirmAvailabilityImportAction,
   discardImportAction,
   applyHistoryWeekdayHeadcountAction,
+  updateHistoryShiftAction,
+  deleteHistoryShiftAction,
+  deleteImportHistoryAction,
 } from "../import-actions";
 
 export const metadata = { title: "Dienstplaner – Import" };
@@ -51,15 +54,24 @@ export default async function DienstplanerImportPage() {
       .limit(20),
     sb
       .from("dienstplan_history_shifts")
-      .select("shift_date, employee_name, employee_id, position, start_time, end_time")
+      .select(
+        "id, import_id, shift_date, employee_name, employee_id, position, start_time, end_time, source_note"
+      )
       .order("shift_date", { ascending: false })
       .limit(6000),
   ]);
 
   const employees = (employeesResult.data ?? []) as { id: number; name: string }[];
   const recentImports = (importsResult.data ?? []) as ImportRecord[];
-  const historyRows = (historyResult.data ?? []) as HistoryShift[];
-  const insights: HistoryInsights = computeHistoryInsights(historyRows);
+  const historyFull = (historyResult.data ?? []) as HistoryRow[];
+  const insights: HistoryInsights = computeHistoryInsights(historyFull as HistoryShift[]);
+  // Für die editierbare Tabelle die jüngsten ~2000 Zeilen an den Client geben.
+  const historyRows = historyFull.slice(0, 2000).map((r) => ({
+    ...r,
+    start_time: r.start_time ? String(r.start_time).slice(0, 5) : null,
+    end_time: r.end_time ? String(r.end_time).slice(0, 5) : null,
+  }));
+  const historyTruncated = historyFull.length > historyRows.length;
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col gap-6 animate-fade-up">
@@ -79,11 +91,16 @@ export default async function DienstplanerImportPage() {
         employees={employees}
         recentImports={recentImports}
         insights={insights}
+        historyRows={historyRows}
+        historyTruncated={historyTruncated}
         aiFallbackEnabled={schedulePdfAiFallbackEnabled()}
         confirmScheduleImportAction={confirmScheduleImportAction}
         confirmAvailabilityImportAction={confirmAvailabilityImportAction}
         discardImportAction={discardImportAction}
         applyHistoryWeekdayHeadcountAction={applyHistoryWeekdayHeadcountAction}
+        updateHistoryShiftAction={updateHistoryShiftAction}
+        deleteHistoryShiftAction={deleteHistoryShiftAction}
+        deleteImportHistoryAction={deleteImportHistoryAction}
       />
     </div>
   );

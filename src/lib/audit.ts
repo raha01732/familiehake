@@ -102,6 +102,8 @@ export const AUDIT_ACTIONS = [
   "dienstplan_import_parse",
   "dienstplan_import_confirm",
   "dienstplan_import_discard",
+  "dienstplan_history_edit",
+  "dienstplan_history_delete",
 
   // Auslassplanung (Kino-Reinigung)
   "auslass_hall_create",

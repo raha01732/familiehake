@@ -12,10 +12,24 @@ import type { HistoryInsights } from "@/lib/dienstplaner/history-insights";
 
 type EmployeeOption = { id: number; name: string };
 
+export type HistoryRow = {
+  id: number;
+  import_id: number | null;
+  shift_date: string;
+  employee_name: string;
+  employee_id: number | null;
+  position: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  source_note: string | null;
+};
+
 type Props = {
   employees: EmployeeOption[];
   recentImports: ImportRecord[];
   insights: HistoryInsights;
+  historyRows: HistoryRow[];
+  historyTruncated: boolean;
   aiFallbackEnabled: boolean;
   confirmScheduleImportAction: (fd: FormData) => Promise<{ written: number }>;
   confirmAvailabilityImportAction: (
@@ -25,9 +39,12 @@ type Props = {
   applyHistoryWeekdayHeadcountAction: () => Promise<{
     updated: { weekday: number; requiredShifts: number }[];
   }>;
+  updateHistoryShiftAction: (fd: FormData) => Promise<{ updated: number }>;
+  deleteHistoryShiftAction: (fd: FormData) => Promise<{ deleted: number }>;
+  deleteImportHistoryAction: (fd: FormData) => Promise<{ deleted: number }>;
 };
 
-type Tab = "pdf" | "xlsx" | "analysis";
+type Tab = "pdf" | "xlsx" | "analysis" | "history";
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "— (leer / verfügbar)" },
@@ -82,6 +99,7 @@ type ScheduleDraft = {
   position: string;
   startTime: string;
   endTime: string;
+  comment: string;
   include: boolean;
 };
 
@@ -147,6 +165,7 @@ function SchedulePanel({
           position: r.position ?? "",
           startTime: r.startTime ?? "",
           endTime: r.endTime ?? "",
+          comment: r.comment ?? "",
           include: true,
         }))
       );
@@ -204,6 +223,7 @@ function SchedulePanel({
       position: d.position.trim() || null,
       startTime: d.startTime.trim() || null,
       endTime: d.endTime.trim() || null,
+      comment: d.comment.trim() || null,
       include: d.include,
     }));
     const fd = new FormData();
@@ -381,6 +401,7 @@ function SchedulePanel({
                   <th className="p-2">Position</th>
                   <th className="p-2">Von</th>
                   <th className="p-2">Bis</th>
+                  <th className="p-2">Notiz</th>
                 </tr>
               </thead>
               <tbody>
@@ -434,6 +455,14 @@ function SchedulePanel({
                           placeholder="HH:MM"
                           onChange={(e) => updateDraft(idx, { endTime: e.target.value })}
                           className={`${inputCls} w-20`}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          value={d.comment}
+                          placeholder="—"
+                          onChange={(e) => updateDraft(idx, { comment: e.target.value })}
+                          className={`${inputCls} w-48`}
                         />
                       </td>
                     </tr>
@@ -1013,6 +1042,346 @@ function AnalysisPanel({
           </div>
         )}
       </div>
+
+      {insights.commonNotes.length > 0 && (
+        <div className={card}>
+          <h3 className="mb-1 text-sm font-semibold">
+            Wiederkehrende Schicht-Notizen
+          </h3>
+          <p className="mb-2 text-xs text-[hsl(var(--muted-foreground))]">
+            {insights.notedShifts} Schichten mit Notiz. Diese Hinweise (Verfügbarkeit,
+            Kontext) fließen in den KI-Autofüller ein.
+          </p>
+          <ul className="grid gap-1 text-sm sm:grid-cols-2">
+            {insights.commonNotes.map((n, i) => (
+              <li key={i} className="flex justify-between gap-2">
+                <span className="truncate" title={n.note}>
+                  {n.note}
+                </span>
+                {n.count > 1 && (
+                  <span className="shrink-0 text-[hsl(var(--muted-foreground))]">
+                    {n.count}×
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Trainingsdaten (bestätigte Historie nachträglich bearbeiten) ──────────
+
+type HistoryDraft = {
+  employeeId: number | null;
+  date: string;
+  start: string;
+  end: string;
+  position: string;
+  note: string;
+  dirty: boolean;
+};
+
+function HistoryPanel({
+  employees,
+  historyRows,
+  historyTruncated,
+  updateAction,
+  deleteAction,
+  deleteImportAction,
+  onChanged,
+}: {
+  employees: EmployeeOption[];
+  historyRows: HistoryRow[];
+  historyTruncated: boolean;
+  updateAction: Props["updateHistoryShiftAction"];
+  deleteAction: Props["deleteHistoryShiftAction"];
+  deleteImportAction: Props["deleteImportHistoryAction"];
+  onChanged: () => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+  const [monthFilter, setMonthFilter] = useState<string>("");
+  const [drafts, setDrafts] = useState<Record<number, HistoryDraft>>({});
+
+  const months = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of historyRows) set.add(r.shift_date.slice(0, 7));
+    return [...set].sort().reverse();
+  }, [historyRows]);
+
+  const imports = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const r of historyRows) {
+      if (r.import_id == null) continue;
+      m.set(r.import_id, (m.get(r.import_id) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[0] - a[0]);
+  }, [historyRows]);
+
+  const visible = useMemo(() => {
+    const rows = monthFilter
+      ? historyRows.filter((r) => r.shift_date.startsWith(monthFilter))
+      : historyRows;
+    return [...rows].sort(
+      (a, b) =>
+        a.shift_date.localeCompare(b.shift_date) ||
+        a.employee_name.localeCompare(b.employee_name, "de")
+    );
+  }, [historyRows, monthFilter]);
+
+  function draftFor(r: HistoryRow): HistoryDraft {
+    return (
+      drafts[r.id] ?? {
+        employeeId: r.employee_id,
+        date: r.shift_date,
+        start: r.start_time ?? "",
+        end: r.end_time ?? "",
+        position: r.position ?? "",
+        note: r.source_note ?? "",
+        dirty: false,
+      }
+    );
+  }
+  function patch(r: HistoryRow, p: Partial<HistoryDraft>) {
+    setDrafts((prev) => ({
+      ...prev,
+      [r.id]: { ...draftFor(r), ...p, dirty: true },
+    }));
+  }
+
+  function save(r: HistoryRow) {
+    const d = drafts[r.id];
+    if (!d) return;
+    const fd = new FormData();
+    fd.set("id", String(r.id));
+    fd.set("employee_id", d.employeeId ? String(d.employeeId) : "");
+    fd.set("shift_date", d.date);
+    fd.set("start_time", d.start.trim());
+    fd.set("end_time", d.end.trim());
+    fd.set("position", d.position.trim());
+    fd.set("source_note", d.note.trim());
+    if (d.employeeId) {
+      const emp = employees.find((e) => e.id === d.employeeId);
+      if (emp) fd.set("employee_name", emp.name);
+    }
+    setError(null);
+    startTransition(async () => {
+      try {
+        await updateAction(fd);
+        setDrafts((prev) => {
+          const next = { ...prev };
+          delete next[r.id];
+          return next;
+        });
+        setFlash("Gespeichert.");
+        onChanged();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Speichern fehlgeschlagen");
+      }
+    });
+  }
+
+  function remove(r: HistoryRow) {
+    const fd = new FormData();
+    fd.set("id", String(r.id));
+    setError(null);
+    startTransition(async () => {
+      try {
+        await deleteAction(fd);
+        setFlash("Zeile gelöscht.");
+        onChanged();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Löschen fehlgeschlagen");
+      }
+    });
+  }
+
+  function removeImport(importId: number, count: number) {
+    if (
+      !window.confirm(
+        `Alle ${count} Schichten aus Import #${importId} dauerhaft entfernen?`
+      )
+    ) {
+      return;
+    }
+    const fd = new FormData();
+    fd.set("import_id", String(importId));
+    setError(null);
+    startTransition(async () => {
+      try {
+        const res = await deleteImportAction(fd);
+        setFlash(`${res.deleted} Zeilen entfernt.`);
+        onChanged();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Löschen fehlgeschlagen");
+      }
+    });
+  }
+
+  if (historyRows.length === 0) {
+    return (
+      <div className={card}>
+        <p className="text-sm text-[hsl(var(--muted-foreground))]">
+          Noch keine bestätigten Trainingsdaten. Nach dem Übernehmen eines PDF-Imports
+          erscheinen die historischen Schichten hier und bleiben jederzeit korrigierbar.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className={card}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">
+            Trainingsdaten ({historyRows.length}
+            {historyTruncated ? "+, nur die jüngsten angezeigt" : ""})
+          </h3>
+          <label className="flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+            Monat
+            <select
+              value={monthFilter}
+              onChange={(e) => setMonthFilter(e.target.value)}
+              className={inputCls}
+            >
+              <option value="">alle</option>
+              {months.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {imports.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            {imports.map(([impId, count]) => (
+              <button
+                key={impId}
+                type="button"
+                className="rounded border border-[hsl(var(--border))] px-2 py-1 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--secondary))]"
+                onClick={() => removeImport(impId, count)}
+                disabled={pending}
+              >
+                Import #{impId}: {count} Zeilen entfernen
+              </button>
+            ))}
+          </div>
+        )}
+        {error && <p className="mt-2 text-xs text-rose-400">{error}</p>}
+        {flash && <p className="mt-2 text-xs text-emerald-400">{flash}</p>}
+      </div>
+
+      <div className={card}>
+        <div className="max-h-[560px] overflow-auto rounded-md border border-[hsl(var(--border))]">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-[hsl(var(--card))] text-left text-xs text-[hsl(var(--muted-foreground))]">
+              <tr>
+                <th className="p-2">Datum</th>
+                <th className="p-2">Mitarbeiter</th>
+                <th className="p-2">Position</th>
+                <th className="p-2">Von</th>
+                <th className="p-2">Bis</th>
+                <th className="p-2">Notiz</th>
+                <th className="p-2"> </th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((r) => {
+                const d = draftFor(r);
+                const options = mergeCandidates([], employees, d.employeeId);
+                return (
+                  <tr key={r.id} className="border-t border-[hsl(var(--border))]">
+                    <td className="p-1.5">
+                      <input
+                        type="date"
+                        value={d.date}
+                        onChange={(e) => patch(r, { date: e.target.value })}
+                        className={`${inputCls} w-36`}
+                      />
+                    </td>
+                    <td className="p-1.5">
+                      <select
+                        value={d.employeeId ?? ""}
+                        onChange={(e) =>
+                          patch(r, {
+                            employeeId: e.target.value ? Number(e.target.value) : null,
+                          })
+                        }
+                        className={`${inputCls} min-w-[9rem]`}
+                      >
+                        <option value="">
+                          {r.employee_name} (ohne Verknüpfung)
+                        </option>
+                        {options.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="p-1.5">
+                      <input
+                        value={d.position}
+                        onChange={(e) => patch(r, { position: e.target.value })}
+                        className={`${inputCls} w-32`}
+                      />
+                    </td>
+                    <td className="p-1.5">
+                      <input
+                        value={d.start}
+                        placeholder="HH:MM"
+                        onChange={(e) => patch(r, { start: e.target.value })}
+                        className={`${inputCls} w-16`}
+                      />
+                    </td>
+                    <td className="p-1.5">
+                      <input
+                        value={d.end}
+                        placeholder="HH:MM"
+                        onChange={(e) => patch(r, { end: e.target.value })}
+                        className={`${inputCls} w-16`}
+                      />
+                    </td>
+                    <td className="p-1.5">
+                      <input
+                        value={d.note}
+                        placeholder="—"
+                        onChange={(e) => patch(r, { note: e.target.value })}
+                        className={`${inputCls} w-48`}
+                      />
+                    </td>
+                    <td className="whitespace-nowrap p-1.5 text-right">
+                      {d.dirty && (
+                        <button
+                          type="button"
+                          className="mr-2 text-xs text-[hsl(var(--primary))] underline"
+                          onClick={() => save(r)}
+                          disabled={pending}
+                        >
+                          speichern
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="text-xs text-rose-400 underline"
+                        onClick={() => remove(r)}
+                        disabled={pending}
+                      >
+                        löschen
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1062,11 +1431,16 @@ export default function ImportClient({
   employees,
   recentImports,
   insights,
+  historyRows,
+  historyTruncated,
   aiFallbackEnabled,
   confirmScheduleImportAction,
   confirmAvailabilityImportAction,
   discardImportAction,
   applyHistoryWeekdayHeadcountAction,
+  updateHistoryShiftAction,
+  deleteHistoryShiftAction,
+  deleteImportHistoryAction,
 }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("pdf");
@@ -1076,6 +1450,7 @@ export default function ImportClient({
     { key: "pdf", label: "Dienstpläne (PDF)" },
     { key: "xlsx", label: "Verfügbarkeiten (Excel)" },
     { key: "analysis", label: "Analyse" },
+    { key: "history", label: `Trainingsdaten${historyRows.length ? ` (${historyRows.length})` : ""}` },
   ];
 
   const historyImports = useMemo(
@@ -1134,6 +1509,17 @@ export default function ImportClient({
         <AnalysisPanel
           insights={insights}
           applyAction={applyHistoryWeekdayHeadcountAction}
+        />
+      )}
+      {tab === "history" && (
+        <HistoryPanel
+          employees={employees}
+          historyRows={historyRows}
+          historyTruncated={historyTruncated}
+          updateAction={updateHistoryShiftAction}
+          deleteAction={deleteHistoryShiftAction}
+          deleteImportAction={deleteImportHistoryAction}
+          onChanged={refresh}
         />
       )}
 

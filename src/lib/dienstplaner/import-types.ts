@@ -50,6 +50,8 @@ export type ParsedScheduleRow = {
   position: string | null;
   startTime: string | null; // HH:MM
   endTime: string | null;
+  /** Freitext-Notiz aus der Zelle (z.B. "erst ab 16 Uhr", "Uni bis 18"). */
+  comment: string | null;
 };
 
 export type ParsedScheduleResult = {
