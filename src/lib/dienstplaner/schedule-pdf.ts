@@ -5,7 +5,12 @@
 // zuverlässig an — daher hier ein eigener, schlanker Client.
 import { env } from "@/lib/env";
 import { matchEmployeeName, type NameMatchInput } from "./name-match";
-import { normalizeHm, normalizeIsoDate, parseLooseJson } from "./schedule-parse";
+import {
+  normalizeHm,
+  normalizeIsoDate,
+  parseLooseJson,
+  salvageScheduleJson,
+} from "./schedule-parse";
 import type { ParsedScheduleResult, ParsedScheduleRow } from "./import-types";
 
 const GEMINI_NATIVE_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -84,7 +89,11 @@ export async function extractScheduleFromPdf(params: {
         generationConfig: {
           temperature: 0.1,
           responseMimeType: "application/json",
-          maxOutputTokens: 32000,
+          // Gemini 2.5 Flash rechnet Thinking-Tokens gegen maxOutputTokens.
+          // Für die reine Extraktion ist Thinking unnötig und würde bei vollen
+          // Monatsplänen den JSON-Output abschneiden.
+          thinkingConfig: { thinkingBudget: 0 },
+          maxOutputTokens: 65536,
         },
       }),
       cache: "no-store",
@@ -104,19 +113,33 @@ export async function extractScheduleFromPdf(params: {
     throw new Error(`Gemini hat die Anfrage blockiert (${json.promptFeedback.blockReason}).`);
   }
 
+  const finishReason = json.candidates?.[0]?.finishReason ?? "unbekannt";
   const content =
     json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
   if (!content) {
-    const reason = json.candidates?.[0]?.finishReason ?? "unbekannt";
     throw new Error(
-      `Gemini hat keine verwertbare Antwort geliefert (finishReason=${reason}). ` +
+      `Gemini hat keine verwertbare Antwort geliefert (finishReason=${finishReason}). ` +
         `Bei sehr großen Plänen hilft es, das PDF pro Monat aufzuteilen.`
     );
   }
 
-  const parsed = parseLooseJson(content);
+  const salvageNotes: string[] = [];
+  let parsed = parseLooseJson(content);
   if (!parsed || typeof parsed !== "object") {
-    throw new Error(`Gemini hat kein verwertbares JSON geliefert. Anfang: ${content.slice(0, 200)}`);
+    const salvaged = salvageScheduleJson(content);
+    if (salvaged) {
+      parsed = salvaged;
+      salvageNotes.push(
+        `Die Antwort war unvollständig (${finishReason}); ${salvaged.shifts.length} Schichten konnten gerettet werden. ` +
+          `Bitte prüfen, ob am Ende des Zeitraums Einträge fehlen — ggf. das PDF pro Monat aufteilen.`
+      );
+    }
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error(
+      `Gemini hat kein verwertbares JSON geliefert (finishReason=${finishReason}). ` +
+        `Anfang: ${content.slice(0, 200)}`
+    );
   }
 
   const raw = parsed as Record<string, unknown>;
@@ -149,7 +172,7 @@ export async function extractScheduleFromPdf(params: {
 
   rows.sort((a, b) => a.date.localeCompare(b.date) || a.rawName.localeCompare(b.rawName, "de"));
 
-  const notes: string[] = [];
+  const notes: string[] = [...salvageNotes];
   if (typeof raw.notes === "string" && raw.notes.trim()) notes.push(raw.notes.trim());
   if (rows.length === 0) {
     notes.push("Es konnten keine Schichten aus dem PDF gelesen werden.");

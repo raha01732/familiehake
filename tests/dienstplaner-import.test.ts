@@ -11,6 +11,7 @@ import {
   normalizeHm,
   normalizeIsoDate,
   parseLooseJson,
+  salvageScheduleJson,
 } from "../src/lib/dienstplaner/schedule-parse";
 import {
   buildHistoryPromptBlock,
@@ -103,6 +104,25 @@ test("parseLooseJson recovers from surrounding prose and code fences", () => {
   assert.deepEqual(parseLooseJson('{"a":1}'), { a: 1 });
   assert.deepEqual(parseLooseJson('```json\n{"a":2}\n```'), { a: 2 });
   assert.deepEqual(parseLooseJson('hier: {"a":3} danke'), { a: 3 });
+});
+
+test("salvageScheduleJson rescues complete shifts from a truncated response", () => {
+  const truncated =
+    '{ "period_start": "2026-05-01", "period_end": "2026-05-31", "shifts": [ ' +
+    '{ "date": "2026-05-01", "name": "Elias Altvater", "position": null, "start": "13:00", "end": "22:00" }, ' +
+    '{ "date": "2026-05-02", "name": "Mara Kern", "position": "Projektion", "start": "16:00", "end": "23:00" }, ' +
+    '{ "date": "2026-05-03", "name": "';
+  const salvaged = salvageScheduleJson(truncated);
+  assert.ok(salvaged);
+  assert.equal(salvaged?.shifts.length, 2);
+  assert.equal(salvaged?.period_start, "2026-05-01");
+  assert.equal(salvaged?.period_end, "2026-05-31");
+  assert.equal((salvaged?.shifts[1] as { name: string }).name, "Mara Kern");
+});
+
+test("salvageScheduleJson returns null when nothing is recoverable", () => {
+  assert.equal(salvageScheduleJson('{ "period_start": "2026-05-01", "shifts": [ { "date": "'), null);
+  assert.equal(salvageScheduleJson("kein json hier"), null);
 });
 
 function sampleHistory(): HistoryShift[] {
