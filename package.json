@@ -28,6 +28,7 @@
     "@vercel/speed-insights": "^2.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
     "ical.js": "^2.2.1",
     "lucide-react": "^1.35.0",
     "next": "^16.1.4",

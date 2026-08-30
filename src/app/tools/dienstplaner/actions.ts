@@ -19,6 +19,11 @@ import {
   type PositionCategory,
 } from "./utils";
 import { askAiToAssignSlots, dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
+import {
+  buildHistoryPromptBlock,
+  computeHistoryInsights,
+  type HistoryShift,
+} from "@/lib/dienstplaner/history-insights";
 
 const PLAN_PATH = "/tools/dienstplaner";
 const SETTINGS_PATH = "/tools/dienstplaner/settings";
@@ -2048,6 +2053,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     shiftsResult,
     pauseRulesResult,
     hourDefaultsResult,
+    historyResult,
   ] = await Promise.all([
     sb
       .from("dienstplan_employees")
@@ -2072,6 +2078,11 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
       .lte("shift_date", range.end),
     sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
     sb.from("dienstplan_employment_hour_defaults").select("employment_type, vacation_hours_per_day"),
+    sb
+      .from("dienstplan_history_shifts")
+      .select("shift_date, employee_name, employee_id, position, start_time, end_time")
+      .order("shift_date", { ascending: false })
+      .limit(4000),
   ]);
 
   const employees = (employeesResult.data ?? []) as {
@@ -2131,8 +2142,16 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     currentHoursByEmployee.set(empId, (currentHoursByEmployee.get(empId) ?? 0) + mins / 60);
   }
 
+  let historyBlock = "";
+  if (!historyResult.error && Array.isArray(historyResult.data) && historyResult.data.length > 0) {
+    historyBlock = buildHistoryPromptBlock(
+      computeHistoryInsights(historyResult.data as HistoryShift[])
+    );
+  }
+
   const aiResponse = await askAiToAssignSlots({
     month,
+    history: historyBlock || undefined,
     slots: slots.map((slot) => ({
       id: slot.id,
       date: slot.slot_date,

@@ -99,6 +99,9 @@ export const AUDIT_ACTIONS = [
   "dienstplan_planned_slots_autofill",
   "dienstplan_planned_slots_ai_fill",
   "dienstplan_settings_update",
+  "dienstplan_import_parse",
+  "dienstplan_import_confirm",
+  "dienstplan_import_discard",
 
   // Auslassplanung (Kino-Reinigung)
   "auslass_hall_create",

@@ -61,6 +61,7 @@ Aufgabe: ordne unbesetzte Schichten ("Slots") fairen Mitarbeitenden zu, sodass:
 - Position passend ist: wenn slot.position gesetzt ist, soll die employee.position_category passen
     (slot "serviceleitung" → category "serviceleitung", slot "projektion" → "projektion" oder "projektionsleitung").
 - Nicht alle Slots MÜSSEN besetzt werden — wenn keine faire Zuweisung möglich ist, lieber leer lassen.
+- Falls ein Block "HISTORISCHE_MUSTER" mitgegeben wird: als Orientierung für realistische Besetzung und Positions-Zuordnung nutzen, aber Verfügbarkeiten, Positions-Freischaltungen und Stunden-Regeln haben immer Vorrang.
 
 WICHTIG: Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt nach folgendem Schema. Kein Markdown, keine Code-Fences, kein Erklärtext davor oder danach. Antwortbeispiel ist KOMPLETT JSON:
 {
@@ -141,22 +142,26 @@ export async function askAiToAssignSlots(input: {
   slots: AiSlotInput[];
   employees: AiEmployeeInput[];
   availability: AiAvailabilityInput[];
+  /** Optionaler, vorformatierter Textblock aus historischen Dienstplänen. */
+  history?: string;
 }): Promise<AiAssignmentResponse> {
   const key = env().GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY ist nicht konfiguriert");
 
   const model = env().GEMINI_MODEL || DEFAULT_MODEL;
 
-  const userMessage = JSON.stringify(
-    {
-      month: input.month,
-      slots: input.slots,
-      employees: input.employees,
-      availability: input.availability,
-    },
-    null,
-    2
-  );
+  const historyBlock = input.history?.trim() ? `\n\n${input.history.trim()}` : "";
+  const userMessage =
+    JSON.stringify(
+      {
+        month: input.month,
+        slots: input.slots,
+        employees: input.employees,
+        availability: input.availability,
+      },
+      null,
+      2
+    ) + historyBlock;
 
   // reasoning_effort: "low" begrenzt Gemini 2.5 Thinking, damit das
   // max_tokens-Budget für den finalen JSON-Output reicht.
