@@ -41,6 +41,8 @@ type Props = {
   plannedSlots: PlannedSlot[];
   employmentHourDefaults: EmploymentHourDefault[];
   isAdmin: boolean;
+  /** Admin ODER in den Einstellungen freigeschalteter Bearbeiter (Verfügbarkeiten). */
+  canEditAvailability: boolean;
   aiEnabled: boolean;
   saveShiftAction: (_fd: FormData) => Promise<void>;
   deleteShiftAction: (_fd: FormData) => Promise<void>;
@@ -116,6 +118,7 @@ export default function MonthlyGrid({
   plannedSlots,
   employmentHourDefaults,
   isAdmin,
+  canEditAvailability,
   aiEnabled,
   saveShiftAction,
   deleteShiftAction,
@@ -339,6 +342,7 @@ export default function MonthlyGrid({
   }
 
   function handleAvailSelect(emp: Employee, date: string, value: string) {
+    if (!canEditAvailability) return;
     const fd = new FormData();
     fd.set("employee_id", String(emp.id));
     fd.set("availability_date", date);
@@ -736,6 +740,7 @@ export default function MonthlyGrid({
                       onDrop={() => handleDrop(emp.id, day)}
                       onContextMenu={(e) => {
                         e.preventDefault();
+                        if (!canEditAvailability) return;
                         setAvailMenu({
                           employee: emp,
                           date: day,

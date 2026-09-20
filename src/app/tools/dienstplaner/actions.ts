@@ -24,6 +24,7 @@ import {
   computeHistoryInsights,
   type HistoryShift,
 } from "@/lib/dienstplaner/history-insights";
+import { assertDienstplanAvailabilityWrite } from "@/lib/dienstplaner/availability-guard";
 
 const PLAN_PATH = "/tools/dienstplaner";
 const SETTINGS_PATH = "/tools/dienstplaner/settings";
@@ -359,6 +360,36 @@ export async function clearMonthAvailabilityAction(formData: FormData) {
 
   revalidatePath(PLAN_PATH);
   revalidatePath("/tools/dienstplaner/verfuegbarkeit");
+}
+
+/**
+ * Schaltet für einen einzelnen Benutzer die Bearbeitungsrechte für
+ * Verfügbarkeiten im Dienstplaner frei/zurück. Admin-only — betrifft nur
+ * Nicht-Admin-Benutzer, Admins dürfen ohnehin immer bearbeiten.
+ */
+export async function setDienstplanEditorAction(formData: FormData) {
+  const actor = await assertAdminForDienstplanAutomation();
+
+  const userId = String(formData.get("user_id") || "").trim();
+  const enabled = formData.get("enabled") === "true";
+  if (!userId) return;
+
+  const sb = createAdminClient();
+  if (enabled) {
+    await sb
+      .from("dienstplan_editors")
+      .upsert({ user_id: userId, granted_by: actor.id }, { onConflict: "user_id" });
+  } else {
+    await sb.from("dienstplan_editors").delete().eq("user_id", userId);
+  }
+
+  await auditDienstplan(actor, "dienstplan_settings_update", {
+    setting: "Bearbeitungsrechte Verfügbarkeiten",
+    userId,
+    enabled,
+  });
+
+  revalidatePath(SETTINGS_PATH);
 }
 
 export async function autoGenerateMonthPlanAction(formData: FormData) {
@@ -1097,7 +1128,7 @@ export async function deletePauseRuleAction(formData: FormData) {
 }
 
 export async function saveAvailabilityAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertDienstplanAvailabilityWrite();
 
   const employeeId = Number(formData.get("employee_id"));
   const availabilityDate = String(formData.get("availability_date") || "");

@@ -137,7 +137,7 @@ function SchedulePanel({
     setError(null);
     setResult(null);
     if (!file) {
-      setError("Bitte zuerst ein PDF auswählen.");
+      setError("Bitte zuerst eine PDF- oder Excel-Datei auswählen.");
       return;
     }
     if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
@@ -146,9 +146,10 @@ function SchedulePanel({
     }
     setBusy(true);
     try {
+      const isXlsx = /\.xlsx?$/i.test(file.name) || /spreadsheet/i.test(file.type);
       const fd = new FormData();
       fd.set("file", file);
-      fd.set("kind", "schedule_pdf");
+      fd.set("kind", isXlsx ? "schedule_xlsx" : "schedule_pdf");
       if (/^\d{4}$/.test(year)) fd.set("month", `${year}-01`);
       const res = await fetch("/api/dienstplaner/import", { method: "POST", body: fd });
       const json = await res.json();
@@ -254,24 +255,25 @@ function SchedulePanel({
     <div className="flex flex-col gap-4">
       <div className={card}>
         <p className="text-sm text-[hsl(var(--muted-foreground))]">
-          Lade einen bereits erstellten Dienstplan als PDF hoch. Pläne mit Textebene
-          (Excel-/Software-Export) werden direkt aus den Zellen rekonstruiert. Die
-          erkannten Schichten landen als <strong>Analysebasis</strong> (nicht im
-          aktuellen Monatsplan) und verbessern KI-Vorschläge und Bedarfsanalyse.
+          Lade einen bereits erstellten Dienstplan als PDF oder Excel (.xlsx) hoch. In beiden
+          Formaten werden die Schichten direkt aus der Tabellen-/Zellstruktur rekonstruiert
+          (Mitarbeiter als Spalten, Datum als Zeilen). Die erkannten Schichten landen als{" "}
+          <strong>Analysebasis</strong> (nicht im aktuellen Monatsplan) und verbessern
+          KI-Vorschläge und Bedarfsanalyse.
         </p>
         {!aiFallbackEnabled && (
           <p className="mt-2 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
             Hinweis: rein gescannte PDFs ohne Textebene brauchen zusätzlich einen
-            GEMINI_API_KEY (hier nicht gesetzt).
+            GEMINI_API_KEY (hier nicht gesetzt). Excel-Dateien brauchen das nicht.
           </p>
         )}
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-xs text-[hsl(var(--muted-foreground))]">
-            PDF-Datei
+            PDF- oder Excel-Datei
             <input
               ref={fileRef}
               type="file"
-              accept="application/pdf,.pdf"
+              accept="application/pdf,.pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               className="text-sm text-[hsl(var(--foreground))] file:mr-3 file:rounded-md file:border-0 file:bg-[hsl(var(--secondary))] file:px-3 file:py-1.5 file:text-sm"
             />
           </label>
@@ -290,7 +292,7 @@ function SchedulePanel({
             onClick={handleParse}
             disabled={busy}
           >
-            {busy ? "Wird ausgelesen…" : "PDF auslesen"}
+            {busy ? "Wird ausgelesen…" : "Datei auslesen"}
           </button>
         </div>
       </div>
@@ -1447,7 +1449,7 @@ export default function ImportClient({
   const [, startTransition] = useTransition();
 
   const tabs: { key: Tab; label: string }[] = [
-    { key: "pdf", label: "Dienstpläne (PDF)" },
+    { key: "pdf", label: "Dienstpläne (PDF/Excel)" },
     { key: "xlsx", label: "Verfügbarkeiten (Excel)" },
     { key: "analysis", label: "Analyse" },
     { key: "history", label: `Trainingsdaten${historyRows.length ? ` (${historyRows.length})` : ""}` },
@@ -1543,7 +1545,11 @@ export default function ImportClient({
                   <tr key={imp.id} className="border-t border-[hsl(var(--border))]">
                     <td className="p-1.5">{imp.file_name}</td>
                     <td className="p-1.5">
-                      {imp.kind === "schedule_pdf" ? "PDF-Plan" : "Excel-Verfügb."}
+                      {imp.kind === "schedule_pdf"
+                        ? "PDF-Plan"
+                        : imp.kind === "schedule_xlsx"
+                          ? "Excel-Plan"
+                          : "Excel-Verfügb."}
                     </td>
                     <td className="p-1.5 font-mono text-xs">
                       {imp.period_start && imp.period_end
