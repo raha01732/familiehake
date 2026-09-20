@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { currentUser } from "@clerk/nextjs/server";
 import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
+import { isDienstplanEditor } from "@/lib/dienstplaner/availability-guard";
 import VerfuegbarkeitClient from "./VerfuegbarkeitClient";
 import { saveAvailabilityAction, clearMonthAvailabilityAction } from "../actions";
 import type { Availability, Employee } from "../utils";
@@ -26,6 +27,7 @@ export default async function VerfuegbarkeitPage({ searchParams }: PageProps) {
   const user = await currentUser();
   const role = user ? getRoleFromPublicMetadata(user.publicMetadata) : null;
   const isAdmin = role === "admin" || user?.id === env().PRIMARY_SUPERADMIN_ID;
+  const canEdit = isAdmin || (user ? await isDienstplanEditor(user.id) : false);
 
   const sb = createAdminClient();
   const employeesBaseColumns =
@@ -107,6 +109,7 @@ export default async function VerfuegbarkeitPage({ searchParams }: PageProps) {
         employees={employees}
         availability={availability}
         isAdmin={isAdmin}
+        canEdit={canEdit}
         saveAvailabilityAction={saveAvailabilityAction}
         clearMonthAvailabilityAction={clearMonthAvailabilityAction}
       />

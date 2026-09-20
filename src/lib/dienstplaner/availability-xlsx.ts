@@ -19,7 +19,7 @@ const MAX_COLS = 80;
 
 type CellVal = { text: string; value: unknown };
 
-function cellToText(cell: ExcelJS.Cell): string {
+export function cellToText(cell: ExcelJS.Cell): string {
   const v = cell.value as unknown;
   if (v == null) return "";
   if (typeof v === "string") return v.trim();

@@ -192,7 +192,9 @@ export async function confirmScheduleImportAction(formData: FormData) {
     .select("id, kind, status")
     .eq("id", importId)
     .maybeSingle();
-  if (!importRow || importRow.kind !== "schedule_pdf") throw new Error("IMPORT_NOT_FOUND");
+  if (!importRow || (importRow.kind !== "schedule_pdf" && importRow.kind !== "schedule_xlsx")) {
+    throw new Error("IMPORT_NOT_FOUND");
+  }
 
   type HistoryInsert = {
     import_id: number;

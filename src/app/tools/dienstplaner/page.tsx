@@ -23,6 +23,7 @@ import MonthlyGrid from "./components/MonthlyGrid";
 import ToolMaintenanceNotice from "@/components/ToolMaintenanceNotice";
 import { getSessionInfo } from "@/lib/auth";
 import { getToolGate } from "@/lib/workspace-locks";
+import { isDienstplanEditor } from "@/lib/dienstplaner/availability-guard";
 import type {
   Employee,
   EmploymentHourDefault,
@@ -59,6 +60,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
   const user = await currentUser();
   const role = user ? getRoleFromPublicMetadata(user.publicMetadata) : null;
   const isAdmin = role === "admin" || user?.id === env().PRIMARY_SUPERADMIN_ID;
+  const canEditAvailability = isAdmin || (user ? await isDienstplanEditor(user.id) : false);
 
   const sb = createAdminClient();
 
@@ -164,6 +166,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       plannedSlots={plannedSlots}
       employmentHourDefaults={employmentHourDefaults}
       isAdmin={isAdmin}
+      canEditAvailability={canEditAvailability}
       aiEnabled={aiEnabled}
       saveShiftAction={saveShiftAction}
       deleteShiftAction={deleteShiftAction}
