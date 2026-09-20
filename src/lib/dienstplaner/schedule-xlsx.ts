@@ -28,27 +28,23 @@ function isCommentFragment(text: string): boolean {
 
 type EmployeeColumn = { col: number; empId: number; name: string };
 
+type SheetResult = {
+  sheetName: string;
+  rows: ParsedScheduleRow[];
+  empColsCount: number;
+};
+
 /**
- * Liest Schichten aus einer Excel-Matrix (Mitarbeiter=Spalten, Datum=Zeilen).
- * Analog zur deterministischen PDF-Textebenen-Extraktion, aber direkt über
- * die tatsächlichen Zellkoordinaten statt geclusterter x/y-Positionen.
+ * Versucht, aus EINEM Arbeitsblatt eine Schicht-Matrix zu lesen. Gibt null
+ * zurück, wenn das Blatt keine erkennbare Mitarbeiter-Kopfzeile bzw.
+ * Datumsspalte hat (z.B. ein Deckblatt oder eine Zusammenfassung) — dann
+ * probiert der Aufrufer das nächste Blatt.
  */
-export async function extractScheduleFromXlsx(params: {
-  data: ArrayBuffer | Buffer;
-  employees: NameMatchInput[];
-  fallbackYear: number;
-}): Promise<ParsedScheduleResult> {
-  const { employees, fallbackYear } = params;
-  const wb = new ExcelJS.Workbook();
-  const buffer = Buffer.isBuffer(params.data) ? params.data : Buffer.from(params.data);
-  await wb.xlsx.load(buffer as unknown as ArrayBuffer);
-
-  const ws =
-    wb.worksheets.find((sheet) => (sheet.actualRowCount ?? sheet.rowCount) > 1) ?? wb.worksheets[0];
-  if (!ws) {
-    return { periodStart: null, periodEnd: null, rows: [], notes: ["Keine Tabelle in der Datei gefunden."] };
-  }
-
+function parseWorksheet(
+  ws: ExcelJS.Worksheet,
+  employees: NameMatchInput[],
+  fallbackYear: number
+): SheetResult | null {
   const rawRows: string[][] = [];
   ws.eachRow({ includeEmpty: false }, (row) => {
     if (rawRows.length >= MAX_ROWS) return;
@@ -59,18 +55,7 @@ export async function extractScheduleFromXlsx(params: {
     });
     rawRows.push(cells);
   });
-
-  if (rawRows.length === 0) {
-    return { periodStart: null, periodEnd: null, rows: [], notes: ["Die Datei enthält keine Zeilen."] };
-  }
-  if (employees.length < 2) {
-    return {
-      periodStart: null,
-      periodEnd: null,
-      rows: [],
-      notes: ["Zu wenig angelegte Mitarbeiter, um Spalten sicher zuzuordnen."],
-    };
-  }
+  if (rawRows.length === 0) return null;
 
   // Kopfzeile = Zeile mit den meisten erkennbaren Mitarbeiternamen.
   let headerRowIdx = -1;
@@ -94,17 +79,7 @@ export async function extractScheduleFromXlsx(params: {
       headerRowIdx = i;
     }
   }
-
-  if (headerRowIdx === -1 || empCols.length < 2) {
-    return {
-      periodStart: null,
-      periodEnd: null,
-      rows: [],
-      notes: [
-        "Konnte keine Kopfzeile mit Mitarbeiternamen erkennen. Erwartet wird eine Zeile mit den Mitarbeitern als Spaltenüberschriften.",
-      ],
-    };
-  }
+  if (headerRowIdx === -1 || empCols.length < 2) return null;
   empCols.sort((a, b) => a.col - b.col);
   const firstEmpCol = empCols[0].col;
 
@@ -122,14 +97,7 @@ export async function extractScheduleFromXlsx(params: {
       dateCol = c;
     }
   }
-  if (dateCol === -1 || dateColCount < 3) {
-    return {
-      periodStart: null,
-      periodEnd: null,
-      rows: [],
-      notes: ["Konnte keine Datumsspalte links der Mitarbeiterspalten erkennen."],
-    };
-  }
+  if (dateCol === -1 || dateColCount < 3) return null;
 
   // Rollen-Zeile direkt unter der Kopfzeile (optional).
   const roleByEmp = new Map<number, string>();
@@ -209,16 +177,67 @@ export async function extractScheduleFromXlsx(params: {
   rows.sort((a, b) => a.date.localeCompare(b.date) || a.rawName.localeCompare(b.rawName, "de"));
   for (let i = 0; i < rows.length; i += 1) rows[i] = { ...rows[i], rowIndex: i + 1 };
 
-  const notes: string[] = [];
-  if (rows.length === 0) {
-    notes.push(
-      "Es konnten keine Schichten aus der Excel-Datei gelesen werden. Erwartet wird eine Matrix mit Mitarbeitern als Spalten und Datum als Zeilen (Start-/Endzeit je Zelle)."
-    );
-  } else {
-    notes.push(
-      `Deterministisch aus der Excel-Tabelle gelesen (${rows.length} Schichten, ${empCols.length} Mitarbeiterspalten). Bitte stichprobenartig prüfen.`
-    );
+  return { sheetName: ws.name, rows, empColsCount: empCols.length };
+}
+
+/**
+ * Liest Schichten aus einer Excel-Matrix (Mitarbeiter=Spalten, Datum=Zeilen).
+ * Analog zur deterministischen PDF-Textebenen-Extraktion, aber direkt über
+ * die tatsächlichen Zellkoordinaten statt geclusterter x/y-Positionen.
+ *
+ * Die Datei kann mehrere Arbeitsblätter enthalten (z.B. ein Deckblatt vor
+ * dem eigentlichen Plan) — jedes Blatt wird versucht, das mit den meisten
+ * erkannten Schichten gewinnt.
+ */
+export async function extractScheduleFromXlsx(params: {
+  data: ArrayBuffer | Buffer;
+  employees: NameMatchInput[];
+  fallbackYear: number;
+}): Promise<ParsedScheduleResult> {
+  const { employees, fallbackYear } = params;
+  const wb = new ExcelJS.Workbook();
+  const buffer = Buffer.isBuffer(params.data) ? params.data : Buffer.from(params.data);
+  await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+
+  if (wb.worksheets.length === 0) {
+    return { periodStart: null, periodEnd: null, rows: [], notes: ["Keine Tabelle in der Datei gefunden."] };
   }
+  if (employees.length < 2) {
+    return {
+      periodStart: null,
+      periodEnd: null,
+      rows: [],
+      notes: ["Zu wenig angelegte Mitarbeiter, um Spalten sicher zuzuordnen."],
+    };
+  }
+
+  let best: SheetResult | null = null;
+  for (const ws of wb.worksheets) {
+    const parsed = parseWorksheet(ws, employees, fallbackYear);
+    if (!parsed) continue;
+    if (!best || parsed.rows.length > best.rows.length) best = parsed;
+  }
+
+  const notes: string[] = [];
+  if (!best || best.rows.length === 0) {
+    const sheetHint =
+      wb.worksheets.length > 1
+        ? ` (geprüfte Arbeitsblätter: ${wb.worksheets.map((s) => s.name).join(", ")})`
+        : "";
+    notes.push(
+      "Es konnten keine Schichten aus der Excel-Datei gelesen werden. Erwartet wird eine Matrix mit " +
+        `Mitarbeitern als Spalten und Datum als Zeilen (Start-/Endzeit je Zelle)${sheetHint}.`
+    );
+    return { periodStart: null, periodEnd: null, rows: [], notes };
+  }
+
+  const rows = best.rows;
+  if (wb.worksheets.length > 1) {
+    notes.push(`Arbeitsblatt "${best.sheetName}" verwendet (von ${wb.worksheets.length} Blättern in der Datei).`);
+  }
+  notes.push(
+    `Deterministisch aus der Excel-Tabelle gelesen (${rows.length} Schichten, ${best.empColsCount} Mitarbeiterspalten). Bitte stichprobenartig prüfen.`
+  );
   const unmatched = rows.filter((r) => !r.matchedEmployeeId).length;
   if (unmatched > 0) {
     notes.push(`${unmatched} von ${rows.length} Namen ohne sichere Zuordnung — bitte im Review prüfen.`);
