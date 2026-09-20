@@ -99,6 +99,68 @@ test("extractScheduleFromXlsx uses the second worksheet when the first is a cove
   assert.ok(res.notes.some((n) => n.includes("Plan")));
 });
 
+test("extractScheduleFromXlsx handles formula-based dates and custom-numFmt time numbers", async () => {
+  // Reproduziert ein reales Dienstplan-Layout: die Datumszelle ist eine
+  // Formel, die auf eine andere Zelle verweist (cell.value = {formula,
+  // result: Date}) und über die "obere" und "untere" Zeile eines Datums
+  // identisch wiederholt wird (visuell über 2 Zeilen zusammengeführt).
+  // Die Uhrzeiten stehen als reine Zahl (z.B. 900) mit Custom-Zahlenformat
+  // `00":"00`, das beim Anzeigen in "09:00" aufgeteilt wird.
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Plan");
+  ws.getRow(1).values = [null, "Anna Weber", "Bob Klein"];
+  ws.getRow(2).values = [null, "Serviceleitung", "Projektion"];
+
+  const day1 = new Date(Date.UTC(2026, 5, 1));
+  const day2 = new Date(Date.UTC(2026, 5, 2));
+
+  ws.getRow(3).getCell(1).value = { formula: "Verwaltung!B2", result: day1 };
+  ws.getRow(3).getCell(2).value = 900; // 09:00
+  ws.getRow(3).getCell(2).numFmt = '00":"00';
+  ws.getRow(3).getCell(3).value = 1600; // 16:00
+  ws.getRow(3).getCell(3).numFmt = '00":"00';
+
+  ws.getRow(4).getCell(1).value = { formula: "Verwaltung!B2", result: day1 }; // gleiches Datum, 2. Zeile
+  ws.getRow(4).getCell(2).value = 1700; // 17:00
+  ws.getRow(4).getCell(2).numFmt = '00":"00';
+  ws.getRow(4).getCell(3).value = 0; // 00:00
+  ws.getRow(4).getCell(3).numFmt = '00":"00';
+
+  ws.getRow(5).getCell(1).value = { formula: "A3+1", result: day2 };
+  ws.getRow(5).getCell(3).value = 1200; // 12:00
+  ws.getRow(5).getCell(3).numFmt = '00":"00';
+
+  ws.getRow(6).getCell(1).value = { formula: "A3+1", result: day2 }; // gleiches Datum
+  ws.getRow(6).getCell(3).value = 2000; // 20:00
+  ws.getRow(6).getCell(3).numFmt = '00":"00';
+
+  const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+  const employees = [
+    { id: 1, name: "Anna Weber" },
+    { id: 2, name: "Bob Klein" },
+  ];
+
+  const res = await extractScheduleFromXlsx({ data: buffer, employees, fallbackYear: 2026 });
+
+  assert.equal(res.periodStart, "2026-06-01");
+  assert.equal(res.periodEnd, "2026-06-02");
+
+  const anna1 = res.rows.find((r) => r.date === "2026-06-01" && r.rawName === "Anna Weber");
+  assert.equal(anna1?.startTime, "09:00");
+  assert.equal(anna1?.endTime, "17:00");
+
+  const bob1 = res.rows.find((r) => r.date === "2026-06-01" && r.rawName === "Bob Klein");
+  assert.equal(bob1?.startTime, "16:00");
+  assert.equal(bob1?.endTime, "00:00");
+
+  const bob2 = res.rows.find((r) => r.date === "2026-06-02" && r.rawName === "Bob Klein");
+  assert.equal(bob2?.startTime, "12:00");
+  assert.equal(bob2?.endTime, "20:00");
+
+  // Kein Phantom-Band durch die wiederholte Datumszeile.
+  assert.equal(res.rows.length, 3);
+});
+
 test("extractScheduleFromXlsx reports notes when no matrix is recognizable", async () => {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Empty");
