@@ -378,7 +378,17 @@ export default function MonthlyGrid({
             className="px-1 py-0.5 text-[11px] leading-tight text-[hsl(var(--foreground))] rounded-sm"
             style={{ borderLeft: `3px solid ${emp.color}` }}
           >
-            <div className="font-medium tabular-nums">{shift.start_time.slice(0, 5)}</div>
+            <div className="font-medium tabular-nums flex items-center gap-1">
+              {shift.start_time.slice(0, 5)}
+              {shift.covers_projektion && (
+                <span
+                  className="rounded bg-fuchsia-500/20 px-1 text-[8px] font-bold text-fuchsia-400"
+                  title="Deckt zusätzlich die Projektion ab (Doppelrolle)"
+                >
+                  +P
+                </span>
+              )}
+            </div>
             <div className="font-medium tabular-nums">{shift.end_time.slice(0, 5)}</div>
             <div className="text-[10px] text-[hsl(var(--muted-foreground))] tabular-nums">
               {summary ? formatMinutesAsHours(summary.workMinutes) : ""}

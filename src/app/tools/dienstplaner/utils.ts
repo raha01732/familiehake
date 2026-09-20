@@ -30,6 +30,8 @@ export type Employee = {
   position_category: PositionCategory | null;
   allowed_positions?: PositionCategory[] | null;
   user_id?: string | null;
+  /** Kann zusätzlich zur Hauptrolle Projektion in Personalunion übernehmen. */
+  can_double_as_projektion?: boolean;
 };
 
 const POSITION_CATEGORY_VALUES = new Set<PositionCategory>([
@@ -127,6 +129,8 @@ export type Shift = {
   end_time: string | null;
   break_minutes: number | null;
   comment: string | null;
+  /** Deckt diese Schicht zusätzlich die Projektion ab (Doppelrolle)? */
+  covers_projektion?: boolean;
 };
 
 export type Availability = {

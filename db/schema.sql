@@ -783,6 +783,14 @@ create unique index if not exists dienstplan_employees_user_id_unique
   on dienstplan_employees(user_id)
   where user_id is not null;
 
+-- Doppelrolle: Mitarbeiter, die zusätzlich zu ihrer Hauptrolle Projektion in
+-- Personalunion übernehmen können, und Schichten, die das für einen
+-- konkreten Tag tun (löst den offenen Projektion-Slot automatisch auf).
+alter table dienstplan_employees
+  add column if not exists can_double_as_projektion boolean not null default false;
+alter table dienstplan_shifts
+  add column if not exists covers_projektion boolean not null default false;
+
 -- Basisrollen anlegen/aktualisieren (User + Admin)
 insert into roles (name, label, rank, is_superadmin)
 values

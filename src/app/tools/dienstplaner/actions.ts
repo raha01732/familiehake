@@ -122,6 +122,85 @@ async function consumeMatchingPlannedSlot(
   }
 }
 
+function toMinuteRange(startTime: string, endTime: string) {
+  const [sh, sm] = startTime.slice(0, 5).split(":").map(Number);
+  const [eh, em] = endTime.slice(0, 5).split(":").map(Number);
+  const start = sh * 60 + sm;
+  let end = eh * 60 + em;
+  if (end <= start) end += 24 * 60; // Schicht über Mitternacht
+  return { start, end };
+}
+
+/**
+ * Entfernt den zeitlich am besten überlappenden offenen "Projektion"-Slot am
+ * gegebenen Tag — aufgerufen, wenn eine Schicht als Doppelrolle
+ * (Serviceleitung + Projektion) markiert wird, damit der rote Slot nicht
+ * zusätzlich zur bereits besetzten Schicht angezeigt wird.
+ */
+async function consumeProjektionSlot(
+  sb: ReturnType<typeof createAdminClient>,
+  args: { slotDate: string; startTime: string; endTime: string }
+) {
+  const { data: openSlots } = await sb
+    .from("dienstplan_planned_slots")
+    .select("id, start_time, end_time, position")
+    .eq("slot_date", args.slotDate)
+    .is("assigned_employee_id", null);
+
+  const shiftRange = toMinuteRange(args.startTime, args.endTime);
+  let bestId: number | null = null;
+  let bestOverlap = -1;
+  for (const candidate of openSlots ?? []) {
+    if (inferPositionCategory(candidate.position) !== "projektion") continue;
+    if (!candidate.start_time || !candidate.end_time) continue;
+    const range = toMinuteRange(candidate.start_time, candidate.end_time);
+    const overlap = Math.min(shiftRange.end, range.end) - Math.max(shiftRange.start, range.start);
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      bestId = candidate.id;
+    }
+  }
+  if (bestId !== null) {
+    await sb.from("dienstplan_planned_slots").delete().eq("id", bestId);
+  }
+}
+
+/**
+ * Gegenstück zu consumeProjektionSlot: legt einen offenen "Projektion"-Slot
+ * wieder an, wenn eine Doppelrollen-Markierung entfernt oder die zugehörige
+ * Schicht gelöscht wird — außer es existiert bereits ein passender.
+ */
+async function reopenProjektionSlot(
+  sb: ReturnType<typeof createAdminClient>,
+  args: { slotDate: string; startTime: string; endTime: string }
+) {
+  const startKey = args.startTime.slice(0, 5);
+  const endKey = args.endTime.slice(0, 5);
+  const { data: openSlots } = await sb
+    .from("dienstplan_planned_slots")
+    .select("id, start_time, end_time, position")
+    .eq("slot_date", args.slotDate)
+    .is("assigned_employee_id", null);
+
+  const alreadyOpen = (openSlots ?? []).some(
+    (s) =>
+      inferPositionCategory(s.position) === "projektion" &&
+      s.start_time?.slice(0, 5) === startKey &&
+      s.end_time?.slice(0, 5) === endKey
+  );
+  if (alreadyOpen) return;
+
+  await sb.from("dienstplan_planned_slots").insert({
+    slot_date: args.slotDate,
+    position: "Projektion",
+    track_key: null,
+    start_time: args.startTime,
+    end_time: args.endTime,
+    note: null,
+    source: "reopened-after-double-duty-removed",
+  });
+}
+
 async function assertAuthenticatedForDienstplanWrite() {
   const user = await currentUser();
   if (!user) {
@@ -151,7 +230,7 @@ export async function saveShiftAction(formData: FormData) {
   if (!startTimeRaw.trim() || !endTimeRaw.trim()) {
     const { data: existingShift } = await sb
       .from("dienstplan_shifts")
-      .select("start_time, end_time, comment")
+      .select("start_time, end_time, comment, covers_projektion")
       .eq("employee_id", employeeId)
       .eq("shift_date", shiftDate)
       .maybeSingle();
@@ -164,6 +243,13 @@ export async function saveShiftAction(formData: FormData) {
         note: existingShift.comment ?? null,
         previousEmployeeId: employeeId,
       });
+      if (existingShift.covers_projektion) {
+        await reopenProjektionSlot(sb, {
+          slotDate: shiftDate,
+          startTime: existingShift.start_time,
+          endTime: existingShift.end_time,
+        });
+      }
     }
     await auditDienstplan(actor, "dienstplan_shift_delete", { employeeId, date: shiftDate });
     revalidatePath(PLAN_PATH);
@@ -190,9 +276,16 @@ export async function saveShiftAction(formData: FormData) {
 
   await assertEmployeeAllowedForShift(sb, employeeId, matchingSlot?.position ?? null);
 
+  const { data: employeeRow } = await sb
+    .from("dienstplan_employees")
+    .select("can_double_as_projektion")
+    .eq("id", employeeId)
+    .maybeSingle();
+  const coversProjektion = employeeRow?.can_double_as_projektion === true && formData.get("covers_projektion") === "true";
+
   const { data: existingShift } = await sb
     .from("dienstplan_shifts")
-    .select("raw_input")
+    .select("raw_input, covers_projektion")
     .eq("employee_id", employeeId)
     .eq("shift_date", shiftDate)
     .maybeSingle();
@@ -206,11 +299,17 @@ export async function saveShiftAction(formData: FormData) {
       break_minutes: breakMinutes,
       comment: comment,
       raw_input: existingShift?.raw_input ?? null,
+      covers_projektion: coversProjektion,
     },
     { onConflict: "employee_id,shift_date" }
   );
 
   await consumeMatchingPlannedSlot(sb, shiftDate, startTime, endTime);
+  if (coversProjektion && !existingShift?.covers_projektion) {
+    await consumeProjektionSlot(sb, { slotDate: shiftDate, startTime, endTime });
+  } else if (!coversProjektion && existingShift?.covers_projektion) {
+    await reopenProjektionSlot(sb, { slotDate: shiftDate, startTime, endTime });
+  }
 
   await auditDienstplan(actor, "dienstplan_shift_save", {
     employeeId,
@@ -218,6 +317,7 @@ export async function saveShiftAction(formData: FormData) {
     start: startTime,
     end: endTime,
     mode: existingShift ? "update" : "create",
+    coversProjektion,
   });
 
   revalidatePath(PLAN_PATH);
@@ -821,6 +921,7 @@ export async function createEmployeeAction(formData: FormData) {
   const rawUserId = String(formData.get("user_id") || "").trim();
   const userId = callerIsAdmin && rawUserId ? rawUserId : null;
   const allowedPositions = extractAllowedPositions(formData);
+  const canDoubleAsProjektion = formData.get("can_double_as_projektion") === "true";
   if (!name) return;
 
   const sb = createAdminClient();
@@ -861,6 +962,7 @@ export async function createEmployeeAction(formData: FormData) {
         ? allowedPositions
         : (["serviceleitung", "projektionsleitung", "projektion"] as PositionCategory[]),
     user_id: userId,
+    can_double_as_projektion: canDoubleAsProjektion,
   });
 
   await auditDienstplan(actor, "dienstplan_employee_create", { name });
@@ -933,6 +1035,10 @@ export async function updateEmployeeAction(formData: FormData) {
     updates.allowed_positions = extractAllowedPositions(formData);
   }
 
+  if (formData.has("can_double_as_projektion")) {
+    updates.can_double_as_projektion = formData.get("can_double_as_projektion") === "true";
+  }
+
   if (Object.keys(updates).length === 0) return;
 
   const sb = createAdminClient();
@@ -998,7 +1104,7 @@ export async function deleteShiftAction(formData: FormData) {
   // Zuerst die Schicht laden, damit wir nach dem Löschen einen offenen Slot anlegen können.
   const { data: existingShift } = await sb
     .from("dienstplan_shifts")
-    .select("start_time, end_time, comment")
+    .select("start_time, end_time, comment, covers_projektion")
     .eq("employee_id", employeeId)
     .eq("shift_date", shiftDate)
     .maybeSingle();
@@ -1013,6 +1119,13 @@ export async function deleteShiftAction(formData: FormData) {
       note: existingShift.comment ?? null,
       previousEmployeeId: employeeId,
     });
+    if (existingShift.covers_projektion) {
+      await reopenProjektionSlot(sb, {
+        slotDate: shiftDate,
+        startTime: existingShift.start_time,
+        endTime: existingShift.end_time,
+      });
+    }
   }
 
   await auditDienstplan(actor, "dienstplan_shift_delete", { employeeId, date: shiftDate });
