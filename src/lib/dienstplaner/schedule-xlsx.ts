@@ -10,7 +10,9 @@ import { cellToText } from "./availability-xlsx";
 import type { ParsedScheduleResult, ParsedScheduleRow } from "./import-types";
 
 const MAX_ROWS = 500;
-const MAX_COLS = 60;
+// Manche Pläne haben pro Mitarbeiter mehrere Spalten (Zeit, Ist-Stunden,
+// Status, Reserve …), daher großzügig bemessen.
+const MAX_COLS = 300;
 const MAX_HEADER_SCAN = 6;
 const MAX_BAND_ROWS = 4;
 const ROLE_RE = /(leitung|projektion|service)/i;
@@ -115,16 +117,20 @@ function parseWorksheet(
 
   // Datumsbänder: jede Zeile mit erkanntem Datum in dateCol eröffnet ein
   // neues Band; nachfolgende Zeilen ohne eigenes Datum gehören dazu.
+  // Manche Dateien wiederholen das Datum der oberen Zeile eines Bandes auch
+  // in der/den Folgezeile(n) (z.B. bei einer über 2 Zeilen zusammengeführten
+  // Datumszelle) — nur ein DIFFERENTES Datum eröffnet ein neues Band, ein
+  // gleiches oder fehlendes Datum gehört zum laufenden Band dazu.
   type Band = { date: string; rows: number[] };
   const bands: Band[] = [];
   for (let r = headerRowIdx + 1; r < rawRows.length; r += 1) {
     const date = normalizeIsoDate(rawRows[r]?.[dateCol], fallbackYear);
-    if (date) {
+    const last = bands[bands.length - 1];
+    if (date && (!last || date !== last.date)) {
       bands.push({ date, rows: [r] });
       continue;
     }
-    const last = bands[bands.length - 1];
-    const hasContent = (rawRows[r] ?? []).some((v) => (v ?? "").trim());
+    const hasContent = date != null || (rawRows[r] ?? []).some((v) => (v ?? "").trim());
     if (last && hasContent && last.rows.length < MAX_BAND_ROWS) {
       last.rows.push(r);
     }

@@ -15,30 +15,59 @@ import type {
 const NAME_HEADER_RE = /name|mitarbeiter|kolleg|person|mitarb/i;
 const SECTION_ROW_RE = /^(summe|gesamt|soll|ist|besetzung|bedarf|kw\s|woche|monat|total)/i;
 const MAX_ROWS = 400;
-const MAX_COLS = 80;
+const MAX_COLS = 200;
 
 type CellVal = { text: string; value: unknown };
+
+function formatDateValue(v: Date): string {
+  if (v.getUTCFullYear() <= 1901) {
+    return `${pad2(v.getUTCHours())}:${pad2(v.getUTCMinutes())}`;
+  }
+  return `${v.getUTCFullYear()}-${pad2(v.getUTCMonth() + 1)}-${pad2(v.getUTCDate())}`;
+}
+
+/**
+ * Manche Dienstpläne kodieren Uhrzeiten als reine Zahl (z.B. 930 für 9:30)
+ * mit einem Custom-Zahlenformat wie `00":"00`, das die Ziffern beim Anzeigen
+ * in Gruppen aufteilt (hier zwei 2er-Gruppen, getrennt durch einen
+ * literalen Doppelpunkt). exceljs liefert dafür den rohen Zahlenwert ohne
+ * Formatierung — dieser Helfer rekonstruiert die Anzeige (z.B. "09:30").
+ * Gibt null zurück, wenn das Zahlenformat nicht zu diesem Muster passt.
+ */
+function formatDigitGroupsFromNumFmt(value: number, numFmt: string | undefined | null): string | null {
+  if (!numFmt || !numFmt.includes(":") || !Number.isFinite(value) || value < 0) return null;
+  const groups = numFmt.match(/0+/g);
+  if (!groups || groups.length < 2) return null;
+  const widths = groups.map((g) => g.length);
+  const totalWidth = widths.reduce((a, b) => a + b, 0);
+  const digits = String(Math.trunc(value)).padStart(totalWidth, "0");
+  if (digits.length !== totalWidth) return null; // Zahl passt nicht ins Format
+  const parts: string[] = [];
+  let offset = 0;
+  for (const w of widths) {
+    parts.push(digits.slice(offset, offset + w));
+    offset += w;
+  }
+  return parts.join(":");
+}
 
 export function cellToText(cell: ExcelJS.Cell): string {
   const v = cell.value as unknown;
   if (v == null) return "";
   if (typeof v === "string") return v.trim();
-  if (typeof v === "number") return String(v);
+  if (typeof v === "number") return formatDigitGroupsFromNumFmt(v, cell.numFmt) ?? String(v);
   if (typeof v === "boolean") return v ? "true" : "false";
-  if (v instanceof Date) {
-    if (v.getUTCFullYear() <= 1901) {
-      return `${pad2(v.getUTCHours())}:${pad2(v.getUTCMinutes())}`;
-    }
-    return `${v.getUTCFullYear()}-${pad2(v.getUTCMonth() + 1)}-${pad2(v.getUTCDate())}`;
-  }
+  if (v instanceof Date) return formatDateValue(v);
   if (typeof v === "object") {
     const obj = v as Record<string, unknown>;
     if (Array.isArray(obj.richText)) {
       return (obj.richText as Array<{ text?: string }>).map((r) => r.text ?? "").join("").trim();
     }
-    if (typeof obj.result === "string" || typeof obj.result === "number") {
-      return String(obj.result).trim();
+    if (obj.result instanceof Date) return formatDateValue(obj.result);
+    if (typeof obj.result === "number") {
+      return formatDigitGroupsFromNumFmt(obj.result, cell.numFmt) ?? String(obj.result).trim();
     }
+    if (typeof obj.result === "string") return obj.result.trim();
     if (typeof obj.text === "string") return obj.text.trim();
     if ("formula" in obj) return "";
   }
