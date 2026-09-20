@@ -52,7 +52,7 @@ type Props = {
   clearMonthAction: (_fd: FormData) => Promise<void>;
   buildPreplanAction: (_fd: FormData) => Promise<void>;
   autoFillSlotsAction: (_fd: FormData) => Promise<AutoPlanCallResult | void>;
-  aiFillSlotsAction: (_fd: FormData) => Promise<void>;
+  aiFillSlotsAction: (_fd: FormData) => Promise<{ filled: number; rejectedForFairness: number } | void>;
   createSpecialEventAction: (_fd: FormData) => Promise<void>;
   updateSpecialEventAction: (_fd: FormData) => Promise<void>;
   deleteSpecialEventAction: (_fd: FormData) => Promise<void>;
@@ -302,8 +302,17 @@ export default function MonthlyGrid({
     setAiNotice(null);
     startAiFilling(async () => {
       try {
-        await aiFillSlotsAction(fd);
-        setAiNotice("KI hat die unbesetzten Slots verarbeitet.");
+        const result = await aiFillSlotsAction(fd);
+        if (result && result.rejectedForFairness > 0) {
+          setAiNotice(
+            `KI hat ${result.filled} Slot(s) besetzt — ${result.rejectedForFairness} Vorschlag/Vorschläge ` +
+              `wegen Wochenlimit-Überschreitung verworfen (Slot bleibt offen).`
+          );
+        } else if (result) {
+          setAiNotice(`KI hat ${result.filled} Slot(s) besetzt.`);
+        } else {
+          setAiNotice("KI hat die unbesetzten Slots verarbeitet.");
+        }
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "KI-Befüllung fehlgeschlagen");
       }
