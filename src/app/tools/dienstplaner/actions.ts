@@ -2148,7 +2148,7 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
   }
 
   if (filledShifts.length > 0) {
-    await sb.from("dienstplan_shifts").upsert(
+    const { error: upsertError } = await sb.from("dienstplan_shifts").upsert(
       filledShifts.map((shift) => ({
         ...shift,
         break_minutes: null,
@@ -2157,6 +2157,9 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
       })),
       { onConflict: "employee_id,shift_date" }
     );
+    if (upsertError) {
+      throw new Error(`AUTO_FILL_SAVE_FAILED: ${upsertError.message}`);
+    }
   }
 
   if (assignedSlotIds.size > 0) {
@@ -2401,7 +2404,12 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
   if (inserts.length > 0) {
-    await sb.from("dienstplan_shifts").upsert(inserts, { onConflict: "employee_id,shift_date" });
+    const { error: upsertError } = await sb
+      .from("dienstplan_shifts")
+      .upsert(inserts, { onConflict: "employee_id,shift_date" });
+    if (upsertError) {
+      throw new Error(`AI_PLAN_SAVE_FAILED: ${upsertError.message}`);
+    }
     await sb
       .from("dienstplan_planned_slots")
       .delete()
