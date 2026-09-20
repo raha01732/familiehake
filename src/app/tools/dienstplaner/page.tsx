@@ -79,11 +79,12 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
     employment_type: string;
     sort_order: number;
     position_category?: string | null;
+    can_double_as_projektion?: boolean | null;
   };
 
   const empWithCategory = await sb
     .from("dienstplan_employees")
-    .select(`${employeesBaseColumns}, position_category`)
+    .select(`${employeesBaseColumns}, position_category, can_double_as_projektion`)
     .eq("is_active", true)
     .order("sort_order")
     .order("id");
@@ -110,7 +111,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
   const [shiftResult, availResult, pauseResult, trackResult, eventsResult, plannedResult, hourDefaultsResult] = await Promise.all([
     sb
       .from("dienstplan_shifts")
-      .select("employee_id, shift_date, start_time, end_time, break_minutes, comment")
+      .select("employee_id, shift_date, start_time, end_time, break_minutes, comment, covers_projektion")
       .gte("shift_date", start)
       .lte("shift_date", end),
     sb
@@ -142,6 +143,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
   const employees: Employee[] = employeeRows.map((row) => ({
     ...row,
     position_category: (row.position_category ?? null) as Employee["position_category"],
+    can_double_as_projektion: row.can_double_as_projektion ?? false,
   }));
   const shifts = (shiftResult.data ?? []) as Shift[];
   const availability = (availResult.data ?? []) as Availability[];

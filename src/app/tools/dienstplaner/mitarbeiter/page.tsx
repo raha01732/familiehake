@@ -53,6 +53,7 @@ export default async function MitarbeiterPage() {
   }
 
   let rows =
+    (await loadEmployees("position_category, allowed_positions, user_id, can_double_as_projektion")) ??
     (await loadEmployees("position_category, allowed_positions, user_id")) ??
     (await loadEmployees("position_category, user_id")) ??
     (await loadEmployees("position_category")) ??
@@ -73,6 +74,7 @@ export default async function MitarbeiterPage() {
     position_category: (row.position_category ?? null) as Employee["position_category"],
     allowed_positions: row.allowed_positions ?? null,
     user_id: row.user_id ?? null,
+    can_double_as_projektion: row.can_double_as_projektion ?? false,
   }));
 
   let directoryUsers: DirectoryUser[] = [];
