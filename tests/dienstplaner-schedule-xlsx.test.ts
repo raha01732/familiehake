@@ -69,6 +69,36 @@ test("extractScheduleFromXlsx reconstructs a matrix plan from an Excel workbook"
   assert.equal(anna3?.endTime, "18:00");
 });
 
+test("extractScheduleFromXlsx uses the second worksheet when the first is a cover sheet", async () => {
+  const wb = new ExcelJS.Workbook();
+  const cover = wb.addWorksheet("Deckblatt");
+  cover.addRow(["Dienstplan Juni 2026"]);
+  cover.addRow(["Erstellt am 01.05.2026"]);
+
+  const ws = wb.addWorksheet("Plan");
+  ws.addRow(["", "Anna Weber", "Bob Klein"]);
+  ws.addRow(["", "Serviceleitung", "Projektion"]);
+  ws.addRow(["01.06.2026", "09:00", "16:00"]);
+  ws.addRow(["", "17:00", "00:00"]);
+  ws.addRow(["02.06.2026", "", ""]);
+  ws.addRow(["03.06.2026", "10:00", ""]);
+  ws.addRow(["", "18:00", ""]);
+
+  const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+  const employees = [
+    { id: 1, name: "Anna Weber" },
+    { id: 2, name: "Bob Klein" },
+  ];
+
+  const res = await extractScheduleFromXlsx({ data: buffer, employees, fallbackYear: 2026 });
+
+  assert.equal(res.rows.length, 3);
+  const anna = res.rows.find((r) => r.rawName === "Anna Weber");
+  assert.equal(anna?.startTime, "09:00");
+  assert.equal(anna?.endTime, "17:00");
+  assert.ok(res.notes.some((n) => n.includes("Plan")));
+});
+
 test("extractScheduleFromXlsx reports notes when no matrix is recognizable", async () => {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Empty");
