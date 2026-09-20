@@ -12,6 +12,7 @@ import {
   calculateShiftMinutes,
   calculateUrlaubMinutesByEmployee,
   generateAutoPlanSlots,
+  getThursdayWeekKey,
   inferPositionCategory,
   normalizeAllowedPositions,
   type AutoPlanSlot,
@@ -2104,7 +2105,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
       .lte("availability_date", range.end),
     sb
       .from("dienstplan_shifts")
-      .select("employee_id, start_time, end_time, break_minutes")
+      .select("employee_id, shift_date, start_time, end_time, break_minutes")
       .gte("shift_date", range.start)
       .lte("shift_date", range.end),
     sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
@@ -2142,6 +2143,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   }[];
   const shifts = (shiftsResult.data ?? []) as {
     employee_id: number;
+    shift_date: string;
     start_time: string | null;
     end_time: string | null;
     break_minutes: number | null;
@@ -2161,6 +2163,10 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   );
 
   const currentHoursByEmployee = new Map<number, number>();
+  // Bereits verplante Wochen-Minuten je Mitarbeiter (Thursday-Woche, wie im
+  // deterministischen Auto-Plan) — Basis für die harte Wochenlimit-Prüfung
+  // der KI-Zuweisungen weiter unten.
+  const weeklyMinutesByEmployee = new Map<string, number>();
   for (const shift of shifts) {
     const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules, shift.break_minutes);
     if (!summary) continue;
@@ -2168,6 +2174,11 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
       shift.employee_id,
       (currentHoursByEmployee.get(shift.employee_id) ?? 0) + summary.workMinutes / 60
     );
+    const weekKey = getThursdayWeekKey(shift.shift_date);
+    if (weekKey) {
+      const key = `${shift.employee_id}-${weekKey}`;
+      weeklyMinutesByEmployee.set(key, (weeklyMinutesByEmployee.get(key) ?? 0) + summary.workMinutes);
+    }
   }
   for (const [empId, mins] of urlaubMinutesByEmployee) {
     currentHoursByEmployee.set(empId, (currentHoursByEmployee.get(empId) ?? 0) + mins / 60);
@@ -2210,10 +2221,10 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     })),
   });
 
-  if (aiResponse.assignments.length === 0) return;
+  if (aiResponse.assignments.length === 0) return { filled: 0, rejectedForFairness: 0 };
 
   const slotsById = new Map(slots.map((s) => [s.id, s]));
-  const employeeIds = new Set(employees.map((e) => e.id));
+  const employeesById = new Map(employees.map((e) => [e.id, e]));
   const usedEmployeeOnDay = new Set<string>();
   const blockedByAvailability = new Set<string>();
   for (const entry of availability) {
@@ -2223,19 +2234,42 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     }
   }
   const validAssignments: { slot_id: number; employee_id: number }[] = [];
+  // Harte Nachprüfung: die KI wird im Prompt gebeten, Wochen-Sollstunden +20%
+  // nicht zu überschreiten — hier wird das erzwungen, statt der Zusage der
+  // KI blind zu vertrauen. Zuweisungen, die das Limit sprengen würden,
+  // werden verworfen (Slot bleibt offen) statt jemanden zu überlasten.
+  let rejectedForFairness = 0;
 
   for (const a of aiResponse.assignments) {
     const slot = slotsById.get(a.slot_id);
     if (!slot) continue;
-    if (!employeeIds.has(a.employee_id)) continue;
+    const employee = employeesById.get(a.employee_id);
+    if (!employee) continue;
     const dayKey = `${a.employee_id}-${slot.slot_date}`;
     if (blockedByAvailability.has(dayKey)) continue; // F/U/K hart sperren, falls die KI sich verirrt
     if (usedEmployeeOnDay.has(dayKey)) continue;
+
+    const weeklyTargetMinutes = Math.max(0, Math.round(Number(employee.weekly_hours) * 60));
+    if (weeklyTargetMinutes > 0) {
+      const weekKey = getThursdayWeekKey(slot.slot_date);
+      const summary = calculateShiftMinutes(slot.start_time, slot.end_time, pauseRules);
+      const shiftMinutes = summary?.workMinutes ?? 0;
+      const weekMapKey = weekKey ? `${a.employee_id}-${weekKey}` : null;
+      const currentWeeklyMinutes = weekMapKey ? (weeklyMinutesByEmployee.get(weekMapKey) ?? 0) : 0;
+      if (currentWeeklyMinutes + shiftMinutes > weeklyTargetMinutes * 1.2) {
+        rejectedForFairness += 1;
+        continue;
+      }
+      if (weekMapKey) {
+        weeklyMinutesByEmployee.set(weekMapKey, currentWeeklyMinutes + shiftMinutes);
+      }
+    }
+
     usedEmployeeOnDay.add(dayKey);
     validAssignments.push({ slot_id: slot.id, employee_id: a.employee_id });
   }
 
-  if (validAssignments.length === 0) return;
+  if (validAssignments.length === 0) return { filled: 0, rejectedForFairness };
 
   const inserts = validAssignments
     .map(({ slot_id, employee_id }) => {
@@ -2267,9 +2301,11 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   await auditDienstplan(actor, "dienstplan_planned_slots_ai_fill", {
     month,
     filled: inserts.length,
+    rejectedForFairness,
   });
 
   revalidatePath(PLAN_PATH);
+  return { filled: inserts.length, rejectedForFairness };
 }
 
 export async function applyWeekdayDefaultsToDateAction(formData: FormData) {
