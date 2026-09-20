@@ -146,7 +146,7 @@ function SchedulePanel({
     }
     setBusy(true);
     try {
-      const isXlsx = /\.xlsx?$/i.test(file.name) || /spreadsheet/i.test(file.type);
+      const isXlsx = /\.(xlsx|xlsm|xls)$/i.test(file.name) || /spreadsheet|macroenabled/i.test(file.type);
       const fd = new FormData();
       fd.set("file", file);
       fd.set("kind", isXlsx ? "schedule_xlsx" : "schedule_pdf");
@@ -273,7 +273,7 @@ function SchedulePanel({
             <input
               ref={fileRef}
               type="file"
-              accept="application/pdf,.pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              accept="application/pdf,.pdf,.xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
               className="text-sm text-[hsl(var(--foreground))] file:mr-3 file:rounded-md file:border-0 file:bg-[hsl(var(--secondary))] file:px-3 file:py-1.5 file:text-sm"
             />
           </label>
@@ -686,7 +686,7 @@ function AvailabilityPanel({
             <input
               ref={fileRef}
               type="file"
-              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
               className="text-sm text-[hsl(var(--foreground))] file:mr-3 file:rounded-md file:border-0 file:bg-[hsl(var(--secondary))] file:px-3 file:py-1.5 file:text-sm"
             />
           </label>
