@@ -8,6 +8,7 @@ import {
   moveShiftAction,
   saveAvailabilityAction,
   clearMonthAction,
+  archiveMonthAction,
   buildPreplanForMonthAction,
   autoFillPlannedSlotsAction,
   createSpecialEventAction,
@@ -263,6 +264,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       moveShiftAction={moveShiftAction}
       saveAvailabilityAction={saveAvailabilityAction}
       clearMonthAction={clearMonthAction}
+      archiveMonthAction={archiveMonthAction}
       buildPreplanAction={buildPreplanForMonthAction}
       autoFillSlotsAction={autoFillPlannedSlotsAction}
       createSpecialEventAction={createSpecialEventAction}

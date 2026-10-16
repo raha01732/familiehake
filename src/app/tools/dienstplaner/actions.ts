@@ -21,6 +21,7 @@ import {
   SERVICELEITUNG_IN_PROJEKTION_NOTE,
   type PositionCategory,
 } from "./utils";
+import { archiveMonthToHistory, type ArchiveResult } from "@/lib/dienstplaner/archive";
 import { loadShiftRulesAndPeriods } from "@/lib/dienstplaner/rules-loader";
 import { loadPlanningRules, normalizePlanningRules } from "@/lib/dienstplaner/planning-rules";
 import { askAiToImprovePlan, dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
@@ -519,6 +520,26 @@ export async function savePlanningRulesAction(formData: FormData) {
   revalidatePath(SETTINGS_PATH);
   revalidatePath("/tools/dienstplaner/einstellungen");
   revalidatePath(PLAN_PATH);
+}
+
+/** Übernimmt die Schichten eines Monats in die Trainingsdaten (Knopf „Monat ins Archiv übernehmen“). */
+export async function archiveMonthAction(formData: FormData): Promise<ArchiveResult> {
+  const actor = await assertAdminForDienstplanAutomation();
+
+  const month = String(formData.get("month") || "");
+  const sb = createAdminClient();
+  const result = await archiveMonthToHistory(sb, month);
+
+  if (result.ok) {
+    await auditDienstplan(actor, "dienstplan_month_archive", {
+      month,
+      written: result.written,
+      alreadyPresent: result.alreadyPresent,
+      skipped: result.skipped,
+    });
+    revalidatePath("/tools/dienstplaner/import");
+  }
+  return result;
 }
 
 export async function clearMonthAvailabilityAction(formData: FormData) {

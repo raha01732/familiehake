@@ -203,6 +203,7 @@ test("overlapping periods: the later start wins; day overrides beat periods", ()
 
 // ── Prüfmodus und KI-Verbesserungsschleife ────────────────────────────────────
 import { improvePlanWithAi } from "../src/lib/dienstplaner/plan-improve";
+import { archiveSourceNote, buildHistoryRows } from "../src/lib/dienstplaner/archive";
 
 const planEmployees = [
   { id: 1, position: null, monthly_hours: 40, weekly_hours: 10 },
@@ -404,4 +405,29 @@ test("isServiceleitungInProjektion erkennt Serviceleitung auf Projektionsschicht
   assert.equal(isServiceleitungInProjektion({ position_category: "serviceleitung", position: null }, "Serviceleitung"), false);
   assert.equal(isServiceleitungInProjektion({ position_category: "serviceleitung", position: null }, null), false);
   assert.equal(isServiceleitungInProjektion(null, "Projektion"), false);
+});
+
+test("buildHistoryRows wandelt Monatsplan-Schichten in Trainingsdaten um", () => {
+  const { rows, skipped } = buildHistoryRows(
+    "2026-10",
+    [
+      { employee_id: 1, shift_date: "2026-10-02", start_time: "16:00:00", end_time: "00:00:00", position: "Projektion" },
+      { employee_id: 2, shift_date: "2026-10-02", start_time: "10:00", end_time: "18:00", position: null },
+      { employee_id: 2, shift_date: "2026-10-03", start_time: null, end_time: null },
+      { employee_id: 99, shift_date: "2026-10-03", start_time: "10:00", end_time: "18:00" },
+    ],
+    [
+      { id: 1, name: "Anna Beispiel", position: "Serviceleitung" },
+      { id: 2, name: "Ben Muster", position: "Projektion" },
+    ]
+  );
+  assert.equal(skipped, 2);
+  assert.equal(rows.length, 2);
+  // Position der Schicht hat Vorrang, sonst die Standardposition der Person
+  assert.equal(rows[0]?.position, "Projektion");
+  assert.equal(rows[1]?.position, "Projektion");
+  assert.equal(rows[0]?.start_time, "16:00");
+  assert.equal(rows[0]?.end_time, "00:00");
+  assert.equal(rows[0]?.source_note, archiveSourceNote("2026-10"));
+  assert.equal(rows[0]?.employee_name, "Anna Beispiel");
 });

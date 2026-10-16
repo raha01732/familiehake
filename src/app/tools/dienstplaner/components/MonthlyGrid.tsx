@@ -61,6 +61,7 @@ type Props = {
   moveShiftAction: (_fd: FormData) => Promise<void>;
   saveAvailabilityAction: (_fd: FormData) => Promise<void>;
   clearMonthAction: (_fd: FormData) => Promise<void>;
+  archiveMonthAction: (_fd: FormData) => Promise<{ ok: boolean; message: string }>;
   buildPreplanAction: (_fd: FormData) => Promise<void>;
   autoFillSlotsAction: (_fd: FormData) => Promise<AutoPlanCallResult | void>;
   createSpecialEventAction: (_fd: FormData) => Promise<void>;
@@ -183,6 +184,7 @@ export default function MonthlyGrid({
   moveShiftAction,
   saveAvailabilityAction,
   clearMonthAction,
+  archiveMonthAction,
   buildPreplanAction,
   autoFillSlotsAction,
   createSpecialEventAction,
@@ -208,6 +210,8 @@ export default function MonthlyGrid({
   const [isBuildingPreplan, startBuildingPreplan] = useTransition();
   const [isClearing, startClearing] = useTransition();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  const [isArchiving, startArchiving] = useTransition();
   const [isMoving, startMoving] = useTransition();
   const [moveError, setMoveError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -386,6 +390,24 @@ export default function MonthlyGrid({
         await moveShiftAction(fd);
       } catch {
         setMoveError("Schicht konnte nicht verschoben werden.");
+      }
+    });
+  }
+
+  function handleArchiveMonth() {
+    const fd = new FormData();
+    fd.set("month", month);
+    setActionError(null);
+    setAiNotice(null);
+    startArchiving(async () => {
+      try {
+        const result = await archiveMonthAction(fd);
+        setShowArchiveConfirm(false);
+        if (result.ok) setAiNotice(result.message);
+        else setActionError(result.message);
+      } catch (err) {
+        setShowArchiveConfirm(false);
+        setActionError(err instanceof Error ? err.message : "Archivierung fehlgeschlagen");
       }
     });
   }
@@ -635,6 +657,37 @@ export default function MonthlyGrid({
                   {isAutoFilling ? "Fülle…" : "2. Auto-Plan"}
                 </button>
               </>
+            )}
+
+            {/* Monat als Trainingsdaten übernehmen */}
+            {showArchiveConfirm ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[hsl(var(--muted-foreground))] max-w-[22rem]">
+                  Alle Schichten dieses Monats als Trainingsdaten speichern? Der Monat sollte abgeschlossen und
+                  geprüft sein.
+                </span>
+                <button
+                  onClick={handleArchiveMonth}
+                  disabled={isArchiving}
+                  className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isArchiving ? "…" : "Ja, übernehmen"}
+                </button>
+                <button
+                  onClick={() => setShowArchiveConfirm(false)}
+                  className="px-3 py-1.5 bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] text-xs rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+                >
+                  Abbrechen
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowArchiveConfirm(true)}
+                className="px-3 py-1.5 text-xs bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg transition-colors"
+                title="Speichert die Schichten dieses Monats als Trainingsdaten (Archiv), die der KI-Prüfung als Orientierung dienen."
+              >
+                Monat ins Archiv übernehmen
+              </button>
             )}
 
             {/* Destruktiv */}

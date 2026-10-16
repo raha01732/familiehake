@@ -79,6 +79,7 @@ export const AUDIT_ACTIONS = [
   "dienstplan_week_copy",
   "dienstplan_month_clear",
   "dienstplan_month_autoplan",
+  "dienstplan_month_archive",
   "dienstplan_employee_create",
   "dienstplan_employee_update",
   "dienstplan_employee_delete",

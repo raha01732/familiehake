@@ -177,6 +177,7 @@ const ACTION_LABELS: Record<string, string> = {
   dienstplan_week_copy: "Woche kopiert",
   dienstplan_month_clear: "Monat geleert",
   dienstplan_month_autoplan: "Monat automatisch geplant",
+  dienstplan_month_archive: "Monat ins Archiv übernommen",
   dienstplan_employee_create: "Mitarbeiter angelegt",
   dienstplan_employee_update: "Mitarbeiter geändert",
   dienstplan_employee_delete: "Mitarbeiter gelöscht",
@@ -288,6 +289,11 @@ export function describeAuditEvent(row: AuditRow, lookups: AuditNameLookups = {}
       const month = formatMonthDe(str(d, "month"));
       const created = num(d, "created") ?? num(d, "count");
       return `Monat ${month ?? ""} automatisch geplant${created != null ? ` (${created} Schichten)` : ""}`.replace("  ", " ");
+    }
+    case "dienstplan_month_archive": {
+      const month = formatMonthDe(str(d, "month"));
+      const written = num(d, "written");
+      return `Monat ${month ?? ""} ins Archiv übernommen${written != null ? ` (${written} Schichten)` : ""}`.replace("  ", " ");
     }
     case "dienstplan_employee_create":
       return `Mitarbeiter ${employeeName(d, lookups)} angelegt`;

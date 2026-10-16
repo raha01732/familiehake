@@ -28,6 +28,12 @@
 - Die roten Slots werden aus Regeln, Tages-Anpassungen und Sonderveranstaltungen erzeugt (`regenerateSlotsForDates`). Tages-Änderungen bauen den Tag sofort neu auf, Regeländerungen wirken bei „1. Vorplanung“. Manuell angelegte Slots bleiben erhalten.
 - Migration: `dienstplaner-shift-rules-migration.sql` (übernimmt bestehende Wochentag-Anforderungen als Regeln).
 
+## Archiv / Trainingsdaten
+- Knopf **„Monat ins Archiv übernehmen“** im Monatsplan (nur Admins): schreibt die Schichten des Monats nach `dienstplan_history_shifts` (`src/lib/dienstplaner/archive.ts`). Die KI-Prüfung nutzt diese Daten als Orientierung.
+- Wiederholtes Übernehmen desselben Monats ersetzt die frühere Archivierung (Quelle „Monatsplan YYYY-MM“); Zeilen aus PDF-Importen bleiben unverändert.
+- Gespeichert wird die Position der Schicht (falls bekannt), sonst die Standardposition der Person.
+- **Vorbereitet, nicht aktiv:** Cron `/api/cron/archive-dienstplan` archiviert den Vormonat. Aktivieren: Env `DIENSTPLAN_AUTO_ARCHIVE=true` + Eintrag in `vercel.json` (z. B. `0 4 2 * *`). Vorsicht: ungeprüfte Monate trainieren die KI auf ihren eigenen Ergebnissen.
+
 ## Empfohlene nächste Integrationen (kostenbewusst)
 
 ### 1) Supabase (kostenfrei startbar)
