@@ -8,19 +8,21 @@ import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import { logAudit, actorFromUser, type AuditAction } from "@/lib/audit";
 import {
+  addHoursToTime,
   calculateShiftMinutes,
   calculateUrlaubMinutesByEmployee,
   generateAutoPlanSlots,
-  getThursdayWeekKey,
   inferPositionCategory,
   isAllowedForCategory,
   normalizeAllowedPositions,
   type PauseRule,
+  type AutoPlanResult,
   type PositionCategory,
 } from "./utils";
 import { loadShiftRulesAndPeriods } from "@/lib/dienstplaner/rules-loader";
 import { loadPlanningRules, normalizePlanningRules } from "@/lib/dienstplaner/planning-rules";
-import { askAiToAssignSlots, dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
+import { askAiToImprovePlan, dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
+import { improvePlanWithAi } from "@/lib/dienstplaner/plan-improve";
 import {
   buildHistoryPromptBlock,
   computeHistoryInsights,
@@ -1369,6 +1371,19 @@ async function loadPlannerEmployees(sb: ReturnType<typeof createAdminClient>): P
   }));
 }
 
+export type AutoFillAiSummary = {
+  /** Wie oft die KI befragt wurde */
+  rounds: number;
+  /** In wie vielen Runden Vorschläge übernommen wurden */
+  applied: number;
+  /** Anzahl Slots, die die KI anders besetzt hat als der Algorithmus */
+  changed: number;
+  scoreBefore: number;
+  scoreAfter: number;
+  notes: string[];
+  error?: string;
+};
+
 function readNumberOption(formData: FormData, key: string, fallback: number, min: number, max: number) {
   const raw = formData.get(key);
   const value = raw === null || raw === "" ? fallback : Number(raw);
@@ -1469,7 +1484,7 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
     hourDefaults
   );
 
-  const { plannedShifts: generated, unfilledSlots } = generateAutoPlanSlots({
+  const planParams = {
     employees,
     existingShifts: [...existingShifts, ...edgeShifts.map((shift) => ({ ...shift, context: true }))],
     availability,
@@ -1486,10 +1501,129 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
     minRestMinutes,
     maxConsecutiveDays,
     extraMonthlyMinutesByEmployee: extraMinutesByEmployee,
-  });
+  };
+
+  // Schritt 1: Algorithmus plant regelbasiert. Schritt 2 (optional): KI prüft und verbessert in Runden;
+  // jede Änderung wird gegen die harten Regeln geprüft und nur bei besserer Planqualität übernommen.
+  const useAi = formData.get("use_ai") === "true" && dienstplanAiEnabled() && slots.length > 0;
+  const aiRounds = readNumberOption(formData, "ai_rounds", 3, 1, 5);
+
+  let generated: AutoPlanResult["plannedShifts"];
+  let unfilledSlots: AutoPlanResult["unfilledSlots"];
+  let changedBySlot = new Set<number>();
+  let aiSummary: AutoFillAiSummary | undefined;
+
+  if (useAi) {
+    let history: string | undefined;
+    try {
+      const historyResult = await sb
+        .from("dienstplan_history_shifts")
+        .select("shift_date, employee_name, employee_id, position, start_time, end_time, source_note")
+        .order("shift_date", { ascending: false })
+        .limit(4000);
+      if (!historyResult.error && Array.isArray(historyResult.data) && historyResult.data.length > 0) {
+        history = buildHistoryPromptBlock(computeHistoryInsights(historyResult.data as HistoryShift[]));
+      }
+    } catch {
+      // Historie ist optional
+    }
+
+    const slotById = new Map(slots.map((slot) => [slot.id, slot]));
+    const baseMinutes = new Map<number, number>();
+    for (const shift of existingShifts) {
+      const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules);
+      if (summary) baseMinutes.set(shift.employee_id, (baseMinutes.get(shift.employee_id) ?? 0) + summary.workMinutes);
+    }
+    for (const [employeeId, minutes] of extraMinutesByEmployee) {
+      baseMinutes.set(employeeId, (baseMinutes.get(employeeId) ?? 0) + minutes);
+    }
+
+    const outcome = await improvePlanWithAi(
+      planParams,
+      async (request) => {
+        const plannedMinutes = new Map(baseMinutes);
+        for (const assignment of request.assignments) {
+          const slot = slotById.get(assignment.slot_id);
+          const employee = employees.find((entry) => entry.id === assignment.employee_id);
+          if (!slot || !employee) continue;
+          const start = slot.start_time.slice(0, 5);
+          const isServiceleitung = employee.position?.trim().toLowerCase() === "serviceleitung";
+          const end = isServiceleitung
+            ? (addHoursToTime(start, 8) ?? slot.end_time.slice(0, 5))
+            : slot.end_time.slice(0, 5);
+          const summary = calculateShiftMinutes(start, end, pauseRules);
+          if (summary) {
+            plannedMinutes.set(employee.id, (plannedMinutes.get(employee.id) ?? 0) + summary.workMinutes);
+          }
+        }
+        return askAiToImprovePlan({
+          month,
+          round: request.round,
+          score: request.score,
+          rules: {
+            max_shifts_per_week: maxShiftsPerWeek,
+            min_rest_hours: minRestMinutes / 60,
+            max_consecutive_days: maxConsecutiveDays,
+          },
+          slots: slots.map((slot) => ({
+            id: slot.id,
+            date: slot.slot_date,
+            weekday: new Date(`${slot.slot_date}T00:00:00Z`).getUTCDay(),
+            position: slot.position,
+            leader_only: slotRequiresLeader(slot.position, slot.require_leader),
+            start_time: slot.start_time.slice(0, 5),
+            end_time: slot.end_time.slice(0, 5),
+            note: null,
+          })),
+          employees: employees.map((employee) => {
+            const planned = Math.round(((plannedMinutes.get(employee.id) ?? 0) / 60) * 10) / 10;
+            const target = Number(employee.monthly_hours) || 0;
+            return {
+              id: employee.id,
+              name: employee.name,
+              position: employee.position,
+              allowed_positions: employee.allowed_positions,
+              monthly_target_hours: target,
+              weekly_target_hours: Number(employee.weekly_hours) || 0,
+              planned_month_hours: planned,
+              delta_hours: Math.round((planned - target) * 10) / 10,
+            };
+          }),
+          availability: availability.map((entry) => ({
+            employee_id: entry.employee_id,
+            date: entry.availability_date,
+            status: entry.status,
+            fixed_start: entry.fixed_start,
+            fixed_end: entry.fixed_end,
+          })),
+          assignments: request.assignments,
+          unfilled: request.unfilled,
+          history,
+        });
+      },
+      aiRounds
+    );
+
+    generated = outcome.result.plannedShifts;
+    unfilledSlots = outcome.result.unfilledSlots;
+    changedBySlot = new Set(outcome.changedSlotIds);
+    aiSummary = {
+      rounds: outcome.roundsAsked,
+      applied: outcome.roundsApplied,
+      changed: outcome.changedSlotIds.length,
+      scoreBefore: outcome.scoreBefore,
+      scoreAfter: outcome.scoreAfter,
+      notes: outcome.notes,
+      error: outcome.error,
+    };
+  } else {
+    const result = generateAutoPlanSlots(planParams);
+    generated = result.plannedShifts;
+    unfilledSlots = result.unfilledSlots;
+  }
 
   if (generated.length === 0) {
-    return { plannedShifts: generated, unfilledSlots };
+    return { plannedShifts: generated, unfilledSlots, ai: aiSummary };
   }
 
   // Jede Zuweisung gehört über slot_id zu genau einem offenen Slot
@@ -1497,11 +1631,11 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
   const assignedSlotIds = new Set(filledShifts.map((shift) => shift.slot_id as number));
 
   const { error: upsertError } = await sb.from("dienstplan_shifts").upsert(
-    filledShifts.map(({ slot_id: _slotId, ...shift }) => ({
+    filledShifts.map(({ slot_id, ...shift }) => ({
       ...shift,
       break_minutes: null,
       comment: null,
-      raw_input: "auto-fill-slot",
+      raw_input: slot_id !== undefined && changedBySlot.has(slot_id) ? "ai-assignment" : "auto-fill-slot",
     })),
     { onConflict: "employee_id,shift_date" }
   );
@@ -1514,260 +1648,11 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
   await auditDienstplan(actor, "dienstplan_planned_slots_autofill", {
     month,
     filled: filledShifts.length,
+    ...(aiSummary ? { ai_rounds: aiSummary.rounds, ai_changed: aiSummary.changed } : {}),
   });
 
   revalidatePath(PLAN_PATH);
-  return { plannedShifts: generated, unfilledSlots };
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// KI-Assistent: ordnet unbesetzte Slots fairen Mitarbeitenden zu
-// ──────────────────────────────────────────────────────────────────────
-
-export async function aiFillPlannedSlotsAction(formData: FormData) {
-  const actor = await assertAdminForDienstplanAutomation();
-
-  if (!dienstplanAiEnabled()) {
-    throw new Error("KI ist nicht verfügbar (GEMINI_API_KEY fehlt).");
-  }
-
-  const month = String(formData.get("month") || "");
-  const range = getMonthRange(month);
-  if (!range) return;
-
-  const sb = createAdminClient();
-  const aiSlotColumns = await plannedSlotColumns(sb, "id, slot_date, position, start_time, end_time, note");
-  const [
-    employeesResult,
-    slotsResult,
-    availabilityResult,
-    shiftsResult,
-    pauseRulesResult,
-    hourDefaultsResult,
-    historyResult,
-  ] = await Promise.all([
-    loadPlannerEmployees(sb),
-    sb
-      .from("dienstplan_planned_slots")
-      .select(aiSlotColumns)
-      .is("assigned_employee_id", null)
-      .gte("slot_date", range.start)
-      .lte("slot_date", range.end)
-      .order("slot_date"),
-    sb
-      .from("dienstplan_availability")
-      .select("employee_id, availability_date, status, fixed_start, fixed_end")
-      .gte("availability_date", range.start)
-      .lte("availability_date", range.end),
-    sb
-      .from("dienstplan_shifts")
-      .select("employee_id, shift_date, start_time, end_time, break_minutes")
-      .gte("shift_date", range.start)
-      .lte("shift_date", range.end),
-    sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
-    sb.from("dienstplan_employment_hour_defaults").select("employment_type, vacation_hours_per_day"),
-    sb
-      .from("dienstplan_history_shifts")
-      .select("shift_date, employee_name, employee_id, position, start_time, end_time, source_note")
-      .order("shift_date", { ascending: false })
-      .limit(4000),
-  ]);
-
-  const employees = employeesResult;
-  const slots = (slotsResult.data ?? []) as unknown as {
-    id: number;
-    slot_date: string;
-    position: string | null;
-    start_time: string;
-    end_time: string;
-    require_leader?: boolean;
-    note: string | null;
-  }[];
-  const availability = (availabilityResult.data ?? []) as {
-    employee_id: number;
-    availability_date: string;
-    status: string | null;
-    fixed_start: string | null;
-    fixed_end: string | null;
-  }[];
-  const shifts = (shiftsResult.data ?? []) as {
-    employee_id: number;
-    shift_date: string;
-    start_time: string | null;
-    end_time: string | null;
-    break_minutes: number | null;
-  }[];
-  const pauseRules = (pauseRulesResult.data ?? []) as PauseRule[];
-  const hourDefaults = (hourDefaultsResult.data ?? []) as {
-    employment_type: string;
-    vacation_hours_per_day: number;
-  }[];
-
-  if (slots.length === 0) return;
-
-  const urlaubMinutesByEmployee = calculateUrlaubMinutesByEmployee(
-    availability.map((a) => ({ employee_id: a.employee_id, status: a.status })),
-    employees.map((e) => ({ id: e.id, employment_type: e.employment_type })),
-    hourDefaults
-  );
-
-  const currentHoursByEmployee = new Map<number, number>();
-  // Bereits verplante Wochen-Minuten je Mitarbeiter (Thursday-Woche, wie im
-  // deterministischen Auto-Plan) — Basis für die harte Wochenlimit-Prüfung
-  // der KI-Zuweisungen weiter unten.
-  const weeklyMinutesByEmployee = new Map<string, number>();
-  for (const shift of shifts) {
-    const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules, shift.break_minutes);
-    if (!summary) continue;
-    currentHoursByEmployee.set(
-      shift.employee_id,
-      (currentHoursByEmployee.get(shift.employee_id) ?? 0) + summary.workMinutes / 60
-    );
-    const weekKey = getThursdayWeekKey(shift.shift_date);
-    if (weekKey) {
-      const key = `${shift.employee_id}-${weekKey}`;
-      weeklyMinutesByEmployee.set(key, (weeklyMinutesByEmployee.get(key) ?? 0) + summary.workMinutes);
-    }
-  }
-  for (const [empId, mins] of urlaubMinutesByEmployee) {
-    currentHoursByEmployee.set(empId, (currentHoursByEmployee.get(empId) ?? 0) + mins / 60);
-  }
-
-  let historyBlock = "";
-  if (!historyResult.error && Array.isArray(historyResult.data) && historyResult.data.length > 0) {
-    historyBlock = buildHistoryPromptBlock(
-      computeHistoryInsights(historyResult.data as HistoryShift[])
-    );
-  }
-
-  const aiResponse = await askAiToAssignSlots({
-    month,
-    history: historyBlock || undefined,
-    slots: slots.map((slot) => ({
-      id: slot.id,
-      date: slot.slot_date,
-      weekday: new Date(`${slot.slot_date}T00:00:00Z`).getUTCDay(),
-      position: slot.position,
-      start_time: slot.start_time.slice(0, 5),
-      end_time: slot.end_time.slice(0, 5),
-      note: slotRequiresLeader(slot.position, slot.require_leader)
-        ? [slot.note, "NUR Projektionsleitung einsetzen"].filter(Boolean).join(" – ")
-        : slot.note,
-    })),
-    employees: employees.map((emp) => ({
-      id: emp.id,
-      name: emp.name,
-      position: emp.position,
-      position_category: emp.position_category,
-      monthly_target_hours: Number(emp.monthly_hours) || 0,
-      weekly_target_hours: Number(emp.weekly_hours) || 0,
-      current_month_hours: Math.round(((currentHoursByEmployee.get(emp.id) ?? 0) + Number.EPSILON) * 100) / 100,
-    })),
-    availability: availability.map((entry) => ({
-      employee_id: entry.employee_id,
-      date: entry.availability_date,
-      status: entry.status,
-      fixed_start: entry.fixed_start,
-      fixed_end: entry.fixed_end,
-    })),
-  });
-
-  if (aiResponse.assignments.length === 0) return { filled: 0, rejectedForFairness: 0 };
-
-  const slotsById = new Map(slots.map((s) => [s.id, s]));
-  // Bestehende Schichten belegen den Tag - sonst würde der Upsert sie überschreiben
-  const usedEmployeeOnDay = new Set<string>(shifts.map((shift) => `${shift.employee_id}-${shift.shift_date}`));
-  const employeesById = new Map(employees.map((e) => [e.id, e]));
-  const blockedByAvailability = new Set<string>();
-  for (const entry of availability) {
-    const status = (entry.status ?? "").toLowerCase();
-    if (status === "f" || status === "u" || status === "k") {
-      blockedByAvailability.add(`${entry.employee_id}-${entry.availability_date}`);
-    }
-  }
-  const validAssignments: { slot_id: number; employee_id: number }[] = [];
-  // Harte Nachprüfung: die KI wird im Prompt gebeten, Wochen-Sollstunden +20%
-  // nicht zu überschreiten — hier wird das erzwungen, statt der Zusage der
-  // KI blind zu vertrauen. Zuweisungen, die das Limit sprengen würden,
-  // werden verworfen (Slot bleibt offen) statt jemanden zu überlasten.
-  let rejectedForFairness = 0;
-
-  for (const a of aiResponse.assignments) {
-    const slot = slotsById.get(a.slot_id);
-    if (!slot) continue;
-    const employee = employeesById.get(a.employee_id);
-    if (!employee) continue;
-    const dayKey = `${a.employee_id}-${slot.slot_date}`;
-    if (blockedByAvailability.has(dayKey)) continue; // F/U/K hart sperren, falls die KI sich verirrt
-    if (usedEmployeeOnDay.has(dayKey)) continue;
-    const slotCategory = inferPositionCategory(slot.position);
-    const allowed = employeesById.get(a.employee_id)?.allowed_positions ?? null;
-    if (slotCategory && !isAllowedForCategory(allowed, slotCategory, slotRequiresLeader(slot.position, slot.require_leader))) {
-      continue;
-    }
-
-    const weeklyTargetMinutes = Math.max(0, Math.round(Number(employee.weekly_hours) * 60));
-    if (weeklyTargetMinutes > 0) {
-      const weekKey = getThursdayWeekKey(slot.slot_date);
-      const summary = calculateShiftMinutes(slot.start_time, slot.end_time, pauseRules);
-      const shiftMinutes = summary?.workMinutes ?? 0;
-      const weekMapKey = weekKey ? `${a.employee_id}-${weekKey}` : null;
-      const currentWeeklyMinutes = weekMapKey ? (weeklyMinutesByEmployee.get(weekMapKey) ?? 0) : 0;
-      if (currentWeeklyMinutes + shiftMinutes > weeklyTargetMinutes * 1.2) {
-        rejectedForFairness += 1;
-        continue;
-      }
-      if (weekMapKey) {
-        weeklyMinutesByEmployee.set(weekMapKey, currentWeeklyMinutes + shiftMinutes);
-      }
-    }
-
-    usedEmployeeOnDay.add(dayKey);
-    validAssignments.push({ slot_id: slot.id, employee_id: a.employee_id });
-  }
-
-  if (validAssignments.length === 0) return { filled: 0, rejectedForFairness };
-
-  const inserts = validAssignments
-    .map(({ slot_id, employee_id }) => {
-      const slot = slotsById.get(slot_id);
-      if (!slot) return null;
-      return {
-        employee_id,
-        shift_date: slot.slot_date,
-        start_time: slot.start_time,
-        end_time: slot.end_time,
-        break_minutes: null,
-        comment: slot.note ?? null,
-        raw_input: "ai-assignment",
-      };
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
-
-  if (inserts.length > 0) {
-    const { error: upsertError } = await sb
-      .from("dienstplan_shifts")
-      .upsert(inserts, { onConflict: "employee_id,shift_date" });
-    if (upsertError) {
-      throw new Error(`AI_PLAN_SAVE_FAILED: ${upsertError.message}`);
-    }
-    await sb
-      .from("dienstplan_planned_slots")
-      .delete()
-      .in(
-        "id",
-        validAssignments.map((a) => a.slot_id)
-      );
-  }
-
-  await auditDienstplan(actor, "dienstplan_planned_slots_ai_fill", {
-    month,
-    filled: inserts.length,
-    rejectedForFairness,
-  });
-
-  revalidatePath(PLAN_PATH);
-  return { filled: inserts.length, rejectedForFairness };
+  return { plannedShifts: generated, unfilledSlots, ai: aiSummary };
 }
 
 // ──────────────────────────────────────────────────────────────────────

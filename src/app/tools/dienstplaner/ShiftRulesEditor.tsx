@@ -138,14 +138,14 @@ function RuleForm({
           {WEEKDAY_ORDER.map((day) => {
             const active = days.includes(day);
             return (
-              <label key={day} className="cursor-pointer select-none">
+              <label key={day} className="relative inline-flex cursor-pointer select-none">
                 <input
                   type="checkbox"
                   name="weekdays"
                   value={day}
                   checked={active}
                   onChange={() => toggleDay(day)}
-                  className="sr-only peer"
+                  className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
                   disabled={isReadOnly}
                 />
                 <span

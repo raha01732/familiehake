@@ -84,7 +84,7 @@ export default function PreplanModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl w-full max-w-4xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden">
+      <div className="relative bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl w-full max-w-4xl shadow-2xl max-h-[92vh] flex flex-col overflow-clip">
         <div className="flex items-center gap-3 p-5 border-b border-[hsl(var(--border))]">
           <div>
             <h2 className="font-semibold text-[hsl(var(--foreground))]">Vorplanung – {monthLabel}</h2>
@@ -104,7 +104,7 @@ export default function PreplanModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-6">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 flex flex-col gap-6">
           {!rulesAvailable && (
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
               Die Schichtregeln sind noch nicht eingerichtet. Bitte <code>dienstplaner-shift-rules-migration.sql</code>{" "}

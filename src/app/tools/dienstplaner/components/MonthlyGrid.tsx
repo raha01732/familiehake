@@ -26,6 +26,7 @@ import {
 } from "../utils";
 import ShiftModal from "./ShiftModal";
 import AutoPlanConfigModal, { type AutoPlanConfig } from "./AutoPlanConfigModal";
+import type { PlanningRules } from "@/lib/dienstplaner/planning-rules";
 import EmployeeShiftSummaryModal from "./EmployeeShiftSummaryModal";
 import DayDetailsModal from "./DayDetailsModal";
 import type { DayRequirement, RulePeriod, ShiftRule } from "../requirements";
@@ -46,7 +47,7 @@ type Props = {
   /** Admin ODER in den Einstellungen freigeschalteter Bearbeiter (Verfügbarkeiten). */
   canEditAvailability: boolean;
   aiEnabled: boolean;
-  planningRules: AutoPlanConfig;
+  planningRules: PlanningRules;
   shiftRules: ShiftRule[];
   rulePeriods: RulePeriod[];
   rulesAvailable: boolean;
@@ -59,7 +60,6 @@ type Props = {
   clearMonthAction: (_fd: FormData) => Promise<void>;
   buildPreplanAction: (_fd: FormData) => Promise<void>;
   autoFillSlotsAction: (_fd: FormData) => Promise<AutoPlanCallResult | void>;
-  aiFillSlotsAction: (_fd: FormData) => Promise<{ filled: number; rejectedForFairness: number } | void>;
   createSpecialEventAction: (_fd: FormData) => Promise<void>;
   updateSpecialEventAction: (_fd: FormData) => Promise<void>;
   deleteSpecialEventAction: (_fd: FormData) => Promise<void>;
@@ -73,7 +73,29 @@ const WEEKDAY_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 type AutoPlanCallResult = {
   plannedShifts: { employee_id: number; shift_date: string; start_time: string; end_time: string }[];
   unfilledSlots: UnfilledSlotReport[];
+  ai?: {
+    rounds: number;
+    applied: number;
+    changed: number;
+    scoreBefore: number;
+    scoreAfter: number;
+    notes: string[];
+    error?: string;
+  };
 };
+
+function describeAiResult(ai: NonNullable<AutoPlanCallResult["ai"]>): string {
+  if (ai.error && ai.rounds <= 1 && ai.applied === 0) {
+    return `Plan vom Algorithmus erstellt. Die KI-Prüfung ist fehlgeschlagen (${ai.error}).`;
+  }
+  if (ai.changed === 0) {
+    return "Plan erstellt. Die KI-Prüfung hat keine weitere Verbesserung gefunden.";
+  }
+  return (
+    `Plan erstellt. KI hat ${ai.changed} Besetzung${ai.changed === 1 ? "" : "en"} in ${ai.applied} ` +
+    `Runde${ai.applied === 1 ? "" : "n"} verbessert (Bewertung ${ai.scoreBefore} → ${ai.scoreAfter}, niedriger ist besser).`
+  );
+}
 
 /** Ordnet eine Schicht anhand von Beginn/Ende einer Schichtart zu (nur für die Darstellung). */
 function classifyShift(start: string, end: string): { label: string; cls: string } {
@@ -152,7 +174,6 @@ export default function MonthlyGrid({
   clearMonthAction,
   buildPreplanAction,
   autoFillSlotsAction,
-  aiFillSlotsAction,
   createSpecialEventAction,
   updateSpecialEventAction,
   deleteSpecialEventAction,
@@ -173,7 +194,6 @@ export default function MonthlyGrid({
     setShowAutoPlanConfig(true);
   }
   const [isAutoFilling, startAutoFilling] = useTransition();
-  const [isAiFilling, startAiFilling] = useTransition();
   const [isBuildingPreplan, startBuildingPreplan] = useTransition();
   const [isClearing, startClearing] = useTransition();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -301,40 +321,20 @@ export default function MonthlyGrid({
     fd.set("max_shifts_per_week", String(config.max_shifts_per_week));
     fd.set("min_rest_hours", String(config.min_rest_hours));
     fd.set("max_consecutive_days", String(config.max_consecutive_days));
+    fd.set("use_ai", config.use_ai ? "true" : "false");
+    fd.set("ai_rounds", String(config.ai_rounds));
     setActionError(null);
+    setAiNotice(null);
     startAutoFilling(async () => {
       try {
         const result = await autoFillSlotsAction(fd);
         setShowAutoPlanConfig(false);
+        if (result?.ai) setAiNotice(describeAiResult(result.ai));
         if (result && result.unfilledSlots.length > 0) {
           setUnfilledReport(result.unfilledSlots);
         }
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Auto-Befüllung fehlgeschlagen");
-      }
-    });
-  }
-
-  function handleAiFillSlots() {
-    const fd = new FormData();
-    fd.set("month", month);
-    setActionError(null);
-    setAiNotice(null);
-    startAiFilling(async () => {
-      try {
-        const result = await aiFillSlotsAction(fd);
-        if (result && result.rejectedForFairness > 0) {
-          setAiNotice(
-            `KI hat ${result.filled} Slot(s) besetzt — ${result.rejectedForFairness} Vorschlag/Vorschläge ` +
-              `wegen Wochenlimit-Überschreitung verworfen (Slot bleibt offen).`
-          );
-        } else if (result) {
-          setAiNotice(`KI hat ${result.filled} Slot(s) besetzt.`);
-        } else {
-          setAiNotice("KI hat die unbesetzten Slots verarbeitet.");
-        }
-      } catch (err) {
-        setActionError(err instanceof Error ? err.message : "KI-Befüllung fehlgeschlagen");
       }
     });
   }
@@ -568,35 +568,17 @@ export default function MonthlyGrid({
               1. Vorplanung
             </button>
 
-            {/* Schritt 2: Slots besetzen (Auto + optional KI) */}
+            {/* Schritt 2: Slots besetzen (Algorithmus + optional KI-Prüfung) */}
             {totalOpenSlots > 0 && (
               <>
                 <button
                   onClick={openAutoPlanConfig}
                   disabled={isAutoFilling}
                   className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors disabled:opacity-60"
-                  title="Schritt 2: verteilt die roten Slots fair auf Mitarbeitende (Soll-Stunden, Verfügbarkeiten, Ruhezeit, Wochenlimit). Regeln vorher einstellbar."
+                  title="Schritt 2: verteilt die roten Slots regelbasiert und fair; optional prüft und verbessert die KI den Plan in Runden. Regeln vorher einstellbar."
                 >
                   {isAutoFilling ? "Fülle…" : "2. Auto-Plan"}
                 </button>
-                {aiEnabled && (
-                  <button
-                    onClick={handleAiFillSlots}
-                    disabled={isAiFilling}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-medium rounded-lg transition-colors disabled:opacity-60"
-                    title="Alternativ zu Auto-Plan: KI (Gemini) verteilt die roten Slots — gleiche Regeln, andere Heuristik."
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                      />
-                    </svg>
-                    {isAiFilling ? "KI plant…" : "2. KI-Plan"}
-                  </button>
-                )}
               </>
             )}
 
@@ -635,9 +617,8 @@ export default function MonthlyGrid({
         <div className="px-4 py-1.5 border-b border-[hsl(var(--border))] bg-[hsl(var(--card)/0.6)] text-[11px] text-[hsl(var(--muted-foreground))]">
           Workflow: <strong className="text-[hsl(var(--foreground))]">1. Vorplanung</strong> erzeugt rote Slots
           aus Wochentag-Bedarf + Sonderveranstaltungen ·{" "}
-          <strong className="text-[hsl(var(--foreground))]">2. Auto-Plan</strong>
-          {aiEnabled && <> oder <strong className="text-[hsl(var(--foreground))]">KI-Plan</strong></>} verteilt
-          die Slots fair auf Mitarbeitende. Manuelle Schichten, die exakt zu einem Slot passen, entfernen den
+          <strong className="text-[hsl(var(--foreground))]">2. Auto-Plan</strong> verteilt die Slots fair auf
+          Mitarbeitende{aiEnabled && <> und lässt den Plan auf Wunsch von der KI prüfen und verbessern</>}. Manuelle Schichten, die exakt zu einem Slot passen, entfernen den
           Slot automatisch.
         </div>
       )}
@@ -916,7 +897,8 @@ export default function MonthlyGrid({
       {showAutoPlanConfig && (
         <AutoPlanConfigModal
           month={month}
-          initial={planningRules}
+          initial={{ ...planningRules, use_ai: aiEnabled, ai_rounds: 3 }}
+          aiEnabled={aiEnabled}
           onClose={() => setShowAutoPlanConfig(false)}
           onConfirm={handleAutoFillSlots}
           isPending={isAutoFilling}

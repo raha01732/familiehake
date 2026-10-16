@@ -200,3 +200,105 @@ test("overlapping periods: the later start wins; day overrides beat periods", ()
   assert.equal(day.overridden, true);
   assert.equal(day.slots[0]?.start_time, "09:00");
 });
+
+// ── Prüfmodus und KI-Verbesserungsschleife ────────────────────────────────────
+import { improvePlanWithAi } from "../src/lib/dienstplaner/plan-improve";
+
+const planEmployees = [
+  { id: 1, position: null, monthly_hours: 40, weekly_hours: 10 },
+  { id: 2, position: null, monthly_hours: 40, weekly_hours: 10 },
+];
+const planSlots = [
+  { id: 1, shift_date: "2026-04-06", position: null, start_time: "10:00", end_time: "16:00" },
+  { id: 2, shift_date: "2026-04-08", position: null, start_time: "10:00", end_time: "16:00" },
+  { id: 3, shift_date: "2026-04-10", position: null, start_time: "10:00", end_time: "16:00" },
+  { id: 4, shift_date: "2026-04-14", position: null, start_time: "10:00", end_time: "16:00" },
+];
+const basePlan = {
+  employees: planEmployees,
+  existingShifts: [],
+  availability: [],
+  slots: planSlots,
+  pauseRules: [],
+};
+
+test("fixedAssignments: Regelverstöße werden abgelehnt, gültige bewertet", () => {
+  const result = generateAutoPlanSlots({
+    ...basePlan,
+    availability: [{ employee_id: 1, availability_date: "2026-04-06", status: "F", fixed_start: null, fixed_end: null }],
+    fixedAssignments: [
+      { slot_id: 1, employee_id: 1 }, // Mitarbeiter 1 hat frei
+      { slot_id: 2, employee_id: 1 },
+    ],
+  });
+  assert.equal(result.rejected?.length, 1);
+  assert.equal(result.rejected?.[0]?.slot_id, 1);
+  assert.equal(result.plannedShifts.length, 1);
+  assert.ok(typeof result.score === "number");
+});
+
+test("score: gleichmäßige Verteilung ist besser als einseitige", () => {
+  const even = generateAutoPlanSlots({
+    ...basePlan,
+    fixedAssignments: [
+      { slot_id: 1, employee_id: 1 },
+      { slot_id: 2, employee_id: 2 },
+      { slot_id: 3, employee_id: 1 },
+      { slot_id: 4, employee_id: 2 },
+    ],
+  });
+  const lopsided = generateAutoPlanSlots({
+    ...basePlan,
+    fixedAssignments: planSlots.map((slot) => ({ slot_id: slot.id, employee_id: 1 })),
+  });
+  assert.ok((even.score ?? 0) < (lopsided.score ?? 0));
+});
+
+test("improvePlanWithAi übernimmt nur regelkonforme, verbessernde Vorschläge", async () => {
+  // Ein Vorschlag, der einen Mitarbeiter mit Urlaub einsetzt, wird verworfen; der gültige Tausch bleibt.
+  const params = {
+    ...basePlan,
+    employees: [
+      { id: 1, position: null, monthly_hours: 24, weekly_hours: 12 },
+      { id: 2, position: null, monthly_hours: 24, weekly_hours: 12 },
+    ],
+    availability: [{ employee_id: 2, availability_date: "2026-04-14", status: "U", fixed_start: null, fixed_end: null }],
+  };
+  const lopsidedStart = generateAutoPlanSlots({
+    ...params,
+    fixedAssignments: planSlots.map((slot) => ({ slot_id: slot.id, employee_id: 1 })),
+  });
+  assert.equal(lopsidedStart.plannedShifts.length, 4);
+
+  let calls = 0;
+  const outcome = await improvePlanWithAi(
+    params,
+    async () => {
+      calls += 1;
+      return { changes: [] };
+    },
+    3
+  );
+  assert.equal(calls, 1, "leere Antwort beendet die Schleife sofort");
+  assert.equal(outcome.changedSlotIds.length, 0);
+
+  // Bewusst schlechter Vorschlag (alle auf Mitarbeiter 1) darf nicht übernommen werden
+  const bad = await improvePlanWithAi(
+    params,
+    async () => ({ changes: planSlots.map((slot) => ({ slot_id: slot.id, employee_id: 1 })) }),
+    3
+  );
+  assert.equal(bad.roundsApplied, 0);
+  assert.ok(bad.scoreAfter <= bad.scoreBefore);
+
+  // Fehler der KI bricht nicht ab, der Algorithmus-Plan bleibt
+  const failing = await improvePlanWithAi(
+    params,
+    async () => {
+      throw new Error("offline");
+    },
+    3
+  );
+  assert.equal(failing.error, "offline");
+  assert.equal(failing.result.plannedShifts.length, failing.base.plannedShifts.length);
+});

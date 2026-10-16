@@ -282,6 +282,10 @@ export type UnfilledSlotReport = {
 export type AutoPlanResult = {
   plannedShifts: { employee_id: number; shift_date: string; start_time: string; end_time: string; slot_id?: number }[];
   unfilledSlots: UnfilledSlotReport[];
+  /** Planqualität, niedriger = besser (offene Slots, Abweichung vom Soll, Lücken, Wünsche). */
+  score?: number;
+  /** Nur im Prüfmodus (`fixedAssignments`): Vorgaben, die gegen harte Regeln verstoßen. */
+  rejected?: { slot_id: number; employee_id: number; reason: string }[];
 };
 
 export type AutoPlanShift = {
@@ -576,6 +580,11 @@ export function generateAutoPlanSlots(params: {
   maxConsecutiveDays?: number;
   /** Bereits angerechnete Minuten pro Mitarbeiter (z.B. Urlaubs-Minuten), bevor die Schichten verteilt werden. */
   extraMonthlyMinutesByEmployee?: Map<number, number>;
+  /**
+   * Prüfmodus: statt selbst zu planen, werden diese Zuweisungen (Slot-ID → Mitarbeiter) gegen alle
+   * harten Regeln geprüft und bewertet. Regelverstöße landen in `rejected`.
+   */
+  fixedAssignments?: { slot_id: number; employee_id: number }[];
 }): AutoPlanResult {
   const {
     employees,
@@ -587,6 +596,7 @@ export function generateAutoPlanSlots(params: {
     minRestMinutes = DEFAULT_MIN_REST_MINUTES,
     maxConsecutiveDays = DEFAULT_MAX_CONSECUTIVE_DAYS,
     extraMonthlyMinutesByEmployee,
+    fixedAssignments,
   } = params;
 
   const availabilityMap = new Map(
@@ -789,72 +799,6 @@ export function generateAutoPlanSlots(params: {
     return diff !== 0 ? diff : a - b;
   });
 
-  const placement = new Map<number, number>(); // slotIndex → employeeId
-  const open: number[] = [];
-
-  for (const slotIndex of order) {
-    const chosen = bestEmployeeFor(slotIndex);
-    if (!chosen) {
-      open.push(slotIndex);
-      continue;
-    }
-    place(chosen, sortedSlots[slotIndex], slotIndex);
-    placement.set(slotIndex, chosen.id);
-  }
-
-  // Reparatur: offenen Slot besetzen, indem eine bestehende Zuweisung auf jemand anderen ausweicht
-  const stillOpen: number[] = [];
-  for (const slotIndex of open) {
-    const slot = sortedSlots[slotIndex];
-    let repaired = false;
-    for (const employee of employees) {
-      if (repaired) break;
-      if (staticBlock(employee, slot)) continue;
-      const movable = (byEmployee.get(employee.id) ?? []).filter((a) => a.slotIndex !== null);
-      for (const blocking of movable) {
-        const movedIndex = blocking.slotIndex as number;
-        if (dynamicBlock(employee, slot, movedIndex)) continue;
-        const replacement = bestEmployeeFor(movedIndex, employee.id);
-        if (!replacement) continue;
-        unplace(employee.id, movedIndex);
-        place(replacement, sortedSlots[movedIndex], movedIndex);
-        placement.set(movedIndex, replacement.id);
-        place(employee, slot, slotIndex);
-        placement.set(slotIndex, employee.id);
-        repaired = true;
-        break;
-      }
-    }
-    if (!repaired) stillOpen.push(slotIndex);
-  }
-
-  // Feinschliff: Zuweisungen auf deutlich besser passende Personen umlegen (Fairness/Blöcke)
-  const employeesById = new Map(employees.map((employee) => [employee.id, employee]));
-  for (let pass = 0; pass < 3; pass++) {
-    let moved = false;
-    for (const [slotIndex, currentId] of [...placement.entries()]) {
-      const current = employeesById.get(currentId);
-      if (!current) continue;
-      const slot = sortedSlots[slotIndex];
-      unplace(currentId, slotIndex);
-      let best = current;
-      let bestScore = scoreFor(current, slot);
-      for (const candidate of employees) {
-        if (candidate.id === currentId) continue;
-        if (staticBlock(candidate, slot) || dynamicBlock(candidate, slot, null)) continue;
-        const candidateScore = scoreFor(candidate, slot);
-        if (candidateScore < bestScore - 8) {
-          best = candidate;
-          bestScore = candidateScore;
-        }
-      }
-      place(best, slot, slotIndex);
-      placement.set(slotIndex, best.id);
-      if (best.id !== currentId) moved = true;
-    }
-    if (!moved) break;
-  }
-
   const REASON_LABEL: Record<Exclude<BlockReason, "position">, string> = {
     availability: "Frei/Urlaub/Krank/Zeitfenster",
     sameDay: "am Tag schon eingeplant",
@@ -862,6 +806,101 @@ export function generateAutoPlanSlots(params: {
     rest: `Ruhezeit unter ${Math.round(minRestMinutes / 60)} h`,
     consecutive: `mehr als ${maxConsecutiveDays} Tage in Folge`,
   };
+
+  const placement = new Map<number, number>(); // slotIndex → employeeId
+  const open: number[] = [];
+  const stillOpen: number[] = [];
+  const rejected: NonNullable<AutoPlanResult["rejected"]> = [];
+  const employeesById = new Map(employees.map((employee) => [employee.id, employee]));
+
+  if (fixedAssignments) {
+    // Prüfmodus: Vorgaben chronologisch einsetzen, Regelverstöße aussortieren
+    const fixedBySlot = new Map<number, number>();
+    for (const entry of fixedAssignments) fixedBySlot.set(entry.slot_id, entry.employee_id);
+    sortedSlots.forEach((slot, slotIndex) => {
+      const employeeId = slot.id === undefined ? undefined : fixedBySlot.get(slot.id);
+      if (employeeId === undefined) {
+        stillOpen.push(slotIndex);
+        return;
+      }
+      const employee = employeesById.get(employeeId);
+      const blocked = employee ? (staticBlock(employee, slot) ?? dynamicBlock(employee, slot, null)) : "position";
+      if (!employee || blocked) {
+        rejected.push({
+          slot_id: slot.id as number,
+          employee_id: employeeId,
+          reason: blocked && blocked !== "position" ? REASON_LABEL[blocked] : "Position nicht freigeschaltet",
+        });
+        stillOpen.push(slotIndex);
+        return;
+      }
+      place(employee, slot, slotIndex);
+      placement.set(slotIndex, employee.id);
+    });
+  } else {
+
+    for (const slotIndex of order) {
+      const chosen = bestEmployeeFor(slotIndex);
+      if (!chosen) {
+        open.push(slotIndex);
+        continue;
+      }
+      place(chosen, sortedSlots[slotIndex], slotIndex);
+      placement.set(slotIndex, chosen.id);
+    }
+
+    // Reparatur: offenen Slot besetzen, indem eine bestehende Zuweisung auf jemand anderen ausweicht
+    for (const slotIndex of open) {
+      const slot = sortedSlots[slotIndex];
+      let repaired = false;
+      for (const employee of employees) {
+        if (repaired) break;
+        if (staticBlock(employee, slot)) continue;
+        const movable = (byEmployee.get(employee.id) ?? []).filter((a) => a.slotIndex !== null);
+        for (const blocking of movable) {
+          const movedIndex = blocking.slotIndex as number;
+          if (dynamicBlock(employee, slot, movedIndex)) continue;
+          const replacement = bestEmployeeFor(movedIndex, employee.id);
+          if (!replacement) continue;
+          unplace(employee.id, movedIndex);
+          place(replacement, sortedSlots[movedIndex], movedIndex);
+          placement.set(movedIndex, replacement.id);
+          place(employee, slot, slotIndex);
+          placement.set(slotIndex, employee.id);
+          repaired = true;
+          break;
+        }
+      }
+      if (!repaired) stillOpen.push(slotIndex);
+    }
+
+    // Feinschliff: Zuweisungen auf deutlich besser passende Personen umlegen (Fairness/Blöcke)
+    for (let pass = 0; pass < 3; pass++) {
+      let moved = false;
+      for (const [slotIndex, currentId] of [...placement.entries()]) {
+        const current = employeesById.get(currentId);
+        if (!current) continue;
+        const slot = sortedSlots[slotIndex];
+        unplace(currentId, slotIndex);
+        let best = current;
+        let bestScore = scoreFor(current, slot);
+        for (const candidate of employees) {
+          if (candidate.id === currentId) continue;
+          if (staticBlock(candidate, slot) || dynamicBlock(candidate, slot, null)) continue;
+          const candidateScore = scoreFor(candidate, slot);
+          if (candidateScore < bestScore - 8) {
+            best = candidate;
+            bestScore = candidateScore;
+          }
+        }
+        place(best, slot, slotIndex);
+        placement.set(slotIndex, best.id);
+        if (best.id !== currentId) moved = true;
+      }
+      if (!moved) break;
+    }
+
+  }
 
   const unfilledSlots: UnfilledSlotReport[] = [...stillOpen]
     .sort((a, b) => a - b)
@@ -913,5 +952,32 @@ export function generateAutoPlanSlots(params: {
     });
   }
 
-  return { plannedShifts, unfilledSlots };
+  // Planqualität (niedriger = besser)
+  let score = unfilledSlots.length * 1000;
+  for (const employee of employees) {
+    const list = byEmployee.get(employee.id) ?? [];
+    const target = Math.max(0, Math.round(employee.monthly_hours * 60));
+    if (target > 0) {
+      const minutes =
+        (extraMonthlyMinutesByEmployee?.get(employee.id) ?? 0) +
+        list.reduce((sum, a) => sum + (a.context ? 0 : a.workMinutes), 0);
+      const ratio = minutes / target;
+      // Überstunden wiegen doppelt so schwer wie Minusstunden
+      const deviation = ratio < 1 ? 1 - ratio : (ratio - 1) * 2;
+      score += deviation * deviation * 1000;
+    }
+    const workDays = new Set(list.map((a) => a.date));
+    for (const date of workDays) {
+      const twoLater = addIsoDays(date, 2);
+      const between = addIsoDays(date, 1);
+      if (twoLater && between && workDays.has(twoLater) && !workDays.has(between)) score += 15;
+    }
+    for (const assignment of list) {
+      if (assignment.slotIndex === null) continue;
+      const status = availabilityMap.get(`${employee.id}-${assignment.date}`)?.status ?? null;
+      if (calculatePreferencePenalty(status?.toLowerCase() ?? null, assignment.start) > 0) score += 12;
+    }
+  }
+
+  return { plannedShifts, unfilledSlots, score: Math.round(score * 10) / 10, rejected };
 }

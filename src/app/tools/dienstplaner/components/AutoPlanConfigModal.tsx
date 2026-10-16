@@ -3,11 +3,16 @@
 import { useRef } from "react";
 import type { PlanningRules } from "@/lib/dienstplaner/planning-rules";
 
-export type AutoPlanConfig = PlanningRules;
+export type AutoPlanConfig = PlanningRules & {
+  /** KI prüft den fertigen Plan und verbessert ihn in Runden */
+  use_ai: boolean;
+  ai_rounds: number;
+};
 
 type Props = {
   month: string;
   initial: AutoPlanConfig;
+  aiEnabled: boolean;
   onClose: () => void;
   onConfirm: (config: AutoPlanConfig) => void;
   isPending: boolean;
@@ -27,7 +32,7 @@ function clamp(value: number, min: number, max: number, fallback: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-export default function AutoPlanConfigModal({ month, initial, onClose, onConfirm, isPending }: Props) {
+export default function AutoPlanConfigModal({ month, initial, aiEnabled, onClose, onConfirm, isPending }: Props) {
   const formRef = useRef<HTMLFormElement>(null);
 
   const [y, m] = month.split("-");
@@ -41,6 +46,8 @@ export default function AutoPlanConfigModal({ month, initial, onClose, onConfirm
       max_shifts_per_week: clamp(Number(fd.get("max_shifts_per_week")), 1, 7, initial.max_shifts_per_week),
       min_rest_hours: clamp(Number(fd.get("min_rest_hours")), 0, 24, initial.min_rest_hours),
       max_consecutive_days: clamp(Number(fd.get("max_consecutive_days")), 1, 14, initial.max_consecutive_days),
+      use_ai: aiEnabled && fd.get("use_ai") === "on",
+      ai_rounds: Math.round(clamp(Number(fd.get("ai_rounds")), 1, 5, initial.ai_rounds)),
     });
   }
 
@@ -93,6 +100,42 @@ export default function AutoPlanConfigModal({ month, initial, onClose, onConfirm
             max={14}
             step={1}
           />
+
+          {aiEnabled && (
+            <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.4)] p-3 flex flex-col gap-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="use_ai"
+                  defaultChecked={initial.use_ai}
+                  className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-[hsl(var(--foreground))]">
+                    KI prüft und verbessert den Plan
+                  </span>
+                  <span className="block text-xs text-[hsl(var(--muted-foreground))]">
+                    Zuerst plant der Algorithmus regelbasiert. Danach schlägt die KI Verbesserungen vor (Soll-Stunden,
+                    Lücken, offene Slots). Jede Änderung wird gegen alle harten Regeln geprüft und nur übernommen,
+                    wenn der Plan messbar besser wird.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+                Maximal
+                <input
+                  type="number"
+                  name="ai_rounds"
+                  min={1}
+                  max={5}
+                  step={1}
+                  defaultValue={initial.ai_rounds}
+                  className={`${inputCls} w-16 py-1`}
+                />
+                Verbesserungsrunden (stoppt früher, sobald keine Verbesserung mehr gefunden wird)
+              </label>
+            </div>
+          )}
 
           <div className="flex gap-2 pt-1">
             <button

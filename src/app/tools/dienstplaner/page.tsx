@@ -10,7 +10,6 @@ import {
   clearMonthAction,
   buildPreplanForMonthAction,
   autoFillPlannedSlotsAction,
-  aiFillPlannedSlotsAction,
   createSpecialEventAction,
   updateSpecialEventAction,
   deleteSpecialEventAction,
@@ -41,6 +40,8 @@ import { loadPlanningRules } from "@/lib/dienstplaner/planning-rules";
 
 export const metadata = { title: "Dienstplaner" };
 export const dynamic = "force-dynamic";
+// Auto-Plan inkl. KI-Verbesserungsrunden kann länger als der Standard dauern
+export const maxDuration = 300;
 
 type PageProps = {
   searchParams: Promise<{ month?: string }>;
@@ -250,7 +251,6 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       clearMonthAction={clearMonthAction}
       buildPreplanAction={buildPreplanForMonthAction}
       autoFillSlotsAction={autoFillPlannedSlotsAction}
-      aiFillSlotsAction={aiFillPlannedSlotsAction}
       createSpecialEventAction={createSpecialEventAction}
       updateSpecialEventAction={updateSpecialEventAction}
       deleteSpecialEventAction={deleteSpecialEventAction}
