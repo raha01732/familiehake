@@ -11,7 +11,7 @@ import {
   type RulePeriod,
   type ShiftRule,
 } from "../src/app/tools/dienstplaner/requirements";
-import { generateAutoPlanSlots, isAllowedForCategory } from "../src/app/tools/dienstplaner/utils";
+import { describeAvailabilityConflict, generateAutoPlanSlots, isAllowedForCategory } from "../src/app/tools/dienstplaner/utils";
 
 const rule = (overrides: Partial<ShiftRule>): ShiftRule => ({
   id: 1,
@@ -301,4 +301,45 @@ test("improvePlanWithAi übernimmt nur regelkonforme, verbessernde Vorschläge",
   );
   assert.equal(failing.error, "offline");
   assert.equal(failing.result.plannedShifts.length, failing.base.plannedShifts.length);
+});
+
+test("auto plan: fr bekommt die früheste, sp die späteste mögliche Schicht des Tages", () => {
+  const employees = [
+    { id: 1, position: null, monthly_hours: 100, weekly_hours: 25 },
+    { id: 2, position: null, monthly_hours: 100, weekly_hours: 25 },
+  ];
+  const slots = [
+    { id: 1, shift_date: "2026-04-10", position: null, start_time: "10:00", end_time: "16:00" },
+    { id: 2, shift_date: "2026-04-10", position: null, start_time: "14:00", end_time: "20:00" },
+    { id: 3, shift_date: "2026-04-10", position: null, start_time: "18:00", end_time: "23:00" },
+  ];
+  // Mitarbeiter 1 will früh, Mitarbeiter 2 will spät (Reihenfolge der IDs darf keine Rolle spielen)
+  const result = generateAutoPlanSlots({
+    employees: [employees[1], employees[0]],
+    existingShifts: [],
+    availability: [
+      { employee_id: 1, availability_date: "2026-04-10", status: "fr", fixed_start: null, fixed_end: null },
+      { employee_id: 2, availability_date: "2026-04-10", status: "sp", fixed_start: null, fixed_end: null },
+    ],
+    slots: slots.slice(0, 1).concat(slots.slice(2)),
+    pauseRules: [],
+  });
+  const byId = new Map(result.plannedShifts.map((shift) => [shift.slot_id, shift.employee_id]));
+  assert.equal(byId.get(1), 1);
+  assert.equal(byId.get(3), 2);
+});
+
+test("describeAvailabilityConflict meldet nicht berücksichtigte Verfügbarkeiten", () => {
+  const none = { fixed_start: null, fixed_end: null };
+  assert.match(describeAvailabilityConflict({ status: "F", ...none }, "10:00", "16:00") ?? "", /Frei/);
+  assert.match(describeAvailabilityConflict({ status: "u", ...none }, "10:00", "16:00") ?? "", /Urlaub/);
+  assert.match(
+    describeAvailabilityConflict({ status: "fix", fixed_start: "10:00", fixed_end: "14:00" }, "10:00", "16:00") ?? "",
+    /10:00–14:00/
+  );
+  assert.equal(describeAvailabilityConflict({ status: "fix", fixed_start: "10:00", fixed_end: "18:00" }, "10:00", "16:00"), null);
+  assert.match(describeAvailabilityConflict({ status: "fr", ...none }, "17:00", "22:00") ?? "", /Frühdienst/);
+  assert.equal(describeAvailabilityConflict({ status: "fr", ...none }, "09:00", "15:00"), null);
+  assert.match(describeAvailabilityConflict({ status: "sp", ...none }, "10:00", "16:00") ?? "", /Spätdienst/);
+  assert.equal(describeAvailabilityConflict(undefined, "10:00", "16:00"), null);
 });

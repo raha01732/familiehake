@@ -15,6 +15,7 @@ import type {
 import {
   calculateShiftMinutes,
   calculateUrlaubMinutesByEmployee,
+  describeAvailabilityConflict,
   formatMinutesAsHours,
   getGermanHolidays,
   getInitials,
@@ -69,6 +70,14 @@ type Props = {
 };
 
 const WEEKDAY_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+
+/** Farben für Zeiträume (Ferien etc.); Klassen stehen ausgeschrieben, damit Tailwind sie erzeugt. */
+const PERIOD_COLORS = [
+  { tint: "bg-teal-500/10", stripe: "shadow-[inset_4px_0_0_0_rgb(20_184_166)]", chip: "bg-teal-500/20 text-teal-400" },
+  { tint: "bg-sky-500/10", stripe: "shadow-[inset_4px_0_0_0_rgb(14_165_233)]", chip: "bg-sky-500/20 text-sky-400" },
+  { tint: "bg-violet-500/10", stripe: "shadow-[inset_4px_0_0_0_rgb(139_92_246)]", chip: "bg-violet-500/20 text-violet-400" },
+  { tint: "bg-orange-500/10", stripe: "shadow-[inset_4px_0_0_0_rgb(249_115_22)]", chip: "bg-orange-500/20 text-orange-400" },
+] as const;
 
 type AutoPlanCallResult = {
   plannedShifts: { employee_id: number; shift_date: string; start_time: string; end_time: string }[];
@@ -205,6 +214,24 @@ export default function MonthlyGrid({
   const dragSource = useRef<{ employeeId: number; date: string } | null>(null);
 
   const sortedEmployees = useMemo(() => sortEmployeesForGrid(employees), [employees]);
+
+  // Zeitraum (Ferien etc.) je Tag: bei Überschneidung gewinnt der spätere Beginn
+  const periodByDate = useMemo(() => {
+    const map = new Map<string, { period: RulePeriod; hasRules: boolean; color: (typeof PERIOD_COLORS)[number] }>();
+    const ordered = [...rulePeriods].sort((a, b) => a.start_date.localeCompare(b.start_date) || a.id - b.id);
+    for (const day of days) {
+      for (const period of ordered) {
+        if (period.start_date <= day && day <= period.end_date) {
+          map.set(day, {
+            period,
+            hasRules: shiftRules.some((rule) => rule.period_id === period.id),
+            color: PERIOD_COLORS[period.id % PERIOD_COLORS.length],
+          });
+        }
+      }
+    }
+    return map;
+  }, [days, rulePeriods, shiftRules]);
 
   const holidayMap = useMemo(() => {
     const year = Number(month.split("-")[0]) || new Date().getUTCFullYear();
@@ -387,6 +414,12 @@ export default function MonthlyGrid({
     if (shift?.start_time && shift?.end_time) {
       const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules, shift.break_minutes);
       const kind = classifyShift(shift.start_time, shift.end_time);
+      const availConflict = describeAvailabilityConflict(avail, shift.start_time, shift.end_time);
+      const availStatus = (avail?.status ?? "").toLowerCase();
+      const availLabel =
+        availStatus === "fix" && avail?.fixed_start && avail.fixed_end
+          ? `${avail.fixed_start.slice(0, 5)}–${avail.fixed_end.slice(0, 5)}`
+          : (AVAIL_BADGE[availStatus]?.label ?? null);
       return (
         <button
           type="button"
@@ -417,6 +450,17 @@ export default function MonthlyGrid({
             </div>
             <div className="flex items-center justify-between gap-1 text-[10px] text-[hsl(var(--muted-foreground))]">
               <span className="tabular-nums">{summary ? `${formatMinutesAsHours(summary.workMinutes)} h` : ""}</span>
+              {availLabel && (
+                <span
+                  className={`inline-flex items-center gap-0.5 rounded px-1 text-[9px] font-bold ${
+                    availConflict ? "bg-amber-500/25 text-amber-400" : "bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]"
+                  }`}
+                  title={availConflict ?? `Verfügbarkeit berücksichtigt: ${availLabel}`}
+                >
+                  {availLabel.length <= 3 ? availLabel : "fix"}
+                  {availConflict && <span aria-label="Verfügbarkeit nicht berücksichtigt">!</span>}
+                </span>
+              )}
               <span className="uppercase tracking-wide text-[8px] font-semibold opacity-80">{kind.label}</span>
             </div>
             {shift.comment && (
@@ -705,7 +749,8 @@ export default function MonthlyGrid({
               const isWeekStart = wd === 4;
 
               // Hintergrund nach Priorität: Heute > Feiertag > Sonntag > Samstag > Standard
-              let rowBg = "bg-[hsl(var(--card))]";
+              const periodInfo = periodByDate.get(day);
+              let rowBg = periodInfo ? periodInfo.color.tint : "bg-[hsl(var(--card))]";
               if (isToday) {
                 rowBg = "bg-indigo-950/30";
               } else if (isHoliday) {
@@ -723,7 +768,7 @@ export default function MonthlyGrid({
               return (
                 <tr key={day} className={`${weekStartCls} ${rowBg}`}>
                   <td
-                    className={`sticky left-0 z-10 px-2 py-1 align-top ${rowBg} border-r border-[hsl(var(--border))]/40`}
+                    className={`sticky left-0 z-10 px-2 py-1 align-top ${rowBg} ${periodInfo?.color.stripe ?? ""} border-r border-[hsl(var(--border))]/40`}
                   >
                     <div className="text-[11px] font-medium text-[hsl(var(--foreground))] tabular-nums">
                       {String(d.getUTCDate()).padStart(2, "0")}.
@@ -753,6 +798,19 @@ export default function MonthlyGrid({
                   <td
                     className={`sticky left-[128px] z-10 align-top ${rowBg} border-r border-[hsl(var(--border))]/40`}
                   >
+                    {periodInfo && (
+                      <div className="px-2 pt-1">
+                        <span
+                          className={`inline-block max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-semibold ${periodInfo.color.chip}`}
+                          title={`${periodInfo.period.name}: ${periodInfo.period.start_date.slice(8)}.${periodInfo.period.start_date.slice(5, 7)}. – ${periodInfo.period.end_date.slice(8)}.${periodInfo.period.end_date.slice(5, 7)}.${
+                            periodInfo.hasRules ? " · eigene Regeln" : " · keine eigenen Regeln, Standard gilt"
+                          }`}
+                        >
+                          {periodInfo.period.name}
+                          {!periodInfo.hasRules && " (ohne Regeln)"}
+                        </span>
+                      </div>
+                    )}
                     {isHoliday && (
                       <div className="px-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-amber-500">
                         🎉 {holidayName}

@@ -468,15 +468,44 @@ function isTimeRangeCompatible(slotStart: string, slotEnd: string, fixedStart: s
   return fixedStartMinutes <= slotStartMinutes && fixedEndMinutes >= slotEndMinutes;
 }
 
-function calculatePreferencePenalty(status: string | null, startTime: string) {
-  if (!status) return 0;
-  const normalizedStatus = status.toLowerCase();
-  const startMinutes = toMinutes(startTime);
-  if (startMinutes === null) return 0;
-
-  if (normalizedStatus === "fr" && startMinutes >= 15 * 60) return 12;
-  if (normalizedStatus === "sp" && startMinutes <= 13 * 60) return 12;
-  return 0;
+/**
+ * Passt eine eingetragene Schicht zur Verfügbarkeit des Mitarbeiters? Gibt einen Hinweistext zurück,
+ * wenn nicht (für das Ausrufezeichen im Monatsplan), sonst null.
+ */
+export function describeAvailabilityConflict(
+  availability: { status: string | null; fixed_start: string | null; fixed_end: string | null } | null | undefined,
+  startTime: string,
+  endTime: string
+): string | null {
+  const status = availability?.status?.trim().toLowerCase();
+  if (!availability || !status) return null;
+  const start = startTime.slice(0, 5);
+  const end = endTime.slice(0, 5);
+  switch (status) {
+    case "f":
+      return "Als „Frei“ eingetragen, aber trotzdem eingeplant.";
+    case "u":
+      return "Als „Urlaub“ eingetragen, aber trotzdem eingeplant.";
+    case "k":
+      return "Als „Krank“ eingetragen, aber trotzdem eingeplant.";
+    case "fix": {
+      if (!availability.fixed_start || !availability.fixed_end) return null;
+      if (isTimeRangeCompatible(start, end, availability.fixed_start, availability.fixed_end)) return null;
+      return `Nur verfügbar ${availability.fixed_start.slice(0, 5)}–${availability.fixed_end.slice(0, 5)} Uhr, die Schicht ${start}–${end} liegt außerhalb.`;
+    }
+    case "fr": {
+      const minutes = toMinutes(start);
+      if (minutes !== null && minutes >= 15 * 60) return `Frühdienst gewünscht, die Schicht beginnt erst um ${start} Uhr.`;
+      return null;
+    }
+    case "sp": {
+      const minutes = toMinutes(start);
+      if (minutes !== null && minutes <= 13 * 60) return `Spätdienst gewünscht, die Schicht beginnt schon um ${start} Uhr.`;
+      return null;
+    }
+    default:
+      return null;
+  }
 }
 
 function addIsoDays(dateValue: string, n: number): string | null {
@@ -682,6 +711,44 @@ export function generateAutoPlanSlots(params: {
     return null;
   }
 
+  // Früh/Spät-Wunsch: „fr“ = früheste, „sp“ = späteste für die Person mögliche Schicht des Tages
+  const slotsByDate = new Map<string, AutoPlanSlot[]>();
+  for (const slot of sortedSlots) {
+    const list = slotsByDate.get(slot.shift_date) ?? [];
+    list.push(slot);
+    slotsByDate.set(slot.shift_date, list);
+  }
+  const eligibleStartsCache = new Map<string, number[]>();
+
+  function eligibleStarts(employee: AutoPlanEmployee, date: string): number[] {
+    const key = `${employee.id}-${date}`;
+    const cached = eligibleStartsCache.get(key);
+    if (cached) return cached;
+    const starts = new Set<number>();
+    for (const slot of slotsByDate.get(date) ?? []) {
+      if (staticBlock(employee, slot) !== null) continue;
+      const minutes = toMinutes(slot.start_time);
+      if (minutes !== null) starts.add(minutes);
+    }
+    const sorted = Array.from(starts).sort((a, b) => a - b);
+    eligibleStartsCache.set(key, sorted);
+    return sorted;
+  }
+
+  /** Negativ = passt zum Wunsch (Bonus), positiv = passt nicht (Strafe), 0 = kein Wunsch. */
+  function preferenceAdjustment(employee: AutoPlanEmployee, date: string, startTime: string): number {
+    const status = availabilityMap.get(`${employee.id}-${date}`)?.status?.toLowerCase();
+    if (status !== "fr" && status !== "sp") return 0;
+    const startMinutes = toMinutes(startTime);
+    if (startMinutes === null) return 0;
+    const wrongHalfOfDay =
+      (status === "fr" && startMinutes >= 15 * 60) || (status === "sp" && startMinutes <= 13 * 60) ? 12 : 0;
+    const starts = eligibleStarts(employee, date);
+    if (starts.length <= 1) return wrongHalfOfDay;
+    const rank = status === "fr" ? starts.filter((value) => value < startMinutes).length : starts.filter((value) => value > startMinutes).length;
+    return (rank === 0 ? -10 : rank * 6) + wrongHalfOfDay;
+  }
+
   function listWithout(employeeId: number, ignoreSlotIndex: number | null) {
     return (byEmployee.get(employeeId) ?? []).filter(
       (a) => ignoreSlotIndex === null || a.slotIndex !== ignoreSlotIndex
@@ -742,8 +809,7 @@ export function generateAutoPlanSlots(params: {
         ? 40 + ((currentMinutes + shiftMinutes - monthlyTarget) / monthlyTarget) * 200
         : 0;
 
-    const status = availabilityMap.get(`${employee.id}-${slot.shift_date}`)?.status ?? null;
-    const preferencePenalty = calculatePreferencePenalty(status?.toLowerCase() ?? null, slot.start_time);
+    const preferencePenalty = preferenceAdjustment(employee, slot.shift_date, slot.start_time);
     const loadPenalty = (newCount.get(employee.id) ?? 0) * 1.5;
     const { continuityBonus, gapPenalty } = calculateBlockContinuityScore(
       new Set(list.map((a) => a.date)),
@@ -974,8 +1040,7 @@ export function generateAutoPlanSlots(params: {
     }
     for (const assignment of list) {
       if (assignment.slotIndex === null) continue;
-      const status = availabilityMap.get(`${employee.id}-${assignment.date}`)?.status ?? null;
-      if (calculatePreferencePenalty(status?.toLowerCase() ?? null, assignment.start) > 0) score += 12;
+      if (preferenceAdjustment(employee, assignment.date, assignment.start) > 0) score += 12;
     }
   }
 
