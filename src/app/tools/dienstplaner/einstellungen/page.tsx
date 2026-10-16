@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import SettingsPanel from "../SettingsPanel";
 import { Settings } from "lucide-react";
+import { loadPlanningRules } from "@/lib/dienstplaner/planning-rules";
 
 export const metadata = { title: "Dienstplaner – Einstellungen" };
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export default async function EinstellungenPage() {
   const isAdmin = role === "admin" || user?.id === env().PRIMARY_SUPERADMIN_ID;
 
   const sb = createAdminClient();
+  const planningRules = await loadPlanningRules(sb);
   const [pauseResult, weekdayResult, trackResult, weekdayPosResult, hourDefaultsResult] = await Promise.all([
     sb.from("dienstplan_pause_rules").select("id, min_minutes, pause_minutes").order("min_minutes"),
     sb.from("dienstplan_weekday_requirements").select("weekday, required_shifts").order("weekday"),
@@ -48,7 +50,7 @@ export default async function EinstellungenPage() {
             <span className="gradient-text">Einstellungen</span>
           </h1>
           <p className="mt-1 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
-            Pausenregeln, Schichtanforderungen, Wochentag-Bedarf
+            Pausenregeln, Planungsregeln, Schichtanforderungen, Wochentag-Bedarf
           </p>
         </div>
       </div>
@@ -58,6 +60,7 @@ export default async function EinstellungenPage() {
         shiftTracks={trackResult.data ?? []}
         weekdayPositionRequirements={weekdayPosResult.data ?? []}
         employmentHourDefaults={hourDefaultsResult.data ?? []}
+        planningRules={planningRules}
         isAdmin={isAdmin}
       />
     </div>

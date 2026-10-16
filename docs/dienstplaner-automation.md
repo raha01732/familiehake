@@ -15,6 +15,12 @@
   - Sonst Fallback auf numerischen Tagesbedarf mit Schienenrotation.
 - **Datensicherheit**: Wenn keine Schichten generiert werden können, bleibt der bestehende Monatsplan unverändert.
 
+## Planungs-Engine (Stand Oktober 2026)
+`generateAutoPlanSlots` in `utils.ts` arbeitet mit harten und weichen Regeln:
+- **Hart:** Freischaltung/Position, F/U/K, feste Zeitfenster, eine Schicht pro Tag (inkl. bestehender), Wochenlimit, 11 h Ruhezeit, max. 6 Tage in Folge.
+- **Weich (Score):** Soll-Stunden-Fairness, Früh/Spät-Wunsch, Blockbildung, Überstunden-Strafe.
+- **Ablauf:** Engpass-Slots zuerst, dann chronologisch greedy, danach Reparatur offener Slots durch Umbuchung. Der Report nennt je offenem Slot die Sperrgründe.
+
 ## Empfohlene nächste Integrationen (kostenbewusst)
 
 ### 1) Supabase (kostenfrei startbar)

@@ -112,3 +112,128 @@ test("generateAutoPlanSlots respects fixed availability with 8h serviceleitung d
   assert.equal(result.plannedShifts.length, 0);
   assert.equal(result.unfilledSlots.length, 1);
 });
+
+test("generateAutoPlanSlots never double-books an employee with an existing shift that day", () => {
+  const result = generateAutoPlanSlots({
+    employees: [{ id: 1, position: null, monthly_hours: 160, weekly_hours: 40 }],
+    existingShifts: [{ employee_id: 1, shift_date: "2026-04-10", start_time: "10:00", end_time: "14:00" }],
+    availability: [],
+    slots: [{ shift_date: "2026-04-10", position: null, start_time: "16:00", end_time: "22:00" }],
+    pauseRules: [],
+  });
+  assert.equal(result.plannedShifts.length, 0);
+  assert.match(result.unfilledSlots[0]?.reason ?? "", /schon eingeplant/);
+});
+
+test("generateAutoPlanSlots enforces the minimum rest time between shifts", () => {
+  const result = generateAutoPlanSlots({
+    employees: [
+      { id: 1, position: null, monthly_hours: 160, weekly_hours: 40 },
+      { id: 2, position: null, monthly_hours: 160, weekly_hours: 40 },
+    ],
+    existingShifts: [{ employee_id: 1, shift_date: "2026-04-09", start_time: "16:00", end_time: "23:30" }],
+    availability: [],
+    slots: [{ shift_date: "2026-04-10", position: null, start_time: "08:00", end_time: "14:00" }],
+    pauseRules: [],
+  });
+  assert.equal(result.plannedShifts.length, 1);
+  assert.equal(result.plannedShifts[0]?.employee_id, 2);
+});
+
+test("generateAutoPlanSlots limits consecutive working days", () => {
+  const days = ["2026-04-01", "2026-04-02", "2026-04-03"];
+  const result = generateAutoPlanSlots({
+    employees: [{ id: 1, position: null, monthly_hours: 160, weekly_hours: 40 }],
+    existingShifts: [],
+    availability: [],
+    slots: days.map((shift_date) => ({ shift_date, position: null, start_time: "10:00", end_time: "16:00" })),
+    pauseRules: [],
+    maxConsecutiveDays: 2,
+  });
+  assert.equal(result.plannedShifts.length, 2);
+  assert.equal(result.unfilledSlots.length, 1);
+});
+
+test("generateAutoPlanSlots repairs a blocked slot by moving another assignment", () => {
+  // Slot A (Projektion, nur Emp 1 oder 2) wird zuerst chronologisch Emp 1 zugewiesen;
+  // Slot B am selben Tag kann nur Emp 1 (Emp 2 hat frei). Ohne Umbuchung bliebe B offen.
+  const result = generateAutoPlanSlots({
+    employees: [
+      { id: 1, position: null, monthly_hours: 160, weekly_hours: 40 },
+      { id: 2, position: null, monthly_hours: 160, weekly_hours: 40 },
+    ],
+    existingShifts: [],
+    availability: [
+      { employee_id: 2, availability_date: "2026-04-10", status: "fix", fixed_start: "16:00", fixed_end: "23:00" },
+    ],
+    slots: [
+      { id: 11, shift_date: "2026-04-10", position: null, start_time: "10:00", end_time: "16:00" },
+      { id: 12, shift_date: "2026-04-10", position: null, start_time: "17:00", end_time: "22:00" },
+    ],
+    pauseRules: [],
+  });
+  assert.equal(result.unfilledSlots.length, 0);
+  assert.equal(result.plannedShifts.length, 2);
+  const byId = new Map(result.plannedShifts.map((s) => [s.slot_id, s.employee_id]));
+  assert.equal(byId.get(11), 1);
+  assert.equal(byId.get(12), 2);
+});
+
+test("generateAutoPlanSlots respects rest time against shifts of the neighbouring month", () => {
+  const result = generateAutoPlanSlots({
+    employees: [
+      { id: 1, position: null, monthly_hours: 160, weekly_hours: 40 },
+      { id: 2, position: null, monthly_hours: 160, weekly_hours: 40 },
+    ],
+    existingShifts: [
+      { employee_id: 1, shift_date: "2026-03-31", start_time: "16:00", end_time: "23:30", context: true },
+    ],
+    availability: [],
+    slots: [{ shift_date: "2026-04-01", position: null, start_time: "08:00", end_time: "14:00" }],
+    pauseRules: [],
+  });
+  assert.equal(result.plannedShifts[0]?.employee_id, 2);
+});
+
+test("generateAutoPlanSlots does not count neighbouring-month shifts towards the monthly target", () => {
+  // Mitarbeiter 1 hat viele Kontext-Schichten, soll aber nicht als "ausgelastet" gelten.
+  const result = generateAutoPlanSlots({
+    employees: [
+      { id: 1, position: null, monthly_hours: 100, weekly_hours: 25 },
+      { id: 2, position: null, monthly_hours: 100, weekly_hours: 25 },
+    ],
+    existingShifts: [
+      { employee_id: 2, shift_date: "2026-04-05", start_time: "10:00", end_time: "18:00" },
+      { employee_id: 1, shift_date: "2026-03-25", start_time: "10:00", end_time: "18:00", context: true },
+      { employee_id: 1, shift_date: "2026-03-26", start_time: "10:00", end_time: "18:00", context: true },
+    ],
+    availability: [],
+    slots: [{ shift_date: "2026-04-20", position: null, start_time: "10:00", end_time: "16:00" }],
+    pauseRules: [],
+  });
+  assert.equal(result.plannedShifts[0]?.employee_id, 1);
+});
+
+test("generateAutoPlanSlots balances hours across equally suited employees", () => {
+  const slots = Array.from({ length: 6 }, (_, i) => ({
+    shift_date: `2026-04-${String(10 + i * 2).padStart(2, "0")}`,
+    position: null,
+    start_time: "10:00",
+    end_time: "16:00",
+  }));
+  const result = generateAutoPlanSlots({
+    employees: [
+      { id: 1, position: null, monthly_hours: 160, weekly_hours: 40 },
+      { id: 2, position: null, monthly_hours: 160, weekly_hours: 40 },
+    ],
+    existingShifts: [],
+    availability: [],
+    slots,
+    pauseRules: [],
+  });
+  const counts = new Map<number, number>();
+  for (const shift of result.plannedShifts) counts.set(shift.employee_id, (counts.get(shift.employee_id) ?? 0) + 1);
+  assert.equal(result.plannedShifts.length, 6);
+  assert.equal(counts.get(1), 3);
+  assert.equal(counts.get(2), 3);
+});

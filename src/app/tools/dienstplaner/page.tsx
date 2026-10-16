@@ -7,7 +7,6 @@ import {
   deleteShiftAction,
   moveShiftAction,
   saveAvailabilityAction,
-  autoGenerateMonthPlanAction,
   clearMonthAction,
   buildPreplanForMonthAction,
   autoFillPlannedSlotsAction,
@@ -35,6 +34,7 @@ import type {
 import { buildMonthDays, getCurrentMonth } from "./utils";
 import type { PauseRule } from "./utils";
 import { dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
+import { loadPlanningRules } from "@/lib/dienstplaner/planning-rules";
 
 export const metadata = { title: "Dienstplaner" };
 export const dynamic = "force-dynamic";
@@ -150,6 +150,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
   const employmentHourDefaults = (hourDefaultsResult.data ?? []) as EmploymentHourDefault[];
   const days = buildMonthDays(month);
   const aiEnabled = dienstplanAiEnabled();
+  const planningRules = await loadPlanningRules(sb);
 
   return (
     <MonthlyGrid
@@ -165,11 +166,11 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       employmentHourDefaults={employmentHourDefaults}
       isAdmin={isAdmin}
       aiEnabled={aiEnabled}
+      planningRules={planningRules}
       saveShiftAction={saveShiftAction}
       deleteShiftAction={deleteShiftAction}
       moveShiftAction={moveShiftAction}
       saveAvailabilityAction={saveAvailabilityAction}
-      autoGenerateAction={autoGenerateMonthPlanAction}
       clearMonthAction={clearMonthAction}
       buildPreplanAction={buildPreplanForMonthAction}
       autoFillSlotsAction={autoFillPlannedSlotsAction}

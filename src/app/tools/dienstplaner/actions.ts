@@ -8,16 +8,15 @@ import { env } from "@/lib/env";
 import { getRoleFromPublicMetadata } from "@/lib/clerk-role";
 import { logAudit, actorFromUser, type AuditAction } from "@/lib/audit";
 import {
-  addHoursToTime,
   calculateShiftMinutes,
   calculateUrlaubMinutesByEmployee,
   generateAutoPlanSlots,
   inferPositionCategory,
   normalizeAllowedPositions,
-  type AutoPlanSlot,
   type PauseRule,
   type PositionCategory,
 } from "./utils";
+import { loadPlanningRules, normalizePlanningRules } from "@/lib/dienstplaner/planning-rules";
 import { askAiToAssignSlots, dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
 import {
   buildHistoryPromptBlock,
@@ -341,6 +340,30 @@ export async function saveEmploymentHourDefaultAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
+export async function savePlanningRulesAction(formData: FormData) {
+  const actor = await assertAdminForDienstplanAutomation();
+
+  const rules = normalizePlanningRules({
+    max_shifts_per_week: String(formData.get("max_shifts_per_week") ?? "").replace(",", "."),
+    min_rest_hours: String(formData.get("min_rest_hours") ?? "").replace(",", "."),
+    max_consecutive_days: String(formData.get("max_consecutive_days") ?? "").replace(",", "."),
+  });
+
+  const sb = createAdminClient();
+  const { error } = await sb
+    .from("dienstplan_planning_rules")
+    .upsert({ id: true, ...rules, updated_at: new Date().toISOString(), updated_by: actor.id }, { onConflict: "id" });
+  if (error) {
+    throw new Error(`Planungsregeln konnten nicht gespeichert werden: ${error.message}`);
+  }
+
+  await auditDienstplan(actor, "dienstplan_settings_update", { setting: "Planungsregeln", ...rules });
+
+  revalidatePath(SETTINGS_PATH);
+  revalidatePath("/tools/dienstplaner/einstellungen");
+  revalidatePath(PLAN_PATH);
+}
+
 export async function clearMonthAvailabilityAction(formData: FormData) {
   const actor = await assertAdminForDienstplanAutomation();
 
@@ -359,208 +382,6 @@ export async function clearMonthAvailabilityAction(formData: FormData) {
 
   revalidatePath(PLAN_PATH);
   revalidatePath("/tools/dienstplaner/verfuegbarkeit");
-}
-
-export async function autoGenerateMonthPlanAction(formData: FormData) {
-  const actor = await assertAdminForDienstplanAutomation();
-
-  const month = String(formData.get("month") || "");
-  const range = getMonthRange(month);
-  if (!range) return;
-
-  const minShiftHours = Math.max(0, Number(formData.get("min_shift_hours") || 0));
-  const maxShiftsPerWeek = Math.max(1, Number(formData.get("max_shifts_per_week") || 7));
-  const skipWeekends = formData.get("skip_weekends") === "true";
-  const respectAvailability = formData.get("respect_availability") !== "false";
-  const overwriteExisting = formData.get("overwrite_existing") === "true";
-
-  const sb = createAdminClient();
-  const [employeesResult, pauseRulesResult, availabilityResult, weekdayRequirementsResult, dateRequirementsResult, shiftTracksResult, weekdayPositionRequirementsResult, datePositionRequirementsResult] = await Promise.all([
-    sb.from("dienstplan_employees").select("id, name, position, monthly_hours, weekly_hours, allowed_positions").eq("is_active", true),
-    sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
-    sb.from("dienstplan_availability").select("employee_id, availability_date, status, fixed_start, fixed_end").gte("availability_date", range.start).lte("availability_date", range.end),
-    sb.from("dienstplan_weekday_requirements").select("weekday, required_shifts"),
-    sb.from("dienstplan_date_requirements").select("requirement_date, required_shifts").gte("requirement_date", range.start).lte("requirement_date", range.end),
-    sb.from("dienstplan_shift_tracks").select("track_key, start_time, end_time").order("start_time"),
-    sb.from("dienstplan_weekday_position_requirements").select("weekday, track_key, position"),
-    sb.from("dienstplan_position_requirements").select("requirement_date, position, track_key, start_time, end_time").gte("requirement_date", range.start).lte("requirement_date", range.end),
-  ]);
-
-  const employees = ((employeesResult.data ?? []) as {
-    id: number;
-    name: string;
-    position: string | null;
-    monthly_hours: number;
-    weekly_hours: number;
-    allowed_positions: string[] | null;
-  }[]).map((row) => ({
-    id: row.id,
-    name: row.name,
-    position: row.position,
-    monthly_hours: row.monthly_hours,
-    weekly_hours: row.weekly_hours,
-    allowed_positions: normalizeAllowedPositions(row.allowed_positions),
-  }));
-  const pauseRules = (pauseRulesResult.data ?? []) as PauseRule[];
-  const availability = (availabilityResult.data ?? []) as {
-    employee_id: number;
-    availability_date: string;
-    status: string | null;
-    fixed_start: string | null;
-    fixed_end: string | null;
-  }[];
-  const weekdayRequirements = new Map<number, number>(
-    ((weekdayRequirementsResult.data ?? []) as { weekday: number; required_shifts: number }[]).map((item) => [
-      item.weekday,
-      item.required_shifts,
-    ])
-  );
-  const dateRequirements = new Map<string, number>(
-    ((dateRequirementsResult.data ?? []) as { requirement_date: string; required_shifts: number }[]).map((item) => [
-      item.requirement_date,
-      item.required_shifts,
-    ])
-  );
-  const shiftTracks = (shiftTracksResult.data ?? []) as { track_key: string; start_time: string; end_time: string }[];
-  const weekdayPositionRequirements = (weekdayPositionRequirementsResult.data ?? []) as {
-    weekday: number;
-    track_key: string;
-    position: string;
-  }[];
-  const datePositionRequirements = (datePositionRequirementsResult.data ?? []) as {
-    requirement_date: string;
-    position: string;
-    track_key: string | null;
-    start_time: string;
-    end_time: string;
-  }[];
-
-  const trackMap = new Map(shiftTracks.map((track) => [track.track_key, track]));
-  const weekdayPositionMap = new Map<number, { track_key: string; position: string }[]>();
-  for (const requirement of weekdayPositionRequirements) {
-    const list = weekdayPositionMap.get(requirement.weekday) ?? [];
-    list.push(requirement);
-    weekdayPositionMap.set(requirement.weekday, list);
-  }
-  const datePositionMap = new Map<string, typeof datePositionRequirements>();
-  for (const requirement of datePositionRequirements) {
-    const list = datePositionMap.get(requirement.requirement_date) ?? [];
-    list.push(requirement);
-    datePositionMap.set(requirement.requirement_date, list);
-  }
-
-  const monthDays = buildMonthDays(range.start, range.end);
-  const slots: AutoPlanSlot[] = [];
-  for (const day of monthDays) {
-    const parsedDay = new Date(`${day}T00:00:00Z`);
-    const weekday = parsedDay.getUTCDay();
-
-    if (skipWeekends && (weekday === 0 || weekday === 6)) continue;
-    const dateSpecificRequirements = datePositionMap.get(day) ?? [];
-
-    if (dateSpecificRequirements.length > 0) {
-      for (const requirement of dateSpecificRequirements) {
-        const normalizedPosition = requirement.position.trim().toLowerCase();
-        const defaultEnd = normalizedPosition === "serviceleitung" ? (addHoursToTime(requirement.start_time.slice(0, 5), 8) ?? requirement.end_time.slice(0, 5)) : requirement.end_time.slice(0, 5);
-        slots.push({
-          shift_date: day,
-          position: requirement.position,
-          start_time: requirement.start_time.slice(0, 5),
-          end_time: defaultEnd,
-        });
-      }
-      continue;
-    }
-
-    const weekdayDefaults = weekdayPositionMap.get(weekday) ?? [];
-    if (weekdayDefaults.length > 0) {
-      for (const requirement of weekdayDefaults) {
-        const track = trackMap.get(requirement.track_key);
-        if (!track) continue;
-        const normalizedPosition = requirement.position.trim().toLowerCase();
-        const defaultEnd = normalizedPosition === "serviceleitung" ? (addHoursToTime(track.start_time.slice(0, 5), 8) ?? track.end_time.slice(0, 5)) : track.end_time.slice(0, 5);
-        slots.push({
-          shift_date: day,
-          position: requirement.position,
-          start_time: track.start_time.slice(0, 5),
-          end_time: defaultEnd,
-        });
-      }
-      continue;
-    }
-
-    const fallbackCount = dateRequirements.get(day) ?? weekdayRequirements.get(weekday) ?? 0;
-    for (let index = 0; index < fallbackCount; index += 1) {
-      const track = shiftTracks[index % Math.max(shiftTracks.length, 1)];
-      if (!track) continue;
-      slots.push({
-        shift_date: day,
-        position: null,
-        start_time: track.start_time.slice(0, 5),
-        end_time: track.end_time.slice(0, 5),
-      });
-    }
-  }
-
-  // Wenn overwrite_existing=false: bestehende Schichten laden und als belegt markieren
-  let existingShiftsForPlan: { employee_id: number; shift_date: string; start_time: string | null; end_time: string | null }[] = [];
-  if (!overwriteExisting) {
-    const { data: existing } = await sb
-      .from("dienstplan_shifts")
-      .select("employee_id, shift_date, start_time, end_time")
-      .gte("shift_date", range.start)
-      .lte("shift_date", range.end);
-    existingShiftsForPlan = existing ?? [];
-    // Tage mit bestehender Schicht aus den Slots entfernen
-    const occupiedKeys = new Set(existingShiftsForPlan.map((s) => `${s.employee_id}-${s.shift_date}`));
-    // Slots für Tage behalten, die noch nicht vollständig besetzt sind
-    const occupiedDays = new Set(existingShiftsForPlan.map((s) => s.shift_date));
-    // Nur Slots für Tage ohne jegliche Schicht übrig lassen
-    slots.splice(0, slots.length, ...slots.filter((s) => !occupiedDays.has(s.shift_date)));
-    void occupiedKeys; // wird in generateAutoPlanSlots via existingShifts berücksichtigt
-  }
-
-  // min_shift_hours: Slots herausfiltern, die kürzer als das Minimum sind
-  const filteredSlots = minShiftHours > 0
-    ? slots.filter((s) => {
-        const startMins = s.start_time.split(":").reduce((h, m, i) => h + (i === 0 ? Number(m) * 60 : Number(m)), 0);
-        let endMins = s.end_time.split(":").reduce((h, m, i) => h + (i === 0 ? Number(m) * 60 : Number(m)), 0);
-        if (endMins <= startMins) endMins += 24 * 60;
-        return (endMins - startMins) >= minShiftHours * 60;
-      })
-    : slots;
-
-  const { plannedShifts: generatedShifts, unfilledSlots } = generateAutoPlanSlots({
-    employees,
-    existingShifts: existingShiftsForPlan,
-    availability: respectAvailability ? availability : [],
-    slots: filteredSlots,
-    pauseRules,
-    maxShiftsPerWeek,
-  });
-
-  if (overwriteExisting && generatedShifts.length > 0) {
-    await sb.from("dienstplan_shifts").delete().gte("shift_date", range.start).lte("shift_date", range.end);
-  }
-  if (generatedShifts.length > 0) {
-    await sb.from("dienstplan_shifts").insert(
-      generatedShifts.map((shift) => ({
-        ...shift,
-        break_minutes: null,
-        comment: null,
-        raw_input: "auto-generated",
-      }))
-    );
-  }
-
-  await auditDienstplan(actor, "dienstplan_month_autoplan", {
-    month,
-    created: generatedShifts.length,
-    unfilled: unfilledSlots.length,
-  });
-
-  revalidatePath(PLAN_PATH);
-  return { plannedShifts: generatedShifts, unfilledSlots };
 }
 
 export async function moveShiftAction(formData: FormData) {
@@ -1846,13 +1667,26 @@ export async function buildPreplanForMonthAction(formData: FormData) {
   }[] = [];
 
   if (!overwriteExisting) {
-    const existingByDate = new Map<string, number>();
+    // Jede bestehende Schicht deckt höchstens einen Slot ab: erst exakt (Beginn+Ende), dann nach Beginn
+    const shiftsByDate = new Map<string, { start: string; end: string }[]>();
     for (const shift of existingShifts) {
-      existingByDate.set(shift.shift_date, (existingByDate.get(shift.shift_date) ?? 0) + 1);
+      if (!shift.start_time || !shift.end_time) continue;
+      const list = shiftsByDate.get(shift.shift_date) ?? [];
+      list.push({ start: shift.start_time.slice(0, 5), end: shift.end_time.slice(0, 5) });
+      shiftsByDate.set(shift.shift_date, list);
     }
     for (const [date, list] of slotsByDate) {
-      const existing = existingByDate.get(date) ?? 0;
-      const remaining = list.slice(existing);
+      const remaining = [...list];
+      const unmatched: { start: string; end: string }[] = [];
+      for (const shift of shiftsByDate.get(date) ?? []) {
+        const at = remaining.findIndex((slot) => slot.start_time === shift.start && slot.end_time === shift.end);
+        if (at >= 0) remaining.splice(at, 1);
+        else unmatched.push(shift);
+      }
+      for (const shift of unmatched) {
+        const at = remaining.findIndex((slot) => slot.start_time === shift.start);
+        if (at >= 0) remaining.splice(at, 1);
+      }
       for (const slot of remaining) {
         inserts.push({ slot_date: date, ...slot });
       }
@@ -1877,6 +1711,43 @@ export async function buildPreplanForMonthAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
+type PlannerEmployeeRow = {
+  id: number;
+  name: string;
+  position: string | null;
+  position_category: string | null;
+  employment_type: string;
+  monthly_hours: number;
+  weekly_hours: number;
+  allowed_positions: PositionCategory[] | null;
+};
+
+/**
+ * Lädt aktive Mitarbeitende inkl. Freischaltungen. Fehlt die Spalte
+ * allowed_positions (alte DB), gilt "keine Einschränkung" (null) statt
+ * "für nichts freigeschaltet".
+ */
+async function loadPlannerEmployees(sb: ReturnType<typeof createAdminClient>): Promise<PlannerEmployeeRow[]> {
+  const base = "id, name, position, position_category, employment_type, monthly_hours, weekly_hours";
+  const full = await sb.from("dienstplan_employees").select(`${base}, allowed_positions`).eq("is_active", true);
+  const rows = (full.error
+    ? (await sb.from("dienstplan_employees").select(base).eq("is_active", true)).data
+    : full.data) as
+    | (Omit<PlannerEmployeeRow, "allowed_positions"> & { allowed_positions?: string[] | null })[]
+    | null;
+  return (rows ?? []).map((row) => ({
+    ...row,
+    allowed_positions: Array.isArray(row.allowed_positions) ? normalizeAllowedPositions(row.allowed_positions) : null,
+  }));
+}
+
+function readNumberOption(formData: FormData, key: string, fallback: number, min: number, max: number) {
+  const raw = formData.get(key);
+  const value = raw === null || raw === "" ? fallback : Number(raw);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
 export async function autoFillPlannedSlotsAction(formData: FormData) {
   const actor = await assertAdminForDienstplanAutomation();
 
@@ -1885,6 +1756,12 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
   if (!range) return;
 
   const sb = createAdminClient();
+  // Admin-Einstellungen sind der Standard; der Dialog im Monatsplan kann sie pro Lauf überschreiben
+  const rules = await loadPlanningRules(sb);
+  const maxShiftsPerWeek = readNumberOption(formData, "max_shifts_per_week", rules.max_shifts_per_week, 1, 7);
+  const minRestMinutes = readNumberOption(formData, "min_rest_hours", rules.min_rest_hours, 0, 24) * 60;
+  const maxConsecutiveDays = readNumberOption(formData, "max_consecutive_days", rules.max_consecutive_days, 1, 14);
+
   const [
     employeesResult,
     slotsResult,
@@ -1892,11 +1769,10 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
     pauseRulesResult,
     existingShiftsResult,
     hourDefaultsResult,
+    prevEdgeResult,
+    nextEdgeResult,
   ] = await Promise.all([
-    sb
-      .from("dienstplan_employees")
-      .select("id, position, position_category, employment_type, monthly_hours, weekly_hours")
-      .eq("is_active", true),
+    loadPlannerEmployees(sb),
     sb
       .from("dienstplan_planned_slots")
       .select("id, slot_date, position, start_time, end_time")
@@ -1916,25 +1792,20 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
       .gte("shift_date", range.start)
       .lte("shift_date", range.end),
     sb.from("dienstplan_employment_hour_defaults").select("employment_type, vacation_hours_per_day"),
+    // Randtage der Nachbarmonate: wichtig für Ruhezeit und Tage in Folge am Monatswechsel
+    sb
+      .from("dienstplan_shifts")
+      .select("employee_id, shift_date, start_time, end_time")
+      .gte("shift_date", addDays(range.start, -7) ?? range.start)
+      .lt("shift_date", range.start),
+    sb
+      .from("dienstplan_shifts")
+      .select("employee_id, shift_date, start_time, end_time")
+      .gt("shift_date", range.end)
+      .lte("shift_date", addDays(range.end, 7) ?? range.end),
   ]);
 
-  const employees = ((employeesResult.data ?? []) as {
-    id: number;
-    position: string | null;
-    position_category: string | null;
-    employment_type: string;
-    monthly_hours: number;
-    weekly_hours: number;
-    allowed_positions?: string[] | null;
-  }[]).map((row) => ({
-    id: row.id,
-    position: row.position,
-    position_category: row.position_category,
-    employment_type: row.employment_type,
-    monthly_hours: row.monthly_hours,
-    weekly_hours: row.weekly_hours,
-    allowed_positions: normalizeAllowedPositions(row.allowed_positions ?? null),
-  }));
+  const employees = employeesResult;
   const slots = (slotsResult.data ?? []) as {
     id: number;
     slot_date: string;
@@ -1960,6 +1831,7 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
     employment_type: string;
     vacation_hours_per_day: number;
   }[];
+  const edgeShifts = [...(prevEdgeResult.data ?? []), ...(nextEdgeResult.data ?? [])] as typeof existingShifts;
 
   const extraMinutesByEmployee = calculateUrlaubMinutesByEmployee(
     availability.map((a) => ({ employee_id: a.employee_id, status: a.status })),
@@ -1969,16 +1841,19 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
 
   const { plannedShifts: generated, unfilledSlots } = generateAutoPlanSlots({
     employees,
-    existingShifts,
+    existingShifts: [...existingShifts, ...edgeShifts.map((shift) => ({ ...shift, context: true }))],
     availability,
     slots: slots.map((slot) => ({
+      id: slot.id,
       shift_date: slot.slot_date,
       position: slot.position,
       start_time: slot.start_time.slice(0, 5),
       end_time: slot.end_time.slice(0, 5),
     })),
     pauseRules,
-    maxShiftsPerWeek: 7,
+    maxShiftsPerWeek,
+    minRestMinutes,
+    maxConsecutiveDays,
     extraMonthlyMinutesByEmployee: extraMinutesByEmployee,
   });
 
@@ -1986,40 +1861,24 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
     return { plannedShifts: generated, unfilledSlots };
   }
 
-  // Map jeden geplanten Slot der ersten passenden Zuweisung zu (Datum + Zeit)
-  const assignedSlotIds = new Set<number>();
-  const filledShifts: typeof generated = [];
-  for (const assignment of generated) {
-    const matching = slots.find(
-      (slot) =>
-        !assignedSlotIds.has(slot.id) &&
-        slot.slot_date === assignment.shift_date &&
-        slot.start_time.slice(0, 5) === assignment.start_time &&
-        slot.end_time.slice(0, 5) === assignment.end_time
-    );
-    if (!matching) continue;
-    assignedSlotIds.add(matching.id);
-    filledShifts.push(assignment);
+  // Jede Zuweisung gehört über slot_id zu genau einem offenen Slot
+  const filledShifts = generated.filter((shift) => typeof shift.slot_id === "number");
+  const assignedSlotIds = new Set(filledShifts.map((shift) => shift.slot_id as number));
+
+  const { error: upsertError } = await sb.from("dienstplan_shifts").upsert(
+    filledShifts.map(({ slot_id: _slotId, ...shift }) => ({
+      ...shift,
+      break_minutes: null,
+      comment: null,
+      raw_input: "auto-fill-slot",
+    })),
+    { onConflict: "employee_id,shift_date" }
+  );
+  if (upsertError) {
+    throw new Error(`Schichten konnten nicht gespeichert werden: ${upsertError.message}`);
   }
 
-  if (filledShifts.length > 0) {
-    await sb.from("dienstplan_shifts").upsert(
-      filledShifts.map((shift) => ({
-        ...shift,
-        break_minutes: null,
-        comment: null,
-        raw_input: "auto-fill-slot",
-      })),
-      { onConflict: "employee_id,shift_date" }
-    );
-  }
-
-  if (assignedSlotIds.size > 0) {
-    await sb
-      .from("dienstplan_planned_slots")
-      .delete()
-      .in("id", Array.from(assignedSlotIds));
-  }
+  await sb.from("dienstplan_planned_slots").delete().in("id", Array.from(assignedSlotIds));
 
   await auditDienstplan(actor, "dienstplan_planned_slots_autofill", {
     month,
@@ -2055,10 +1914,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     hourDefaultsResult,
     historyResult,
   ] = await Promise.all([
-    sb
-      .from("dienstplan_employees")
-      .select("id, name, position, position_category, employment_type, monthly_hours, weekly_hours")
-      .eq("is_active", true),
+    loadPlannerEmployees(sb),
     sb
       .from("dienstplan_planned_slots")
       .select("id, slot_date, position, start_time, end_time, note")
@@ -2073,7 +1929,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
       .lte("availability_date", range.end),
     sb
       .from("dienstplan_shifts")
-      .select("employee_id, start_time, end_time, break_minutes")
+      .select("employee_id, shift_date, start_time, end_time, break_minutes")
       .gte("shift_date", range.start)
       .lte("shift_date", range.end),
     sb.from("dienstplan_pause_rules").select("min_minutes, pause_minutes").order("min_minutes"),
@@ -2085,15 +1941,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
       .limit(4000),
   ]);
 
-  const employees = (employeesResult.data ?? []) as {
-    id: number;
-    name: string;
-    position: string | null;
-    position_category: string | null;
-    employment_type: string;
-    monthly_hours: number;
-    weekly_hours: number;
-  }[];
+  const employees = employeesResult;
   const slots = (slotsResult.data ?? []) as {
     id: number;
     slot_date: string;
@@ -2111,6 +1959,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   }[];
   const shifts = (shiftsResult.data ?? []) as {
     employee_id: number;
+    shift_date: string;
     start_time: string | null;
     end_time: string | null;
     break_minutes: number | null;
@@ -2183,7 +2032,9 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
 
   const slotsById = new Map(slots.map((s) => [s.id, s]));
   const employeeIds = new Set(employees.map((e) => e.id));
-  const usedEmployeeOnDay = new Set<string>();
+  // Bestehende Schichten belegen den Tag - sonst würde der Upsert sie überschreiben
+  const usedEmployeeOnDay = new Set<string>(shifts.map((shift) => `${shift.employee_id}-${shift.shift_date}`));
+  const employeesById = new Map(employees.map((e) => [e.id, e]));
   const blockedByAvailability = new Set<string>();
   for (const entry of availability) {
     const status = (entry.status ?? "").toLowerCase();
@@ -2200,6 +2051,9 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     const dayKey = `${a.employee_id}-${slot.slot_date}`;
     if (blockedByAvailability.has(dayKey)) continue; // F/U/K hart sperren, falls die KI sich verirrt
     if (usedEmployeeOnDay.has(dayKey)) continue;
+    const slotCategory = inferPositionCategory(slot.position);
+    const allowed = employeesById.get(a.employee_id)?.allowed_positions ?? null;
+    if (slotCategory && allowed && !allowed.includes(slotCategory)) continue;
     usedEmployeeOnDay.add(dayKey);
     validAssignments.push({ slot_id: slot.id, employee_id: a.employee_id });
   }
@@ -2223,7 +2077,12 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
   if (inserts.length > 0) {
-    await sb.from("dienstplan_shifts").upsert(inserts, { onConflict: "employee_id,shift_date" });
+    const { error: aiUpsertError } = await sb
+      .from("dienstplan_shifts")
+      .upsert(inserts, { onConflict: "employee_id,shift_date" });
+    if (aiUpsertError) {
+      throw new Error(`KI-Zuweisungen konnten nicht gespeichert werden: ${aiUpsertError.message}`);
+    }
     await sb
       .from("dienstplan_planned_slots")
       .delete()

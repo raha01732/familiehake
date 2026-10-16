@@ -6,6 +6,7 @@ import {
   deletePositionMatrixRowAction,
   deleteShiftTrackAction,
   saveEmploymentHourDefaultAction,
+  savePlanningRulesAction,
   savePositionMatrixRowAction,
   saveShiftTrackAction,
   saveWeekdayRequirementAction,
@@ -13,6 +14,7 @@ import {
 } from "./actions";
 import FormFeedback from "./components/FormFeedback";
 import { EMPLOYMENT_TYPES } from "./utils";
+import type { PlanningRules } from "@/lib/dienstplaner/planning-rules";
 
 type PauseRule = {
   id: number;
@@ -61,6 +63,7 @@ type SettingsPanelProps = {
   shiftTracks: ShiftTrack[];
   weekdayPositionRequirements: WeekdayPositionRequirement[];
   employmentHourDefaults: EmploymentHourDefaultRow[];
+  planningRules: PlanningRules;
   isAdmin: boolean;
 };
 
@@ -108,6 +111,7 @@ export default function SettingsPanel({
   shiftTracks,
   weekdayPositionRequirements,
   employmentHourDefaults,
+  planningRules,
   isAdmin,
 }: SettingsPanelProps) {
   const hourDefaultByType = new Map(
@@ -499,6 +503,64 @@ export default function SettingsPanel({
               </FormFeedback>
             ))}
           </div>
+        </div>
+
+        <div className="card p-5 flex flex-col gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Planungsregeln (Auto-Plan)</h3>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
+              Harte Grenzen, die der Auto-Plan nie überschreitet. Im Monatsplan lassen sie sich pro Lauf
+              überschreiben; hier steht der Standard für alle.
+            </p>
+          </div>
+          <FormFeedback action={savePlanningRulesAction} className="flex flex-wrap items-end gap-4">
+            <label className="flex flex-col gap-1 text-xs text-[hsl(var(--muted-foreground))]">
+              Max. Schichten pro Woche
+              <input
+                name="max_shifts_per_week"
+                type="number"
+                min={1}
+                max={7}
+                step={1}
+                defaultValue={planningRules.max_shifts_per_week}
+                className={`${inputBase} w-28 px-2 py-1`}
+                disabled={isReadOnly}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-[hsl(var(--muted-foreground))]">
+              Mindest-Ruhezeit (Stunden)
+              <input
+                name="min_rest_hours"
+                type="number"
+                min={0}
+                max={24}
+                step={0.5}
+                defaultValue={planningRules.min_rest_hours}
+                className={`${inputBase} w-28 px-2 py-1`}
+                disabled={isReadOnly}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-[hsl(var(--muted-foreground))]">
+              Max. Arbeitstage in Folge
+              <input
+                name="max_consecutive_days"
+                type="number"
+                min={1}
+                max={14}
+                step={1}
+                defaultValue={planningRules.max_consecutive_days}
+                className={`${inputBase} w-28 px-2 py-1`}
+                disabled={isReadOnly}
+              />
+            </label>
+            <button
+              type="submit"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-1.5 px-3 rounded-lg disabled:opacity-50"
+              disabled={isReadOnly}
+            >
+              Speichern
+            </button>
+          </FormFeedback>
         </div>
 
         <div className="card p-5 flex flex-col gap-4">

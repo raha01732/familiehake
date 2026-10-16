@@ -42,11 +42,11 @@ type Props = {
   employmentHourDefaults: EmploymentHourDefault[];
   isAdmin: boolean;
   aiEnabled: boolean;
+  planningRules: AutoPlanConfig;
   saveShiftAction: (_fd: FormData) => Promise<void>;
   deleteShiftAction: (_fd: FormData) => Promise<void>;
   moveShiftAction: (_fd: FormData) => Promise<void>;
   saveAvailabilityAction: (_fd: FormData) => Promise<void>;
-  autoGenerateAction: (_fd: FormData) => Promise<AutoPlanCallResult | void>;
   clearMonthAction: (_fd: FormData) => Promise<void>;
   buildPreplanAction: (_fd: FormData) => Promise<void>;
   autoFillSlotsAction: (_fd: FormData) => Promise<AutoPlanCallResult | void>;
@@ -65,6 +65,18 @@ type AutoPlanCallResult = {
   plannedShifts: { employee_id: number; shift_date: string; start_time: string; end_time: string }[];
   unfilledSlots: UnfilledSlotReport[];
 };
+
+/** Ordnet eine Schicht anhand von Beginn/Ende einer Schichtart zu (nur für die Darstellung). */
+function classifyShift(start: string, end: string): { label: string; cls: string } {
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  const startMin = sh * 60 + sm;
+  const endMin = eh * 60 + em;
+  if (endMin <= startMin || startMin >= 21 * 60) return { label: "Nacht", cls: "bg-violet-500/15" };
+  if (startMin < 11 * 60) return { label: "Früh", cls: "bg-sky-500/15" };
+  if (startMin < 15 * 60) return { label: "Mittel", cls: "bg-emerald-500/15" };
+  return { label: "Spät", cls: "bg-amber-500/15" };
+}
 
 const AVAIL_BADGE: Record<string, { label: string; cls: string }> = {
   f: { label: "F", cls: "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]" },
@@ -117,11 +129,11 @@ export default function MonthlyGrid({
   employmentHourDefaults,
   isAdmin,
   aiEnabled,
+  planningRules,
   saveShiftAction,
   deleteShiftAction,
   moveShiftAction,
   saveAvailabilityAction,
-  autoGenerateAction,
   clearMonthAction,
   buildPreplanAction,
   autoFillSlotsAction,
@@ -140,7 +152,10 @@ export default function MonthlyGrid({
   const [employeeSummary, setEmployeeSummary] = useState<EmployeeSummaryState | null>(null);
   const [dayDetails, setDayDetails] = useState<DayDetailsState | null>(null);
   const [showAutoPlanConfig, setShowAutoPlanConfig] = useState(false);
-  const [isAutoPlanning, startAutoPlanning] = useTransition();
+
+  function openAutoPlanConfig() {
+    setShowAutoPlanConfig(true);
+  }
   const [isAutoFilling, startAutoFilling] = useTransition();
   const [isAiFilling, startAiFilling] = useTransition();
   const [isBuildingPreplan, startBuildingPreplan] = useTransition();
@@ -199,6 +214,15 @@ export default function MonthlyGrid({
     return map;
   }, [plannedSlots]);
 
+  const staffedByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of shifts) {
+      if (!s.start_time || !s.end_time) continue;
+      map.set(s.shift_date, (map.get(s.shift_date) ?? 0) + 1);
+    }
+    return map;
+  }, [shifts]);
+
   const empShiftMinutes = useMemo(() => {
     const map = new Map<number, number>();
     for (const s of shifts) {
@@ -240,28 +264,6 @@ export default function MonthlyGrid({
     router.push(`/tools/dienstplaner?month=${m}`);
   }
 
-  function handleAutoGenerate(config: AutoPlanConfig) {
-    const fd = new FormData();
-    fd.set("month", config.month);
-    fd.set("min_shift_hours", String(config.min_shift_hours));
-    fd.set("max_shifts_per_week", String(config.max_shifts_per_week));
-    fd.set("skip_weekends", config.skip_weekends ? "true" : "false");
-    fd.set("respect_availability", config.respect_availability ? "true" : "false");
-    fd.set("overwrite_existing", config.overwrite_existing ? "true" : "false");
-    setActionError(null);
-    startAutoPlanning(async () => {
-      try {
-        const result = await autoGenerateAction(fd);
-        setShowAutoPlanConfig(false);
-        if (result && result.unfilledSlots.length > 0) {
-          setUnfilledReport(result.unfilledSlots);
-        }
-      } catch (err) {
-        setActionError(err instanceof Error ? err.message : "Auto-Plan fehlgeschlagen");
-      }
-    });
-  }
-
   function handleBuildPreplan(overwrite: boolean) {
     const fd = new FormData();
     fd.set("month", month);
@@ -276,13 +278,17 @@ export default function MonthlyGrid({
     });
   }
 
-  function handleAutoFillSlots() {
+  function handleAutoFillSlots(config: AutoPlanConfig) {
     const fd = new FormData();
     fd.set("month", month);
+    fd.set("max_shifts_per_week", String(config.max_shifts_per_week));
+    fd.set("min_rest_hours", String(config.min_rest_hours));
+    fd.set("max_consecutive_days", String(config.max_consecutive_days));
     setActionError(null);
     startAutoFilling(async () => {
       try {
         const result = await autoFillSlotsAction(fd);
+        setShowAutoPlanConfig(false);
         if (result && result.unfilledSlots.length > 0) {
           setUnfilledReport(result.unfilledSlots);
         }
@@ -353,6 +359,7 @@ export default function MonthlyGrid({
 
     if (shift?.start_time && shift?.end_time) {
       const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules, shift.break_minutes);
+      const kind = classifyShift(shift.start_time, shift.end_time);
       return (
         <button
           type="button"
@@ -362,13 +369,20 @@ export default function MonthlyGrid({
           className="w-full h-full text-left cursor-grab active:cursor-grabbing rounded-sm hover:ring-1 hover:ring-cyan-500/40 focus:outline-none focus:ring-1 focus:ring-cyan-400"
         >
           <div
-            className="px-1 py-0.5 text-[11px] leading-tight text-[hsl(var(--foreground))] rounded-sm"
+            className={`px-1 py-0.5 text-[11px] leading-tight text-[hsl(var(--foreground))] rounded-sm ${kind.cls}`}
             style={{ borderLeft: `3px solid ${emp.color}` }}
+            title={`${kind.label}: ${shift.start_time.slice(0, 5)}–${shift.end_time.slice(0, 5)}${
+              summary ? ` · ${formatMinutesAsHours(summary.workMinutes)} h netto` : ""
+            }`}
           >
-            <div className="font-medium tabular-nums">{shift.start_time.slice(0, 5)}</div>
-            <div className="font-medium tabular-nums">{shift.end_time.slice(0, 5)}</div>
-            <div className="text-[10px] text-[hsl(var(--muted-foreground))] tabular-nums">
-              {summary ? formatMinutesAsHours(summary.workMinutes) : ""}
+            <div className="flex items-center justify-between gap-1">
+              <span className="font-medium tabular-nums whitespace-nowrap">
+                {shift.start_time.slice(0, 5)}–{shift.end_time.slice(0, 5)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-1 text-[10px] text-[hsl(var(--muted-foreground))]">
+              <span className="tabular-nums">{summary ? `${formatMinutesAsHours(summary.workMinutes)} h` : ""}</span>
+              <span className="uppercase tracking-wide text-[8px] font-semibold opacity-80">{kind.label}</span>
             </div>
             {shift.comment && (
               <div className="text-[9px] text-[hsl(var(--muted-foreground))] truncate" title={shift.comment}>
@@ -520,10 +534,10 @@ export default function MonthlyGrid({
             {totalOpenSlots > 0 && (
               <>
                 <button
-                  onClick={handleAutoFillSlots}
+                  onClick={openAutoPlanConfig}
                   disabled={isAutoFilling}
                   className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors disabled:opacity-60"
-                  title="Schritt 2: deterministischer Algorithmus verteilt die roten Slots fair auf Mitarbeitende (Soll-Stunden, Verfügbarkeiten, Wochenlimit)."
+                  title="Schritt 2: verteilt die roten Slots fair auf Mitarbeitende (Soll-Stunden, Verfügbarkeiten, Ruhezeit, Wochenlimit). Regeln vorher einstellbar."
                 >
                   {isAutoFilling ? "Fülle…" : "2. Auto-Plan"}
                 </button>
@@ -725,6 +739,20 @@ export default function MonthlyGrid({
                         🎉 {holidayName}
                       </div>
                     )}
+                    {(staffedByDate.get(day) ?? 0) + (slotsByDate.get(day)?.length ?? 0) > 0 && (
+                      <div className="px-2 pt-1 text-[10px] tabular-nums">
+                        <span
+                          className={
+                            (slotsByDate.get(day)?.length ?? 0) > 0
+                              ? "text-red-400 font-semibold"
+                              : "text-emerald-400 font-semibold"
+                          }
+                        >
+                          {staffedByDate.get(day) ?? 0}/
+                          {(staffedByDate.get(day) ?? 0) + (slotsByDate.get(day)?.length ?? 0)} besetzt
+                        </span>
+                      </div>
+                    )}
                     {renderRemarksCell(day)}
                   </td>
                   {sortedEmployees.map((emp) => (
@@ -834,9 +862,10 @@ export default function MonthlyGrid({
       {showAutoPlanConfig && (
         <AutoPlanConfigModal
           month={month}
+          initial={planningRules}
           onClose={() => setShowAutoPlanConfig(false)}
-          onConfirm={handleAutoGenerate}
-          isPending={isAutoPlanning}
+          onConfirm={handleAutoFillSlots}
+          isPending={isAutoFilling}
         />
       )}
 

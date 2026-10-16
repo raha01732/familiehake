@@ -246,6 +246,7 @@ export type AutoPlanEmployee = {
 };
 
 export type UnfilledSlotReport = {
+  slot_id?: number;
   shift_date: string;
   position: string | null;
   start_time: string;
@@ -254,11 +255,16 @@ export type UnfilledSlotReport = {
 };
 
 export type AutoPlanResult = {
-  plannedShifts: { employee_id: number; shift_date: string; start_time: string; end_time: string }[];
+  plannedShifts: { employee_id: number; shift_date: string; start_time: string; end_time: string; slot_id?: number }[];
   unfilledSlots: UnfilledSlotReport[];
 };
 
 export type AutoPlanShift = {
+  /**
+   * Schicht außerhalb des zu planenden Monats (Nachbarmonat): zählt für Ruhezeit,
+   * Tage in Folge und Wochenlimit, aber nicht für die Monatsstunden.
+   */
+  context?: boolean;
   employee_id: number;
   shift_date: string;
   start_time: string | null;
@@ -274,6 +280,8 @@ export type AutoPlanAvailability = {
 };
 
 export type AutoPlanSlot = {
+  /** Optionale Kennung (z.B. planned_slots.id) – wird in Ergebnis und Report durchgereicht. */
+  id?: number;
   shift_date: string;
   position: string | null;
   start_time: string;
@@ -483,6 +491,45 @@ function calculateBlockContinuityScore(
   return score;
 }
 
+
+// ── Auto-Planung ──────────────────────────────────────────────────────────────
+export const DEFAULT_MIN_REST_MINUTES = 11 * 60;
+export const DEFAULT_MAX_CONSECUTIVE_DAYS = 6;
+
+type BlockReason = "position" | "availability" | "sameDay" | "weekLimit" | "rest" | "consecutive";
+
+type PlannerAssignment = {
+  date: string;
+  day: number;
+  startAbs: number;
+  endAbs: number;
+  workMinutes: number;
+  /** null = bereits bestehende (unveränderliche) Schicht */
+  slotIndex: number | null;
+  /** true = Nachbarmonat, zählt nicht für das Monatssoll */
+  context: boolean;
+  start: string;
+  end: string;
+};
+
+function dayNumber(date: string): number {
+  return Math.floor(Date.parse(`${date}T00:00:00Z`) / 86_400_000);
+}
+
+/**
+ * Verteilt offene Slots auf Mitarbeitende.
+ *
+ * Harte Regeln (nie verletzt): Position/Freischaltung, Frei/Urlaub/Krank,
+ * feste Zeitfenster, max. eine Schicht pro Tag (inkl. bestehender Schichten),
+ * Wochenlimit, Mindest-Ruhezeit zwischen Schichten, max. Tage in Folge.
+ *
+ * Weiche Regeln (Score): Soll-Stunden-Fairness, Früh/Spät-Wunsch, zusammen-
+ * hängende Blöcke statt „Schicht-Frei-Schicht“, Überstunden-Strafe.
+ *
+ * Vorgehen: Engpass-Slots (wenige mögliche Mitarbeitende) zuerst, danach
+ * chronologisch greedy; übrig gebliebene Slots werden per Umbuchung
+ * (eine bestehende Zuweisung weicht auf eine andere Person aus) repariert.
+ */
 export function generateAutoPlanSlots(params: {
   employees: AutoPlanEmployee[];
   existingShifts: AutoPlanShift[];
@@ -490,190 +537,333 @@ export function generateAutoPlanSlots(params: {
   slots: AutoPlanSlot[];
   pauseRules: PauseRule[];
   maxShiftsPerWeek?: number;
+  minRestMinutes?: number;
+  maxConsecutiveDays?: number;
   /** Bereits angerechnete Minuten pro Mitarbeiter (z.B. Urlaubs-Minuten), bevor die Schichten verteilt werden. */
   extraMonthlyMinutesByEmployee?: Map<number, number>;
 }): AutoPlanResult {
-  const { employees, existingShifts, availability, slots, pauseRules, maxShiftsPerWeek = 7, extraMonthlyMinutesByEmployee } = params;
+  const {
+    employees,
+    existingShifts,
+    availability,
+    slots,
+    pauseRules,
+    maxShiftsPerWeek = 7,
+    minRestMinutes = DEFAULT_MIN_REST_MINUTES,
+    maxConsecutiveDays = DEFAULT_MAX_CONSECUTIVE_DAYS,
+    extraMonthlyMinutesByEmployee,
+  } = params;
+
   const availabilityMap = new Map(
     availability.map((entry) => [`${entry.employee_id}-${entry.availability_date}`, entry])
   );
-  const assignedByDay = new Map<string, Set<number>>();
-  const totalMinutesByEmployee = new Map<number, number>();
-  if (extraMonthlyMinutesByEmployee) {
-    for (const [id, mins] of extraMonthlyMinutesByEmployee) {
-      totalMinutesByEmployee.set(id, (totalMinutesByEmployee.get(id) ?? 0) + mins);
-    }
-  }
-  const weeklyMinutesByEmployee = new Map<string, number>();
-  const weeklyShiftCountByEmployee = new Map<string, number>();
-  const assignmentCount = new Map<number, number>();
-  // Set der Arbeitstage pro Mitarbeiter — für die Block-Kontinuitäts-Bewertung
-  const workingDaysByEmployee = new Map<number, Set<string>>();
-  for (const shift of existingShifts) {
-    if (!shift.shift_date) continue;
-    const set = workingDaysByEmployee.get(shift.employee_id) ?? new Set<string>();
-    set.add(shift.shift_date);
-    workingDaysByEmployee.set(shift.employee_id, set);
-  }
 
-  for (const shift of existingShifts) {
-    const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules);
-    if (!summary) continue;
-    totalMinutesByEmployee.set(
-      shift.employee_id,
-      (totalMinutesByEmployee.get(shift.employee_id) ?? 0) + summary.workMinutes
-    );
-
-    const weekKey = getThursdayWeekKey(shift.shift_date);
-    if (weekKey) {
-      weeklyMinutesByEmployee.set(
-        `${shift.employee_id}-${weekKey}`,
-        (weeklyMinutesByEmployee.get(`${shift.employee_id}-${weekKey}`) ?? 0) + summary.workMinutes
-      );
-      weeklyShiftCountByEmployee.set(
-        `${shift.employee_id}-${weekKey}`,
-        (weeklyShiftCountByEmployee.get(`${shift.employee_id}-${weekKey}`) ?? 0) + 1
-      );
-    }
-  }
-
-  const plannedShifts: { employee_id: number; shift_date: string; start_time: string; end_time: string }[] = [];
-  const unfilledSlots: UnfilledSlotReport[] = [];
-
-  // Slots chronologisch durchgehen, damit Block-Kontinuität sinnvoll greift.
   const sortedSlots = [...slots].sort((a, b) => {
     if (a.shift_date !== b.shift_date) return a.shift_date.localeCompare(b.shift_date);
     return a.start_time.localeCompare(b.start_time);
   });
 
-  for (const slot of sortedSlots) {
-    const assignedSet = assignedByDay.get(slot.shift_date) ?? new Set<number>();
-    assignedByDay.set(slot.shift_date, assignedSet);
-    let selectedEmployeeId: number | null = null;
-    let selectedScore = Number.POSITIVE_INFINITY;
-    let hadPositionMatch = false;
-    let hadAnyEligible = false;
+  const byEmployee = new Map<number, PlannerAssignment[]>();
+  for (const employee of employees) byEmployee.set(employee.id, []);
 
+  function buildAssignment(
+    date: string,
+    start: string | null,
+    end: string | null,
+    slotIndex: number | null,
+    context = false
+  ): PlannerAssignment {
+    const day = dayNumber(date);
+    const summary = calculateShiftMinutes(start, end, pauseRules);
+    const startMin = (start && toMinutes(start)) || 0;
+    const duration = summary?.durationMinutes ?? 0;
+    return {
+      date,
+      day,
+      startAbs: day * MINUTES_PER_DAY + startMin,
+      endAbs: day * MINUTES_PER_DAY + startMin + duration,
+      workMinutes: summary?.workMinutes ?? 0,
+      slotIndex,
+      context,
+      start: start ?? "",
+      end: end ?? "",
+    };
+  }
+
+  for (const shift of existingShifts) {
+    if (!shift.shift_date) continue;
+    const list = byEmployee.get(shift.employee_id);
+    if (!list) continue;
+    list.push(
+      buildAssignment(shift.shift_date, shift.start_time?.slice(0, 5) ?? null, shift.end_time?.slice(0, 5) ?? null, null, shift.context === true)
+    );
+  }
+
+  const newCount = new Map<number, number>();
+
+  function slotTimesFor(employee: AutoPlanEmployee, slot: AutoPlanSlot) {
+    const isServiceleitung = employee.position?.trim().toLowerCase() === SERVICELEITUNG_POSITION;
+    const end = isServiceleitung ? (addHoursToTime(slot.start_time, 8) ?? slot.end_time) : slot.end_time;
+    return { start: slot.start_time, end };
+  }
+
+  /** Positions- und Verfügbarkeitsprüfung (ändert sich im Verlauf der Planung nicht). */
+  function staticBlock(employee: AutoPlanEmployee, slot: AutoPlanSlot): BlockReason | null {
     const slotCategory = inferPositionCategory(slot.position);
-
-    for (const employee of employees) {
-      if (assignedSet.has(employee.id)) continue;
-      // Strenger Filter: Mitarbeiter muss für die Slot-Position freigeschaltet sein
-      if (slotCategory) {
-        const allowed = employee.allowed_positions ?? null;
-        if (allowed && !allowed.includes(slotCategory)) continue;
-      }
-      // Legacy-Strict-Match: wenn der Slot eine konkrete Position trägt und der
-      // Mitarbeiter eine andere Standardposition hat, dann nur skippen, wenn beide
-      // klar belegt sind und mismatch'en.
+    if (slotCategory) {
+      const allowed = employee.allowed_positions ?? null;
+      if (allowed && !allowed.includes(slotCategory)) return "position";
+    } else if (
+      slot.position &&
+      employee.position &&
+      slot.position.toLowerCase() !== employee.position.toLowerCase()
+    ) {
+      return "position";
+    }
+    const entry = availabilityMap.get(`${employee.id}-${slot.shift_date}`);
+    const status = entry?.status?.toLowerCase() ?? null;
+    if (status === "f" || status === "k" || status === "u") return "availability";
+    if (status === "fix") {
+      const times = slotTimesFor(employee, slot);
       if (
-        slot.position &&
-        employee.position &&
-        slot.position.toLowerCase() !== employee.position.toLowerCase() &&
-        !slotCategory
+        !entry?.fixed_start ||
+        !entry.fixed_end ||
+        !isTimeRangeCompatible(times.start, times.end, entry.fixed_start, entry.fixed_end)
       ) {
-        continue;
+        return "availability";
       }
-      hadPositionMatch = true;
+    }
+    return null;
+  }
 
-      const isServiceleitung = employee.position?.trim().toLowerCase() === SERVICELEITUNG_POSITION;
-      const candidateEndTime = isServiceleitung ? (addHoursToTime(slot.start_time, 8) ?? slot.end_time) : slot.end_time;
-      const availabilityEntry = availabilityMap.get(`${employee.id}-${slot.shift_date}`);
-      const availabilityStatus = availabilityEntry?.status?.toLowerCase() ?? null;
-      if (availabilityStatus === "f" || availabilityStatus === "k" || availabilityStatus === "u") continue;
-      if (
-        availabilityStatus === "fix" &&
-        (!availabilityEntry?.fixed_start ||
-          !availabilityEntry.fixed_end ||
-          !isTimeRangeCompatible(slot.start_time, candidateEndTime, availabilityEntry.fixed_start, availabilityEntry.fixed_end))
-      ) {
-        continue;
-      }
+  function listWithout(employeeId: number, ignoreSlotIndex: number | null) {
+    return (byEmployee.get(employeeId) ?? []).filter(
+      (a) => ignoreSlotIndex === null || a.slotIndex !== ignoreSlotIndex
+    );
+  }
 
-      const weekKey = getThursdayWeekKey(slot.shift_date);
-      const weekShiftCount = weekKey
-        ? (weeklyShiftCountByEmployee.get(`${employee.id}-${weekKey}`) ?? 0)
-        : 0;
-      if (weekShiftCount >= maxShiftsPerWeek) continue;
+  /** Dynamische harte Regeln gegen den aktuellen Zwischenstand. */
+  function dynamicBlock(
+    employee: AutoPlanEmployee,
+    slot: AutoPlanSlot,
+    ignoreSlotIndex: number | null
+  ): BlockReason | null {
+    const list = listWithout(employee.id, ignoreSlotIndex);
+    const times = slotTimesFor(employee, slot);
+    const candidate = buildAssignment(slot.shift_date, times.start, times.end, -1);
 
-      hadAnyEligible = true;
+    if (list.some((a) => a.date === slot.shift_date)) return "sameDay";
 
-      const currentMinutes = totalMinutesByEmployee.get(employee.id) ?? 0;
-      const monthlyTargetMinutes = Math.max(0, Math.round(employee.monthly_hours * 60));
-      const monthlyFairnessScore =
-        monthlyTargetMinutes > 0 ? (currentMinutes / monthlyTargetMinutes) * 100 : currentMinutes / 60;
-      const weeklyTargetMinutes = Math.max(0, Math.round(employee.weekly_hours * 60));
-      const weeklyMinutes = weekKey ? (weeklyMinutesByEmployee.get(`${employee.id}-${weekKey}`) ?? 0) : 0;
-      const weeklyFairnessScore =
-        weeklyTargetMinutes > 0 ? (weeklyMinutes / weeklyTargetMinutes) * 100 : weeklyMinutes / 60;
-      const preferencePenalty = calculatePreferencePenalty(availabilityStatus, slot.start_time);
-      const loadPenalty = (assignmentCount.get(employee.id) ?? 0) * 1.5;
-      const combinedFairnessScore = monthlyFairnessScore * 0.6 + weeklyFairnessScore * 0.4;
-      const workingDays = workingDaysByEmployee.get(employee.id) ?? new Set<string>();
-      const blockScore = calculateBlockContinuityScore(workingDays, slot.shift_date);
-      const score = combinedFairnessScore + preferencePenalty + loadPenalty + blockScore;
+    const weekKey = getThursdayWeekKey(slot.shift_date);
+    if (weekKey && list.filter((a) => getThursdayWeekKey(a.date) === weekKey).length >= maxShiftsPerWeek) {
+      return "weekLimit";
+    }
 
-      if (score < selectedScore) {
-        selectedScore = score;
-        selectedEmployeeId = employee.id;
+    for (const other of list) {
+      if (other.day === candidate.day - 1 || other.day === candidate.day + 1) {
+        const gap = other.day < candidate.day ? candidate.startAbs - other.endAbs : other.startAbs - candidate.endAbs;
+        if (gap < minRestMinutes) return "rest";
       }
     }
 
-    if (selectedEmployeeId === null) {
-      let reason: string;
-      if (!hadPositionMatch) {
-        reason = slotCategory
-          ? `Kein Mitarbeiter für Position "${slot.position ?? slotCategory}" freigeschaltet`
-          : "Kein Mitarbeiter mit passender Position";
-      } else if (!hadAnyEligible) {
-        reason = "Alle passenden Mitarbeiter sind verhindert (Frei/Urlaub/Krank) oder am Wochenlimit";
-      } else {
-        reason = "Kein passender Mitarbeiter verfügbar";
+    const days = new Set(list.map((a) => a.day));
+    let run = 1;
+    for (let d = candidate.day - 1; days.has(d); d--) run += 1;
+    for (let d = candidate.day + 1; days.has(d); d++) run += 1;
+    if (run > maxConsecutiveDays) return "consecutive";
+    return null;
+  }
+
+  function scoreFor(employee: AutoPlanEmployee, slot: AutoPlanSlot): number {
+    const list = listWithout(employee.id, null);
+    const weekKey = getThursdayWeekKey(slot.shift_date);
+    const currentMinutes =
+      (extraMonthlyMinutesByEmployee?.get(employee.id) ?? 0) + list.reduce((sum, a) => sum + (a.context ? 0 : a.workMinutes), 0);
+    const weeklyMinutes = weekKey
+      ? list.filter((a) => getThursdayWeekKey(a.date) === weekKey).reduce((sum, a) => sum + a.workMinutes, 0)
+      : 0;
+
+    const monthlyTarget = Math.max(0, Math.round(employee.monthly_hours * 60));
+    const weeklyTarget = Math.max(0, Math.round(employee.weekly_hours * 60));
+    const monthlyFairness = monthlyTarget > 0 ? (currentMinutes / monthlyTarget) * 100 : currentMinutes / 60;
+    const weeklyFairness = weeklyTarget > 0 ? (weeklyMinutes / weeklyTarget) * 100 : weeklyMinutes / 60;
+
+    const times = slotTimesFor(employee, slot);
+    const shiftMinutes = calculateShiftMinutes(times.start, times.end, pauseRules)?.workMinutes ?? 0;
+    // Überstunden: deutlich teurer, sobald das Monatssoll durch diese Schicht überschritten würde
+    const overtimePenalty =
+      monthlyTarget > 0 && currentMinutes + shiftMinutes > monthlyTarget
+        ? 40 + ((currentMinutes + shiftMinutes - monthlyTarget) / monthlyTarget) * 200
+        : 0;
+
+    const status = availabilityMap.get(`${employee.id}-${slot.shift_date}`)?.status ?? null;
+    const preferencePenalty = calculatePreferencePenalty(status?.toLowerCase() ?? null, slot.start_time);
+    const loadPenalty = (newCount.get(employee.id) ?? 0) * 1.5;
+    const blockScore = calculateBlockContinuityScore(new Set(list.map((a) => a.date)), slot.shift_date);
+    return monthlyFairness * 0.6 + weeklyFairness * 0.4 + preferencePenalty + loadPenalty + blockScore + overtimePenalty;
+  }
+
+  function place(employee: AutoPlanEmployee, slot: AutoPlanSlot, slotIndex: number) {
+    const times = slotTimesFor(employee, slot);
+    byEmployee.get(employee.id)?.push(buildAssignment(slot.shift_date, times.start, times.end, slotIndex));
+    newCount.set(employee.id, (newCount.get(employee.id) ?? 0) + 1);
+  }
+
+  function unplace(employeeId: number, slotIndex: number) {
+    const list = byEmployee.get(employeeId);
+    if (!list) return;
+    const at = list.findIndex((a) => a.slotIndex === slotIndex);
+    if (at >= 0) list.splice(at, 1);
+    newCount.set(employeeId, Math.max(0, (newCount.get(employeeId) ?? 1) - 1));
+  }
+
+  function bestEmployeeFor(slotIndex: number, exclude?: number): AutoPlanEmployee | null {
+    const slot = sortedSlots[slotIndex];
+    let best: AutoPlanEmployee | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const employee of employees) {
+      if (employee.id === exclude) continue;
+      if (staticBlock(employee, slot) || dynamicBlock(employee, slot, null)) continue;
+      const score = scoreFor(employee, slot);
+      if (score < bestScore) {
+        best = employee;
+        bestScore = score;
       }
-      unfilledSlots.push({
+    }
+    return best;
+  }
+
+  // Engpass-Slots zuerst (≤ 2 mögliche Personen), dann chronologisch
+  const eligibleCounts = sortedSlots.map(
+    (slot) => employees.filter((employee) => staticBlock(employee, slot) === null).length
+  );
+  const order = sortedSlots.map((_, index) => index);
+  order.sort((a, b) => {
+    const aTight = eligibleCounts[a] <= 2 ? 0 : 1;
+    const bTight = eligibleCounts[b] <= 2 ? 0 : 1;
+    if (aTight !== bTight) return aTight - bTight;
+    return a - b;
+  });
+
+  const placement = new Map<number, number>(); // slotIndex → employeeId
+  const open: number[] = [];
+
+  for (const slotIndex of order) {
+    const chosen = bestEmployeeFor(slotIndex);
+    if (!chosen) {
+      open.push(slotIndex);
+      continue;
+    }
+    place(chosen, sortedSlots[slotIndex], slotIndex);
+    placement.set(slotIndex, chosen.id);
+  }
+
+  // Reparatur: offenen Slot besetzen, indem eine bestehende Zuweisung auf jemand anderen ausweicht
+  const stillOpen: number[] = [];
+  for (const slotIndex of open) {
+    const slot = sortedSlots[slotIndex];
+    let repaired = false;
+    for (const employee of employees) {
+      if (repaired) break;
+      if (staticBlock(employee, slot)) continue;
+      const movable = (byEmployee.get(employee.id) ?? []).filter((a) => a.slotIndex !== null);
+      for (const blocking of movable) {
+        const movedIndex = blocking.slotIndex as number;
+        if (dynamicBlock(employee, slot, movedIndex)) continue;
+        const replacement = bestEmployeeFor(movedIndex, employee.id);
+        if (!replacement) continue;
+        unplace(employee.id, movedIndex);
+        place(replacement, sortedSlots[movedIndex], movedIndex);
+        placement.set(movedIndex, replacement.id);
+        place(employee, slot, slotIndex);
+        placement.set(slotIndex, employee.id);
+        repaired = true;
+        break;
+      }
+    }
+    if (!repaired) stillOpen.push(slotIndex);
+  }
+
+  // Feinschliff: Zuweisungen auf deutlich besser passende Personen umlegen (Fairness/Blöcke)
+  const employeesById = new Map(employees.map((employee) => [employee.id, employee]));
+  for (let pass = 0; pass < 3; pass++) {
+    let moved = false;
+    for (const [slotIndex, currentId] of [...placement.entries()]) {
+      const current = employeesById.get(currentId);
+      if (!current) continue;
+      const slot = sortedSlots[slotIndex];
+      unplace(currentId, slotIndex);
+      let best = current;
+      let bestScore = scoreFor(current, slot);
+      for (const candidate of employees) {
+        if (candidate.id === currentId) continue;
+        if (staticBlock(candidate, slot) || dynamicBlock(candidate, slot, null)) continue;
+        const candidateScore = scoreFor(candidate, slot);
+        if (candidateScore < bestScore - 8) {
+          best = candidate;
+          bestScore = candidateScore;
+        }
+      }
+      place(best, slot, slotIndex);
+      placement.set(slotIndex, best.id);
+      if (best.id !== currentId) moved = true;
+    }
+    if (!moved) break;
+  }
+
+  const REASON_LABEL: Record<Exclude<BlockReason, "position">, string> = {
+    availability: "Frei/Urlaub/Krank/Zeitfenster",
+    sameDay: "am Tag schon eingeplant",
+    weekLimit: "Wochenlimit erreicht",
+    rest: `Ruhezeit unter ${Math.round(minRestMinutes / 60)} h`,
+    consecutive: `mehr als ${maxConsecutiveDays} Tage in Folge`,
+  };
+
+  const unfilledSlots: UnfilledSlotReport[] = [...stillOpen]
+    .sort((a, b) => a - b)
+    .map((slotIndex) => {
+      const slot = sortedSlots[slotIndex];
+      const counts = new Map<BlockReason, number>();
+      let positionMatches = 0;
+      for (const employee of employees) {
+        const blocked = staticBlock(employee, slot) ?? dynamicBlock(employee, slot, null);
+        if (!blocked) continue;
+        counts.set(blocked, (counts.get(blocked) ?? 0) + 1);
+        if (blocked !== "position") positionMatches += 1;
+      }
+      let reason: string;
+      if (positionMatches === 0) {
+        const category = inferPositionCategory(slot.position);
+        reason = category
+          ? `Kein Mitarbeiter für Position "${slot.position ?? category}" freigeschaltet`
+          : "Kein Mitarbeiter mit passender Position";
+      } else {
+        const parts = (Object.keys(REASON_LABEL) as (keyof typeof REASON_LABEL)[])
+          .filter((key) => counts.has(key))
+          .map((key) => `${counts.get(key)}× ${REASON_LABEL[key]}`);
+        reason = `Alle passenden Mitarbeiter blockiert: ${parts.join(", ")}`;
+      }
+      return {
+        slot_id: slot.id,
         shift_date: slot.shift_date,
         position: slot.position,
         start_time: slot.start_time,
         end_time: slot.end_time,
         reason,
-      });
-      continue;
-    }
-
-    const employee = employees.find((entry) => entry.id === selectedEmployeeId);
-    const isServiceleitung = employee?.position?.trim().toLowerCase() === SERVICELEITUNG_POSITION;
-    const startTime = slot.start_time;
-    const endTime = isServiceleitung ? (addHoursToTime(startTime, 8) ?? slot.end_time) : slot.end_time;
-
-    plannedShifts.push({
-      employee_id: selectedEmployeeId,
-      shift_date: slot.shift_date,
-      start_time: startTime,
-      end_time: endTime,
+      };
     });
-    assignedSet.add(selectedEmployeeId);
-    assignmentCount.set(selectedEmployeeId, (assignmentCount.get(selectedEmployeeId) ?? 0) + 1);
-    const workingDays = workingDaysByEmployee.get(selectedEmployeeId) ?? new Set<string>();
-    workingDays.add(slot.shift_date);
-    workingDaysByEmployee.set(selectedEmployeeId, workingDays);
-    const weekKeyForCount = getThursdayWeekKey(slot.shift_date);
-    if (weekKeyForCount) {
-      const countKey = `${selectedEmployeeId}-${weekKeyForCount}`;
-      weeklyShiftCountByEmployee.set(countKey, (weeklyShiftCountByEmployee.get(countKey) ?? 0) + 1);
-    }
-    const summary = calculateShiftMinutes(startTime, endTime, pauseRules);
-    if (summary) {
-      totalMinutesByEmployee.set(
-        selectedEmployeeId,
-        (totalMinutesByEmployee.get(selectedEmployeeId) ?? 0) + summary.workMinutes
-      );
-      if (weekKeyForCount) {
-        weeklyMinutesByEmployee.set(
-          `${selectedEmployeeId}-${weekKeyForCount}`,
-          (weeklyMinutesByEmployee.get(`${selectedEmployeeId}-${weekKeyForCount}`) ?? 0) + summary.workMinutes
-        );
-      }
-    }
+
+  const plannedShifts: AutoPlanResult["plannedShifts"] = [];
+  for (const [slotIndex, employeeId] of [...placement.entries()].sort((a, b) => a[0] - b[0])) {
+    const assignment = byEmployee.get(employeeId)?.find((a) => a.slotIndex === slotIndex);
+    if (!assignment) continue;
+    plannedShifts.push({
+      employee_id: employeeId,
+      shift_date: assignment.date,
+      start_time: assignment.start,
+      end_time: assignment.end,
+      slot_id: sortedSlots[slotIndex].id,
+    });
   }
 
   return { plannedShifts, unfilledSlots };
