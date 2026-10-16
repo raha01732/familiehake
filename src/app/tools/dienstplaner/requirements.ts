@@ -2,8 +2,18 @@
 // Reine Funktionen ohne Datenbankzugriff, damit sie getestet und im Client genutzt werden können.
 import { inferPositionCategory } from "./utils";
 
+/** Zeitraum (z. B. Ferien) mit eigenen Regeln, die an seinen Tagen die Standardregeln ersetzen. */
+export type RulePeriod = {
+  id: number;
+  name: string;
+  start_date: string;
+  end_date: string;
+};
+
 export type ShiftRule = {
   id: number;
+  /** null/undefined = Standardregel; sonst gehört die Regel zu diesem Zeitraum */
+  period_id?: number | null;
   position: string;
   /** Nur Projektionsleitung (Projektion-Regeln: Leitung zählt sonst gleichwertig mit). */
   require_leader: boolean;
@@ -82,6 +92,19 @@ export function slotRequiresLeader(position: string | null, requireLeader: boole
   return inferPositionCategory(position) === "projektionsleitung";
 }
 
+/**
+ * Welcher Zeitraum gilt an diesem Tag? Nur Zeiträume mit mindestens einer Regel zählen
+ * (ein leerer Zeitraum würde sonst stillschweigend jeden Bedarf streichen). Bei Überschneidung
+ * gewinnt der speziellere (spätester Beginn, dann jüngste Anlage).
+ */
+export function periodForDate(date: string, periods: RulePeriod[], rules: ShiftRule[]): RulePeriod | null {
+  const candidates = periods
+    .filter((period) => period.start_date <= date && date <= period.end_date)
+    .filter((period) => rules.some((rule) => rule.period_id === period.id))
+    .sort((a, b) => b.start_date.localeCompare(a.start_date) || b.id - a.id);
+  return candidates[0] ?? null;
+}
+
 function hhmm(value: string) {
   return value.slice(0, 5);
 }
@@ -97,10 +120,13 @@ function expand<T extends { required_count: number }>(item: T) {
 export function slotsForDate(
   date: string,
   rules: ShiftRule[],
-  overrides: DayRequirement[]
-): { slots: RequirementSlot[]; overridden: boolean } {
+  overrides: DayRequirement[],
+  periods: RulePeriod[] = []
+): { slots: RequirementSlot[]; overridden: boolean; period: RulePeriod | null } {
   const dayOverrides = overrides.filter((item) => item.requirement_date === date);
   const slots: RequirementSlot[] = [];
+  const period = periodForDate(date, periods, rules);
+  const activeRules = rules.filter((rule) => (period ? rule.period_id === period.id : !rule.period_id));
 
   if (dayOverrides.length > 0) {
     for (const item of dayOverrides) {
@@ -117,7 +143,7 @@ export function slotsForDate(
     }
   } else {
     const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-    for (const rule of rules) {
+    for (const rule of activeRules) {
       if (!rule.weekdays.includes(weekday)) continue;
       for (let i = 0; i < expand(rule); i += 1) {
         slots.push({
@@ -133,7 +159,7 @@ export function slotsForDate(
   }
 
   slots.sort((a, b) => a.start_time.localeCompare(b.start_time) || a.position.localeCompare(b.position, "de"));
-  return { slots, overridden: dayOverrides.length > 0 };
+  return { slots, overridden: dayOverrides.length > 0, period: dayOverrides.length > 0 ? null : period };
 }
 
 /**

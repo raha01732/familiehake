@@ -36,10 +36,12 @@ async function saveWithValidation(formData: FormData) {
 
 function RuleForm({
   rule,
+  periodId,
   isReadOnly,
   onDone,
 }: {
   rule?: ShiftRule;
+  periodId?: number | null;
   isReadOnly: boolean;
   onDone?: () => void;
 }) {
@@ -63,6 +65,7 @@ function RuleForm({
       className="flex flex-col gap-3"
     >
       {rule && <input type="hidden" name="id" value={rule.id} />}
+      {!rule && periodId ? <input type="hidden" name="period_id" value={periodId} /> : null}
 
       <div className="grid grid-cols-1 sm:grid-cols-[minmax(14rem,1.4fr)_auto_auto_auto] gap-3 items-end">
         <label className="flex flex-col gap-1 text-xs text-[hsl(var(--muted-foreground))]">
@@ -287,32 +290,57 @@ function RuleCard({ rule, isReadOnly }: { rule: ShiftRule; isReadOnly: boolean }
   );
 }
 
-export default function ShiftRulesEditor({ rules, isReadOnly }: { rules: ShiftRule[]; isReadOnly: boolean }) {
-  return (
-    <div className="card p-5 flex flex-col gap-5">
-      <div>
-        <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">Schichtanforderungen</h3>
-        <p className="text-xs text-[hsl(var(--muted-foreground))]">
-          Eine Regel legt fest, wer wann gebraucht wird: Position, Uhrzeit und die Wochentage, an denen sie gilt. Bei
-          „Projektion“ zählt die Projektionsleitung gleichwertig mit; mit „nur Projektionsleitung“ muss es die
-          Leitung sein. Die Regeln wirken beim nächsten Klick auf „1. Vorplanung“. Abweichungen für einzelne Tage
-          stellst du im Monatsplan per Klick auf den Tag ein.
-        </p>
-      </div>
+export default function ShiftRulesEditor({
+  rules,
+  isReadOnly,
+  periodId = null,
+  bare = false,
+  heading = "Schichtanforderungen",
+  description,
+}: {
+  rules: ShiftRule[];
+  isReadOnly: boolean;
+  /** Regeln gehören zu diesem Zeitraum (sonst: Standardregeln) */
+  periodId?: number | null;
+  /** ohne Karten-Rahmen und Überschrift, z. B. im Dialog */
+  bare?: boolean;
+  heading?: string;
+  description?: string;
+}) {
+  const shown = rules.filter((rule) => (rule.period_id ?? null) === periodId);
 
+  const body = (
+    <>
       <div className="flex flex-col gap-2">
-        {rules.length === 0 && (
-          <div className="text-xs text-amber-500">Noch keine Regel angelegt. Lege unten die erste an.</div>
+        {shown.length === 0 && (
+          <div className="text-xs text-amber-500">
+            {periodId ? "Noch keine Regel in diesem Zeitraum – bis dahin gelten die Standardregeln." : "Noch keine Regel angelegt. Lege unten die erste an."}
+          </div>
         )}
-        {rules.map((rule) => (
+        {shown.map((rule) => (
           <RuleCard key={rule.id} rule={rule} isReadOnly={isReadOnly} />
         ))}
       </div>
 
       <div className="border-t border-[hsl(var(--border))] pt-4">
         <h4 className="mb-3 text-sm font-semibold text-[hsl(var(--foreground))]">Neue Regel</h4>
-        <RuleForm isReadOnly={isReadOnly} />
+        <RuleForm periodId={periodId} isReadOnly={isReadOnly} />
       </div>
+    </>
+  );
+
+  if (bare) return <div className="flex flex-col gap-4">{body}</div>;
+
+  return (
+    <div className="card p-5 flex flex-col gap-5">
+      <div>
+        <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">{heading}</h3>
+        <p className="text-xs text-[hsl(var(--muted-foreground))]">
+          {description ??
+            "Eine Regel legt fest, wer wann gebraucht wird: Position, Uhrzeit und die Wochentage, an denen sie gilt. Bei „Projektion“ zählt die Projektionsleitung gleichwertig mit; mit „nur Projektionsleitung“ muss es die Leitung sein. Die Regeln wirken bei „1. Vorplanung“. Abweichungen für einzelne Tage stellst du im Monatsplan per Klick auf den Tag ein."}
+        </p>
+      </div>
+      {body}
     </div>
   );
 }

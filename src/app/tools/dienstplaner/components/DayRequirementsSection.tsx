@@ -16,12 +16,14 @@ import {
   slotsForDate,
   type DayRequirement,
   type PositionKindValue,
+  type RulePeriod,
   type ShiftRule,
 } from "../requirements";
 
 type Props = {
   date: string;
   rules: ShiftRule[];
+  periods: RulePeriod[];
   /** Alle Tages-Anpassungen des angezeigten Monats */
   dayRequirements: DayRequirement[];
 };
@@ -150,7 +152,7 @@ function RequirementRow({
   );
 }
 
-export default function DayRequirementsSection({ date, rules, dayRequirements }: Props) {
+export default function DayRequirementsSection({ date, rules, periods, dayRequirements }: Props) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -159,7 +161,8 @@ export default function DayRequirementsSection({ date, rules, dayRequirements }:
   const realRows = rows.filter((item) => item.required_count > 0 && item.position !== CLOSED_DAY_POSITION);
   const closed = overridden && realRows.length === 0;
 
-  const ruleSlots = slotsForDate(date, rules, []).slots;
+  const ruleResult = slotsForDate(date, rules, [], periods);
+  const ruleSlots = ruleResult.slots;
   const ruleSummary = new Map<string, { label: string; time: string; count: number }>();
   for (const slot of ruleSlots) {
     const key = `${slot.position}|${slot.require_leader}|${slot.start_time}|${slot.end_time}`;
@@ -199,7 +202,7 @@ export default function DayRequirementsSection({ date, rules, dayRequirements }:
             overridden ? "bg-amber-500/15 text-amber-500" : "bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]"
           }`}
         >
-          {overridden ? "Für diesen Tag angepasst" : "Wochenregeln"}
+          {overridden ? "Für diesen Tag angepasst" : ruleResult.period ? `Zeitraum: ${ruleResult.period.name}` : "Wochenregeln"}
         </span>
       </div>
 

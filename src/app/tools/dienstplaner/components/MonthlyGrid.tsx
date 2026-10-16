@@ -28,7 +28,8 @@ import ShiftModal from "./ShiftModal";
 import AutoPlanConfigModal, { type AutoPlanConfig } from "./AutoPlanConfigModal";
 import EmployeeShiftSummaryModal from "./EmployeeShiftSummaryModal";
 import DayDetailsModal from "./DayDetailsModal";
-import type { DayRequirement, ShiftRule } from "../requirements";
+import type { DayRequirement, RulePeriod, ShiftRule } from "../requirements";
+import PreplanModal from "./PreplanModal";
 
 type Props = {
   month: string;
@@ -47,6 +48,9 @@ type Props = {
   aiEnabled: boolean;
   planningRules: AutoPlanConfig;
   shiftRules: ShiftRule[];
+  rulePeriods: RulePeriod[];
+  rulesAvailable: boolean;
+  periodsAvailable: boolean;
   dayRequirements: DayRequirement[];
   saveShiftAction: (_fd: FormData) => Promise<void>;
   deleteShiftAction: (_fd: FormData) => Promise<void>;
@@ -137,6 +141,9 @@ export default function MonthlyGrid({
   aiEnabled,
   planningRules,
   shiftRules,
+  rulePeriods,
+  rulesAvailable,
+  periodsAvailable,
   dayRequirements,
   saveShiftAction,
   deleteShiftAction,
@@ -160,6 +167,7 @@ export default function MonthlyGrid({
   const [employeeSummary, setEmployeeSummary] = useState<EmployeeSummaryState | null>(null);
   const [dayDetails, setDayDetails] = useState<DayDetailsState | null>(null);
   const [showAutoPlanConfig, setShowAutoPlanConfig] = useState(false);
+  const [showPreplan, setShowPreplan] = useState(false);
 
   function openAutoPlanConfig() {
     setShowAutoPlanConfig(true);
@@ -280,6 +288,7 @@ export default function MonthlyGrid({
     startBuildingPreplan(async () => {
       try {
         await buildPreplanAction(fd);
+        setShowPreplan(false);
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Vorplanung fehlgeschlagen");
       }
@@ -551,12 +560,12 @@ export default function MonthlyGrid({
           <div className="ml-auto flex items-center gap-2 flex-wrap">
             {/* Schritt 1: Grundgerüst (rote Slots) erzeugen */}
             <button
-              onClick={() => handleBuildPreplan(false)}
+              onClick={() => setShowPreplan(true)}
               disabled={isBuildingPreplan}
               className="px-3 py-1.5 text-xs bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg transition-colors disabled:opacity-50"
-              title="Schritt 1: Aus Wochentag-Bedarf + Sonderveranstaltungen werden die offenen, roten Slots des Monats erstellt."
+              title="Schritt 1: Regeln und Zeiträume prüfen/anpassen, dann werden die offenen, roten Slots des Monats erstellt."
             >
-              {isBuildingPreplan ? "Erstelle…" : "1. Vorplanung"}
+              1. Vorplanung
             </button>
 
             {/* Schritt 2: Slots besetzen (Auto + optional KI) */}
@@ -889,6 +898,21 @@ export default function MonthlyGrid({
         </>
       )}
 
+      {showPreplan && (
+        <PreplanModal
+          month={month}
+          days={days}
+          rules={shiftRules}
+          periods={rulePeriods}
+          dayRequirements={dayRequirements}
+          rulesAvailable={rulesAvailable}
+          periodsAvailable={periodsAvailable}
+          isPending={isBuildingPreplan}
+          onClose={() => setShowPreplan(false)}
+          onConfirm={() => handleBuildPreplan(false)}
+        />
+      )}
+
       {showAutoPlanConfig && (
         <AutoPlanConfigModal
           month={month}
@@ -932,6 +956,7 @@ export default function MonthlyGrid({
           specialEvents={eventsByDate.get(dayDetails.date) ?? []}
           plannedSlots={(slotsByDate.get(dayDetails.date) ?? []) as PlannedSlot[]}
           shiftRules={shiftRules}
+          rulePeriods={rulePeriods}
           dayRequirements={dayRequirements}
           onClose={() => setDayDetails(null)}
           createEventAction={createSpecialEventAction}

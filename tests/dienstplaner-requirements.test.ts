@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   kindOfPosition,
+  periodForDate,
   removeCoveredSlots,
   resolvePositionKind,
   slotRequiresLeader,
   slotsForDate,
   type DayRequirement,
+  type RulePeriod,
   type ShiftRule,
 } from "../src/app/tools/dienstplaner/requirements";
 import { generateAutoPlanSlots, isAllowedForCategory } from "../src/app/tools/dienstplaner/utils";
@@ -144,4 +146,57 @@ test("auto plan: Leitungs-Pflicht schließt normale Projektion aus und hat Vorra
   });
   assert.equal(onlyRegular.plannedShifts.length, 0);
   assert.match(onlyRegular.unfilledSlots[0]?.reason ?? "", /Projektionsleitung/);
+});
+
+test("period rules replace the standard rules within the period", () => {
+  const rules: ShiftRule[] = [
+    rule({ id: 1 }),
+    rule({ id: 2, period_id: 7, position: "Projektion", start_time: "10:00", end_time: "14:00", weekdays: [1, 2, 3, 4, 5] }),
+  ];
+  const periods: RulePeriod[] = [{ id: 7, name: "Ferien", start_date: "2026-04-06", end_date: "2026-04-17" }];
+
+  const inside = slotsForDate("2026-04-08", rules, [], periods);
+  assert.equal(inside.period?.name, "Ferien");
+  assert.deepEqual(inside.slots.map((slot) => slot.position), ["Projektion"]);
+
+  const outside = slotsForDate("2026-04-22", rules, [], periods);
+  assert.equal(outside.period, null);
+  assert.deepEqual(outside.slots.map((slot) => slot.position), ["Serviceleitung"]);
+});
+
+test("a period without rules does not remove the standard demand", () => {
+  const rules = [rule({ id: 1 })];
+  const periods: RulePeriod[] = [{ id: 9, name: "Leer", start_date: "2026-04-01", end_date: "2026-04-30" }];
+  const result = slotsForDate("2026-04-08", rules, [], periods);
+  assert.equal(result.period, null);
+  assert.equal(result.slots.length, 1);
+});
+
+test("overlapping periods: the later start wins; day overrides beat periods", () => {
+  const rules: ShiftRule[] = [
+    rule({ id: 1, period_id: 1, position: "Serviceleitung" }),
+    rule({ id: 2, period_id: 2, position: "Projektion" }),
+  ];
+  const periods: RulePeriod[] = [
+    { id: 1, name: "Lang", start_date: "2026-07-01", end_date: "2026-08-31" },
+    { id: 2, name: "Festival", start_date: "2026-07-10", end_date: "2026-07-20" },
+  ];
+  assert.equal(periodForDate("2026-07-15", periods, rules)?.name, "Festival");
+  assert.equal(periodForDate("2026-07-05", periods, rules)?.name, "Lang");
+
+  const overrides: DayRequirement[] = [
+    {
+      requirement_date: "2026-07-15",
+      position: "Serviceleitung",
+      require_leader: false,
+      start_time: "09:00",
+      end_time: "12:00",
+      required_count: 1,
+      note: null,
+    },
+  ];
+  const day = slotsForDate("2026-07-15", rules, overrides, periods);
+  assert.equal(day.period, null);
+  assert.equal(day.overridden, true);
+  assert.equal(day.slots[0]?.start_time, "09:00");
 });

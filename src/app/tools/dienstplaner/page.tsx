@@ -33,7 +33,8 @@ import type {
   PlannedSlot,
 } from "./utils";
 import { buildMonthDays, getCurrentMonth } from "./utils";
-import { describePosition, type DayRequirement, type ShiftRule } from "./requirements";
+import { describePosition, type DayRequirement } from "./requirements";
+import { loadShiftRulesAndPeriods } from "@/lib/dienstplaner/rules-loader";
 import type { PauseRule } from "./utils";
 import { dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
 import { loadPlanningRules } from "@/lib/dienstplaner/planning-rules";
@@ -111,7 +112,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
 
   const shiftsBaseColumns = "employee_id, shift_date, start_time, end_time, break_minutes, comment";
 
-  const [shiftResult, availResult, pauseResult, trackResult, eventsResult, plannedResult, hourDefaultsResult, rulesResult, dayReqResult] = await Promise.all([
+  const [shiftResult, availResult, pauseResult, trackResult, eventsResult, plannedResult, hourDefaultsResult, dayReqResult] = await Promise.all([
     sb
       .from("dienstplan_shifts")
       .select(`${shiftsBaseColumns}, covers_projektion`)
@@ -141,11 +142,6 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
     sb
       .from("dienstplan_employment_hour_defaults")
       .select("employment_type, vacation_hours_per_day"),
-    sb
-      .from("dienstplan_shift_rules")
-      .select("id, position, require_leader, start_time, end_time, weekdays, required_count, note")
-      .order("start_time")
-      .order("id"),
     sb
       .from("dienstplan_position_requirements")
       .select("requirement_date, position, require_leader, start_time, end_time, required_count, note")
@@ -190,14 +186,8 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
     plannedSlots = (fallback.data ?? []) as PlannedSlot[];
   }
 
-  const shiftRules = rulesResult.error
-    ? []
-    : ((rulesResult.data ?? []) as ShiftRule[]).map((rule) => ({
-        ...rule,
-        start_time: rule.start_time.slice(0, 5),
-        end_time: rule.end_time.slice(0, 5),
-        weekdays: (rule.weekdays ?? []).map(Number),
-      }));
+  const loadedRules = await loadShiftRulesAndPeriods(sb);
+  const shiftRules = loadedRules.rules;
   const dayRequirements = dayReqResult.error
     ? []
     : ((dayReqResult.data ?? []) as DayRequirement[]).map((row) => ({
@@ -248,6 +238,9 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       canEditAvailability={canEditAvailability}
       aiEnabled={aiEnabled}
       shiftRules={shiftRules}
+      rulePeriods={loadedRules.periods}
+      rulesAvailable={loadedRules.available}
+      periodsAvailable={loadedRules.periodsAvailable}
       dayRequirements={dayRequirements}
       planningRules={planningRules}
       saveShiftAction={saveShiftAction}

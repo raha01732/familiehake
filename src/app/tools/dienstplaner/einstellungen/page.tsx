@@ -9,7 +9,7 @@ import { setDienstplanEditorAction } from "../actions";
 import SettingsPanel from "../SettingsPanel";
 import { Settings } from "lucide-react";
 import { loadPlanningRules } from "@/lib/dienstplaner/planning-rules";
-import type { ShiftRule } from "../requirements";
+import { loadShiftRulesAndPeriods } from "@/lib/dienstplaner/rules-loader";
 import type { EditableUser } from "../SettingsPanel";
 
 export const metadata = { title: "Dienstplaner – Einstellungen" };
@@ -22,24 +22,16 @@ export default async function EinstellungenPage() {
 
   const sb = createAdminClient();
   const planningRules = await loadPlanningRules(sb);
-  const [pauseResult, rulesResult, hourDefaultsResult, cinemaRoleResult] =
+  const [pauseResult, hourDefaultsResult, cinemaRoleResult] =
     await Promise.all([
       sb.from("dienstplan_pause_rules").select("id, min_minutes, pause_minutes").order("min_minutes"),
-      sb
-        .from("dienstplan_shift_rules")
-        .select("id, position, require_leader, start_time, end_time, weekdays, required_count, note")
-        .order("start_time")
-        .order("id"),
       sb
         .from("dienstplan_employment_hour_defaults")
         .select("employment_type, vacation_hours_per_day"),
       sb.from("user_roles").select("user_id, roles(name)"),
     ]);
 
-  const shiftRules = ((rulesResult.data ?? []) as ShiftRule[]).map((rule) => ({
-    ...rule,
-    weekdays: (rule.weekdays ?? []).map(Number),
-  }));
+  const loadedRules = await loadShiftRulesAndPeriods(sb);
 
   // Nutzer des Kino-Bereichs (Zugriff auf den Dienstplaner) ohne Admin-Rolle —
   // für diese kann hier die Bearbeitung von Verfügbarkeiten freigeschaltet werden.
@@ -80,7 +72,7 @@ export default async function EinstellungenPage() {
       .sort((a, b) => a.displayName.localeCompare(b.displayName, "de"));
   }
 
-  const rulesMissing = Boolean(rulesResult.error);
+  const rulesMissing = !loadedRules.available;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 flex flex-col gap-8 animate-fade-up">
@@ -115,7 +107,9 @@ export default async function EinstellungenPage() {
       )}
       <SettingsPanel
         pauseRules={pauseResult.data ?? []}
-        shiftRules={shiftRules}
+        shiftRules={loadedRules.rules}
+        rulePeriods={loadedRules.periods}
+        periodsAvailable={loadedRules.periodsAvailable}
         employmentHourDefaults={hourDefaultsResult.data ?? []}
         planningRules={planningRules}
         editableUsers={editableUsers}

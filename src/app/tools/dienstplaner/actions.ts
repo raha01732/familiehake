@@ -18,6 +18,7 @@ import {
   type PauseRule,
   type PositionCategory,
 } from "./utils";
+import { loadShiftRulesAndPeriods } from "@/lib/dienstplaner/rules-loader";
 import { loadPlanningRules, normalizePlanningRules } from "@/lib/dienstplaner/planning-rules";
 import { askAiToAssignSlots, dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
 import {
@@ -34,6 +35,7 @@ import {
   slotRequiresLeader,
   slotsForDate,
   type DayRequirement,
+  type RulePeriod,
   type ShiftRule,
 } from "./requirements";
 
@@ -1803,6 +1805,7 @@ export async function saveShiftRuleAction(formData: FormData) {
   const actor = await assertAdminForDienstplanAutomation();
 
   const id = Number(formData.get("id") || 0);
+  const periodId = Number(formData.get("period_id") || 0);
   const fields = parseRequirementFields(formData);
   const weekdays = parseWeekdays(formData);
   if (weekdays.length === 0) throw new Error("Bitte mindestens einen Wochentag auswählen.");
@@ -1817,6 +1820,8 @@ export async function saveShiftRuleAction(formData: FormData) {
     required_count: fields.count,
     note: fields.note,
     updated_at: new Date().toISOString(),
+    // nur setzen, wenn gewünscht: ohne Zeitraum-Migration existiert die Spalte noch nicht
+    ...(!id && periodId > 0 ? { period_id: periodId } : {}),
   };
   const result = id
     ? await sb.from("dienstplan_shift_rules").update(payload).eq("id", id)
@@ -1853,30 +1858,12 @@ export async function deleteShiftRuleAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
-type RuleRow = {
-  id: number;
-  position: string;
-  require_leader: boolean;
-  start_time: string;
-  end_time: string;
-  weekdays: number[];
-  required_count: number;
-  note: string | null;
-};
-
-async function loadShiftRules(sb: ReturnType<typeof createAdminClient>): Promise<ShiftRule[]> {
-  const { data, error } = await sb
-    .from("dienstplan_shift_rules")
-    .select("id, position, require_leader, start_time, end_time, weekdays, required_count, note")
-    .order("start_time")
-    .order("id");
-  if (error) throw new Error(`${RULES_MISSING_HINT} (${error.message})`);
-  return ((data ?? []) as RuleRow[]).map((row) => ({
-    ...row,
-    start_time: row.start_time.slice(0, 5),
-    end_time: row.end_time.slice(0, 5),
-    weekdays: (row.weekdays ?? []).map(Number),
-  }));
+async function loadShiftRules(
+  sb: ReturnType<typeof createAdminClient>
+): Promise<{ rules: ShiftRule[]; periods: RulePeriod[] }> {
+  const loaded = await loadShiftRulesAndPeriods(sb);
+  if (!loaded.available) throw new Error(`${RULES_MISSING_HINT} (${loaded.error ?? "unbekannt"})`);
+  return { rules: loaded.rules, periods: loaded.periods };
 }
 
 async function loadDayRequirements(
@@ -1913,7 +1900,7 @@ async function regenerateSlotsForDates(
   const last = sorted[sorted.length - 1];
 
   // Erst laden (wirft bei fehlender Migration), dann löschen - sonst gingen Slots verloren
-  const [rules, overrides, eventsResult, shiftsResult, hasLeaderColumn] = await Promise.all([
+  const [{ rules, periods }, overrides, eventsResult, shiftsResult, hasLeaderColumn] = await Promise.all([
     loadShiftRules(sb),
     loadDayRequirements(sb, first, last),
     sb
@@ -1950,7 +1937,7 @@ async function regenerateSlotsForDates(
 
   const inserts: Record<string, unknown>[] = [];
   for (const date of sorted) {
-    const { slots } = slotsForDate(date, rules, overrides);
+    const { slots } = slotsForDate(date, rules, overrides, periods);
     const candidates: {
       position: string | null;
       require_leader: boolean;
@@ -2021,8 +2008,8 @@ async function ensureDayOverride(sb: ReturnType<typeof createAdminClient>, date:
   const existing = await loadDayRequirements(sb, date, date);
   if (existing.length > 0) return;
 
-  const rules = await loadShiftRules(sb);
-  const { slots } = slotsForDate(date, rules, []);
+  const { rules, periods } = await loadShiftRules(sb);
+  const { slots } = slotsForDate(date, rules, [], periods);
   const grouped = new Map<string, DayRequirement>();
   for (const slot of slots) {
     const key = `${slot.position}|${slot.start_time}|${slot.end_time}`;
@@ -2174,5 +2161,104 @@ export async function resetDayRequirementsAction(formData: FormData) {
 
   await regenerateSlotsForDates(sb, [date], { overwrite: false });
   await auditDienstplan(actor, "dienstplan_requirement_delete", { kind: "Tages-Anpassung zurückgesetzt", date });
+  revalidatePath(PLAN_PATH);
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Zeiträume mit abweichenden Regeln (z. B. Ferien)
+// ──────────────────────────────────────────────────────────────────────
+
+const PERIODS_MISSING_HINT =
+  "Zeiträume sind noch nicht eingerichtet. Bitte dienstplaner-rule-periods-migration.sql in Supabase ausführen.";
+
+function parsePeriodFields(formData: FormData) {
+  const name = String(formData.get("name") || "").trim();
+  const startDate = String(formData.get("start_date") || "").trim();
+  const endDate = String(formData.get("end_date") || "").trim();
+  const dateOk = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (!name) throw new Error("Bitte einen Namen angeben.");
+  if (!dateOk(startDate) || !dateOk(endDate)) throw new Error("Bitte Beginn und Ende des Zeitraums angeben.");
+  if (endDate < startDate) throw new Error("Das Ende liegt vor dem Beginn.");
+  return { name, start_date: startDate, end_date: endDate };
+}
+
+export async function saveRulePeriodAction(formData: FormData) {
+  const actor = await assertAdminForDienstplanAutomation();
+
+  const id = Number(formData.get("id") || 0);
+  const fields = parsePeriodFields(formData);
+
+  const sb = createAdminClient();
+  const result = id
+    ? await sb.from("dienstplan_rule_periods").update(fields).eq("id", id)
+    : await sb.from("dienstplan_rule_periods").insert(fields);
+  if (result.error) throw new Error(`${PERIODS_MISSING_HINT} (${result.error.message})`);
+
+  await auditDienstplan(actor, "dienstplan_requirement_save", {
+    kind: "Regel-Zeitraum",
+    mode: id ? "update" : "create",
+    name: fields.name,
+    from: fields.start_date,
+    to: fields.end_date,
+  });
+
+  revalidatePath(SETTINGS_PATH);
+  revalidatePath("/tools/dienstplaner/einstellungen");
+  revalidatePath(PLAN_PATH);
+}
+
+export async function deleteRulePeriodAction(formData: FormData) {
+  const actor = await assertAdminForDienstplanAutomation();
+
+  const id = Number(formData.get("id") || 0);
+  if (!id) return;
+
+  const sb = createAdminClient();
+  const { error } = await sb.from("dienstplan_rule_periods").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
+  await auditDienstplan(actor, "dienstplan_requirement_delete", { kind: "Regel-Zeitraum", id });
+
+  revalidatePath(SETTINGS_PATH);
+  revalidatePath("/tools/dienstplaner/einstellungen");
+  revalidatePath(PLAN_PATH);
+}
+
+/** Kopiert die Standardregeln als Startpunkt in einen (noch leeren) Zeitraum. */
+export async function copyRulesToPeriodAction(formData: FormData) {
+  const actor = await assertAdminForDienstplanAutomation();
+
+  const periodId = Number(formData.get("period_id") || 0);
+  if (!periodId) return;
+
+  const sb = createAdminClient();
+  const { rules } = await loadShiftRules(sb);
+  if (rules.some((rule) => rule.period_id === periodId)) return;
+
+  const copies = rules
+    .filter((rule) => !rule.period_id)
+    .map((rule) => ({
+      position: rule.position,
+      require_leader: rule.require_leader,
+      start_time: rule.start_time,
+      end_time: rule.end_time,
+      weekdays: rule.weekdays,
+      required_count: rule.required_count,
+      note: rule.note,
+      period_id: periodId,
+    }));
+  if (copies.length > 0) {
+    const { error } = await sb.from("dienstplan_shift_rules").insert(copies);
+    if (error) throw new Error(error.message);
+  }
+
+  await auditDienstplan(actor, "dienstplan_requirement_save", {
+    kind: "Standardregeln in Zeitraum kopiert",
+    periodId,
+    count: copies.length,
+  });
+
+  revalidatePath(SETTINGS_PATH);
+  revalidatePath("/tools/dienstplaner/einstellungen");
   revalidatePath(PLAN_PATH);
 }

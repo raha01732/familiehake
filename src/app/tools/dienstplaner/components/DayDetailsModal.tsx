@@ -2,7 +2,7 @@
 
 import { useTransition, useState } from "react";
 import type { Employee, SpecialEvent, PlannedSlot } from "../utils";
-import { POSITION_KINDS, type DayRequirement, type PositionKindValue, type ShiftRule } from "../requirements";
+import { POSITION_KINDS, type DayRequirement, type PositionKindValue, type RulePeriod, type ShiftRule } from "../requirements";
 import DayRequirementsSection from "./DayRequirementsSection";
 
 type Props = {
@@ -11,6 +11,7 @@ type Props = {
   specialEvents: SpecialEvent[];
   plannedSlots: PlannedSlot[];
   shiftRules: ShiftRule[];
+  rulePeriods: RulePeriod[];
   dayRequirements: DayRequirement[];
   onClose: () => void;
   createEventAction: (_fd: FormData) => Promise<void>;
@@ -39,6 +40,7 @@ export default function DayDetailsModal({
   specialEvents,
   plannedSlots,
   shiftRules,
+  rulePeriods,
   dayRequirements,
   onClose,
   createEventAction,
@@ -94,7 +96,7 @@ export default function DayDetailsModal({
 
         <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-6">
           {/* ── Schichtanforderungen des Tages ─────────────────────────── */}
-          <DayRequirementsSection date={date} rules={shiftRules} dayRequirements={dayRequirements} />
+          <DayRequirementsSection date={date} rules={shiftRules} periods={rulePeriods} dayRequirements={dayRequirements} />
 
           {/* ── Sonderveranstaltungen ───────────────────────────────────── */}
           <section className="flex flex-col gap-3">

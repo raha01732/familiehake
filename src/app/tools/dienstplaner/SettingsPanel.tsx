@@ -7,7 +7,8 @@ import {
   updatePauseRuleAction,
 } from "./actions";
 import ShiftRulesEditor from "./ShiftRulesEditor";
-import type { ShiftRule } from "./requirements";
+import PeriodsEditor from "./PeriodsEditor";
+import type { RulePeriod, ShiftRule } from "./requirements";
 import FormFeedback from "./components/FormFeedback";
 import { EMPLOYMENT_TYPES } from "./utils";
 import type { PlanningRules } from "@/lib/dienstplaner/planning-rules";
@@ -32,6 +33,8 @@ export type EditableUser = {
 type SettingsPanelProps = {
   pauseRules: PauseRule[];
   shiftRules: ShiftRule[];
+  rulePeriods: RulePeriod[];
+  periodsAvailable: boolean;
   employmentHourDefaults: EmploymentHourDefaultRow[];
   planningRules: PlanningRules;
   editableUsers: EditableUser[];
@@ -42,6 +45,8 @@ type SettingsPanelProps = {
 export default function SettingsPanel({
   pauseRules,
   shiftRules,
+  rulePeriods,
+  periodsAvailable,
   employmentHourDefaults,
   planningRules,
   editableUsers,
@@ -121,6 +126,13 @@ export default function SettingsPanel({
         </div>
 
         <ShiftRulesEditor rules={shiftRules} isReadOnly={isReadOnly} />
+
+        <PeriodsEditor
+          periods={rulePeriods}
+          rules={shiftRules}
+          isReadOnly={isReadOnly}
+          available={periodsAvailable}
+        />
 
         <div className="card p-5 flex flex-col gap-4">
           <div>
