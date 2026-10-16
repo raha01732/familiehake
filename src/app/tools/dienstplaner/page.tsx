@@ -22,6 +22,7 @@ import MonthlyGrid from "./components/MonthlyGrid";
 import ToolMaintenanceNotice from "@/components/ToolMaintenanceNotice";
 import { getSessionInfo } from "@/lib/auth";
 import { getToolGate } from "@/lib/workspace-locks";
+import { isDienstplanEditor } from "@/lib/dienstplaner/availability-guard";
 import type {
   Employee,
   EmploymentHourDefault,
@@ -59,6 +60,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
   const user = await currentUser();
   const role = user ? getRoleFromPublicMetadata(user.publicMetadata) : null;
   const isAdmin = role === "admin" || user?.id === env().PRIMARY_SUPERADMIN_ID;
+  const canEditAvailability = isAdmin || (user ? await isDienstplanEditor(user.id) : false);
 
   const sb = createAdminClient();
 
@@ -77,11 +79,12 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
     employment_type: string;
     sort_order: number;
     position_category?: string | null;
+    can_double_as_projektion?: boolean | null;
   };
 
   const empWithCategory = await sb
     .from("dienstplan_employees")
-    .select(`${employeesBaseColumns}, position_category`)
+    .select(`${employeesBaseColumns}, position_category, can_double_as_projektion`)
     .eq("is_active", true)
     .order("sort_order")
     .order("id");
@@ -105,10 +108,12 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
     employeeRows = (fallback.data ?? []) as EmployeeRow[];
   }
 
+  const shiftsBaseColumns = "employee_id, shift_date, start_time, end_time, break_minutes, comment";
+
   const [shiftResult, availResult, pauseResult, trackResult, eventsResult, plannedResult, hourDefaultsResult] = await Promise.all([
     sb
       .from("dienstplan_shifts")
-      .select("employee_id, shift_date, start_time, end_time, break_minutes, comment")
+      .select(`${shiftsBaseColumns}, covers_projektion`)
       .gte("shift_date", start)
       .lte("shift_date", end),
     sb
@@ -140,8 +145,23 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
   const employees: Employee[] = employeeRows.map((row) => ({
     ...row,
     position_category: (row.position_category ?? null) as Employee["position_category"],
+    can_double_as_projektion: row.can_double_as_projektion ?? false,
   }));
-  const shifts = (shiftResult.data ?? []) as Shift[];
+  let shifts = (shiftResult.data ?? []) as Shift[];
+
+  // Fallback wenn die neue Spalte covers_projektion in der DB noch nicht angelegt ist
+  if (shiftResult.error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[dienstplaner] shifts with covers_projektion failed, fallback:", shiftResult.error.message);
+    }
+    const fallback = await sb
+      .from("dienstplan_shifts")
+      .select(shiftsBaseColumns)
+      .gte("shift_date", start)
+      .lte("shift_date", end);
+    shifts = (fallback.data ?? []) as Shift[];
+  }
+
   const availability = (availResult.data ?? []) as Availability[];
   const pauseRules = (pauseResult.data ?? []) as PauseRule[];
   const shiftTracks = (trackResult.data ?? []) as ShiftTrack[];
@@ -165,6 +185,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       plannedSlots={plannedSlots}
       employmentHourDefaults={employmentHourDefaults}
       isAdmin={isAdmin}
+      canEditAvailability={canEditAvailability}
       aiEnabled={aiEnabled}
       planningRules={planningRules}
       saveShiftAction={saveShiftAction}

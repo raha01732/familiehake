@@ -41,6 +41,9 @@ export default function EmployeeModal({
     new Set(initialAllowed)
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [canDoubleAsProjektion, setCanDoubleAsProjektion] = useState(
+    employee?.can_double_as_projektion ?? false
+  );
   const isEdit = Boolean(employee);
 
   function togglePosition(value: PositionCategory) {
@@ -70,6 +73,7 @@ export default function EmployeeModal({
     const fd = new FormData(formRef.current);
     fd.set("color", selectedColor);
     fd.set("user_id", selectedUserId);
+    fd.set("can_double_as_projektion", canDoubleAsProjektion ? "true" : "false");
     fd.delete("allowed_positions");
     for (const pos of allowedPositions) {
       fd.append("allowed_positions", pos);
@@ -260,6 +264,31 @@ export default function EmployeeModal({
             </div>
             <p className="mt-1.5 text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
               Der Mitarbeiter kann nur für angekreuzte Positionen eingeteilt werden.
+            </p>
+          </div>
+
+          {/* Doppelrolle */}
+          <div>
+            <label
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                canDoubleAsProjektion
+                  ? "border-[hsl(var(--primary)/0.6)] bg-[hsl(var(--primary)/0.08)]"
+                  : "border-[hsl(var(--border))] bg-[hsl(var(--background))]"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={canDoubleAsProjektion}
+                onChange={(e) => setCanDoubleAsProjektion(e.target.checked)}
+                className="h-4 w-4 accent-[hsl(var(--primary))]"
+              />
+              <span className="text-sm" style={{ color: "hsl(var(--foreground))" }}>
+                Kann Serviceleitung + Projektion gleichzeitig übernehmen (Doppelrolle)
+              </span>
+            </label>
+            <p className="mt-1.5 text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+              Bei einer so markierten Schicht kann sie zusätzlich als „+Projektion" gekennzeichnet werden —
+              der offene Projektion-Slot für diese Zeit verschwindet dann automatisch.
             </p>
           </div>
 

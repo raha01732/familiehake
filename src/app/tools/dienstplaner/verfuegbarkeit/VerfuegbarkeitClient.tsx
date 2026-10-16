@@ -11,6 +11,8 @@ type Props = {
   employees: Employee[];
   availability: Availability[];
   isAdmin: boolean;
+  /** Admin ODER in den Einstellungen freigeschalteter Bearbeiter. */
+  canEdit: boolean;
   saveAvailabilityAction: (_fd: FormData) => Promise<void>;
   clearMonthAvailabilityAction: (_fd: FormData) => Promise<void>;
 };
@@ -38,6 +40,7 @@ export default function VerfuegbarkeitClient({
   employees,
   availability,
   isAdmin,
+  canEdit,
   saveAvailabilityAction,
   clearMonthAvailabilityAction,
 }: Props) {
@@ -105,7 +108,7 @@ export default function VerfuegbarkeitClient({
   }
 
   function saveSingle(employeeId: number, date: string, status: string) {
-    if (!isAdmin) return;
+    if (!canEdit) return;
     const fd = new FormData();
     fd.set("employee_id", String(employeeId));
     fd.set("availability_date", date);
@@ -122,7 +125,7 @@ export default function VerfuegbarkeitClient({
   }
 
   function applyBulk() {
-    if (!isAdmin || !bulkEmployeeId) return;
+    if (!canEdit || !bulkEmployeeId) return;
     if (!bulkFrom || !bulkTo) return;
     if (bulkFrom > bulkTo) return;
     const targets: string[] = [];
@@ -226,7 +229,7 @@ export default function VerfuegbarkeitClient({
       </div>
 
       {/* Bulk-Editor */}
-      {isAdmin && (
+      {canEdit && (
         <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-4 py-3 flex flex-wrap items-end gap-3 text-sm">
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
@@ -411,7 +414,7 @@ export default function VerfuegbarkeitClient({
                           <select
                             value={(entry?.status ?? "").toUpperCase() === "F" ? "F" : entry?.status ?? ""}
                             onChange={(e) => saveSingle(emp.id, day, e.target.value)}
-                            disabled={!isAdmin || pending}
+                            disabled={!canEdit || pending}
                             className={`w-[40px] text-center font-bold text-[11px] rounded border border-transparent hover:border-[hsl(var(--border))] focus:border-[hsl(var(--ring))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring)/0.2)] py-1 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${cfg.cls}`}
                             title={cfg.help}
                           >

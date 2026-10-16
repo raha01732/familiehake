@@ -30,6 +30,8 @@ export type Employee = {
   position_category: PositionCategory | null;
   allowed_positions?: PositionCategory[] | null;
   user_id?: string | null;
+  /** Kann zusätzlich zur Hauptrolle Projektion in Personalunion übernehmen. */
+  can_double_as_projektion?: boolean;
 };
 
 const POSITION_CATEGORY_VALUES = new Set<PositionCategory>([
@@ -127,6 +129,8 @@ export type Shift = {
   end_time: string | null;
   break_minutes: number | null;
   comment: string | null;
+  /** Deckt diese Schicht zusätzlich die Projektion ab (Doppelrolle)? */
+  covers_projektion?: boolean;
 };
 
 export type Availability = {
@@ -455,6 +459,15 @@ function addIsoDays(dateValue: string, n: number): string | null {
   return date.toISOString().slice(0, 10);
 }
 
+type BlockContinuityScore = {
+  /** Bonus (negativ) fürs Fortsetzen eines Blocks — nur gewähren, solange
+   *  der Mitarbeiter noch nicht über seinem Soll liegt (siehe Aufrufer). */
+  continuityBonus: number;
+  /** Penalty (positiv) für ein „Schicht – Frei – Schicht“-Muster — gilt
+   *  unabhängig von der Auslastung, da das reine Planqualität betrifft. */
+  gapPenalty: number;
+};
+
 /**
  * Bewertet, wie gut das Hinzufügen einer Schicht am Tag `date` für den
  * Mitarbeiter zu den bisher zugewiesenen Tagen passt.
@@ -468,7 +481,7 @@ function addIsoDays(dateValue: string, n: number): string | null {
 function calculateBlockContinuityScore(
   workingDays: Set<string>,
   date: string
-): number {
+): BlockContinuityScore {
   const dayBefore = addIsoDays(date, -1);
   const dayAfter = addIsoDays(date, +1);
   const twoBefore = addIsoDays(date, -2);
@@ -481,14 +494,13 @@ function calculateBlockContinuityScore(
   const gapAfter =
     twoAfter !== null && dayAfter !== null && workingDays.has(twoAfter) && !workingDays.has(dayAfter);
 
-  let score = 0;
-  // Bonus, wenn ein bestehender Block fortgesetzt wird.
-  if (adjacentBefore && adjacentAfter) score -= 30; // Lücke füllen ist Premium
-  else if (adjacentBefore || adjacentAfter) score -= 18;
-  // Penalty pro entstandenem Schicht-Frei-Schicht-Pattern
-  if (gapBefore) score += 25;
-  if (gapAfter) score += 25;
-  return score;
+  let continuityBonus = 0;
+  if (adjacentBefore && adjacentAfter) continuityBonus = -30; // Lücke füllen ist Premium
+  else if (adjacentBefore || adjacentAfter) continuityBonus = -18;
+  let gapPenalty = 0;
+  if (gapBefore) gapPenalty += 25;
+  if (gapAfter) gapPenalty += 25;
+  return { continuityBonus, gapPenalty };
 }
 
 
@@ -699,7 +711,14 @@ export function generateAutoPlanSlots(params: {
     const status = availabilityMap.get(`${employee.id}-${slot.shift_date}`)?.status ?? null;
     const preferencePenalty = calculatePreferencePenalty(status?.toLowerCase() ?? null, slot.start_time);
     const loadPenalty = (newCount.get(employee.id) ?? 0) * 1.5;
-    const blockScore = calculateBlockContinuityScore(new Set(list.map((a) => a.date)), slot.shift_date);
+    const { continuityBonus, gapPenalty } = calculateBlockContinuityScore(
+      new Set(list.map((a) => a.date)),
+      slot.shift_date
+    );
+    // Kontinuitäts-Bonus nur, solange das Monats-/Wochensoll noch nicht erreicht ist -
+    // sonst würde ein ohnehin überlasteter Mitarbeiter weiter bevorzugt.
+    const alreadyAtOrOverTarget = monthlyFairness >= 100 || weeklyFairness >= 100;
+    const blockScore = (alreadyAtOrOverTarget ? 0 : continuityBonus) + gapPenalty;
     return monthlyFairness * 0.6 + weeklyFairness * 0.4 + preferencePenalty + loadPenalty + blockScore + overtimePenalty;
   }
 

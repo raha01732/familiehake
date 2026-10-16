@@ -47,6 +47,12 @@ type EmploymentHourDefaultRow = {
   vacation_hours_per_day: number;
 };
 
+export type EditableUser = {
+  id: string;
+  displayName: string;
+  isEditor: boolean;
+};
+
 const WEEKDAYS_MON_FIRST = [
   { id: 1, label: "Montag", short: "Mo" },
   { id: 2, label: "Dienstag", short: "Di" },
@@ -64,6 +70,8 @@ type SettingsPanelProps = {
   weekdayPositionRequirements: WeekdayPositionRequirement[];
   employmentHourDefaults: EmploymentHourDefaultRow[];
   planningRules: PlanningRules;
+  editableUsers: EditableUser[];
+  setDienstplanEditorAction: (_fd: FormData) => Promise<void>;
   isAdmin: boolean;
 };
 
@@ -112,6 +120,8 @@ export default function SettingsPanel({
   weekdayPositionRequirements,
   employmentHourDefaults,
   planningRules,
+  editableUsers,
+  setDienstplanEditorAction,
   isAdmin,
 }: SettingsPanelProps) {
   const hourDefaultByType = new Map(
@@ -140,6 +150,61 @@ export default function SettingsPanel({
             {isReadOnly ? " (Nur Admins können speichern.)" : ""}
           </p>
         </header>
+
+        <div className="card p-5 flex flex-col gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">
+              Bearbeitungsrechte für Verfügbarkeiten
+            </h3>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
+              Admins dürfen Verfügbarkeiten (Frei/Urlaub/Krank/feste Zeiten) im Dienstplaner
+              immer bearbeiten. Hier legst du fest, welche einzelnen Nicht-Admin-Benutzer mit
+              Zugriff auf den Kino-Bereich zusätzlich eintragen dürfen.
+            </p>
+          </div>
+          {editableUsers.length === 0 ? (
+            <div className="text-xs text-[hsl(var(--muted-foreground))]">
+              {isReadOnly
+                ? "Nur Admins können Bearbeitungsrechte vergeben."
+                : "Keine Nicht-Admin-Benutzer mit Zugriff auf den Kino-Bereich gefunden."}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {editableUsers.map((editableUser) => (
+                <div
+                  key={editableUser.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--secondary)/0.4)] px-3 py-2"
+                >
+                  <span className="text-sm text-[hsl(var(--foreground))]">{editableUser.displayName}</span>
+                  <FormFeedback
+                    action={setDienstplanEditorAction}
+                    successText={editableUser.isEditor ? "Zugriff entzogen" : "Zugriff erteilt"}
+                    className="flex items-center gap-2"
+                  >
+                    <input type="hidden" name="user_id" value={editableUser.id} />
+                    <input type="hidden" name="enabled" value={editableUser.isEditor ? "false" : "true"} />
+                    <span
+                      className={`text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded-full ${
+                        editableUser.isEditor
+                          ? "bg-emerald-500/15 text-emerald-500"
+                          : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
+                      }`}
+                    >
+                      {editableUser.isEditor ? "darf bearbeiten" : "kein Zugriff"}
+                    </span>
+                    <button
+                      type="submit"
+                      className="text-xs text-emerald-500 hover:text-emerald-400 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={isReadOnly}
+                    >
+                      {editableUser.isEditor ? "Entziehen" : "Freischalten"}
+                    </button>
+                  </FormFeedback>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="card p-5 flex flex-col gap-4">
           <div>

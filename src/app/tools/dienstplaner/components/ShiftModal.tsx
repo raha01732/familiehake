@@ -65,11 +65,16 @@ export default function ShiftModal({
   const [isDeleting, startDelete] = useTransition();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(employee.id);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [coversProjektion, setCoversProjektion] = useState(shift?.covers_projektion ?? false);
+
+  const selectedEmployee = allEmployees.find((e) => e.id === selectedEmployeeId) ?? employee;
+  const canMarkDoubleDuty = selectedEmployee.can_double_as_projektion === true;
 
   function handleSave(e: { preventDefault: () => void }) {
     e.preventDefault();
     if (!formRef.current) return;
     const fd = new FormData(formRef.current);
+    fd.set("covers_projektion", canMarkDoubleDuty && coversProjektion ? "true" : "false");
     setSaveError(null);
 
     startTransition(async () => {
@@ -201,6 +206,27 @@ export default function ShiftModal({
               />
             </div>
           </div>
+
+          {/* Doppelrolle: +Projektion */}
+          {canMarkDoubleDuty && (
+            <label
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                coversProjektion
+                  ? "border-[hsl(var(--primary)/0.6)] bg-[hsl(var(--primary)/0.08)]"
+                  : "border-[hsl(var(--border))] bg-[hsl(var(--background))]"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={coversProjektion}
+                onChange={(e) => setCoversProjektion(e.target.checked)}
+                className="h-4 w-4 accent-[hsl(var(--primary))]"
+              />
+              <span className="text-sm" style={{ color: "hsl(var(--foreground))" }}>
+                +Projektion (deckt in dieser Schicht zusätzlich die Projektion ab)
+              </span>
+            </label>
+          )}
 
           {/* Break */}
           <div>

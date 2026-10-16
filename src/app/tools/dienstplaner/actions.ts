@@ -11,6 +11,7 @@ import {
   calculateShiftMinutes,
   calculateUrlaubMinutesByEmployee,
   generateAutoPlanSlots,
+  getThursdayWeekKey,
   inferPositionCategory,
   normalizeAllowedPositions,
   type PauseRule,
@@ -23,6 +24,7 @@ import {
   computeHistoryInsights,
   type HistoryShift,
 } from "@/lib/dienstplaner/history-insights";
+import { assertDienstplanAvailabilityWrite } from "@/lib/dienstplaner/availability-guard";
 
 const PLAN_PATH = "/tools/dienstplaner";
 const SETTINGS_PATH = "/tools/dienstplaner/settings";
@@ -119,6 +121,85 @@ async function consumeMatchingPlannedSlot(
   }
 }
 
+function toMinuteRange(startTime: string, endTime: string) {
+  const [sh, sm] = startTime.slice(0, 5).split(":").map(Number);
+  const [eh, em] = endTime.slice(0, 5).split(":").map(Number);
+  const start = sh * 60 + sm;
+  let end = eh * 60 + em;
+  if (end <= start) end += 24 * 60; // Schicht über Mitternacht
+  return { start, end };
+}
+
+/**
+ * Entfernt den zeitlich am besten überlappenden offenen "Projektion"-Slot am
+ * gegebenen Tag — aufgerufen, wenn eine Schicht als Doppelrolle
+ * (Serviceleitung + Projektion) markiert wird, damit der rote Slot nicht
+ * zusätzlich zur bereits besetzten Schicht angezeigt wird.
+ */
+async function consumeProjektionSlot(
+  sb: ReturnType<typeof createAdminClient>,
+  args: { slotDate: string; startTime: string; endTime: string }
+) {
+  const { data: openSlots } = await sb
+    .from("dienstplan_planned_slots")
+    .select("id, start_time, end_time, position")
+    .eq("slot_date", args.slotDate)
+    .is("assigned_employee_id", null);
+
+  const shiftRange = toMinuteRange(args.startTime, args.endTime);
+  let bestId: number | null = null;
+  let bestOverlap = -1;
+  for (const candidate of openSlots ?? []) {
+    if (inferPositionCategory(candidate.position) !== "projektion") continue;
+    if (!candidate.start_time || !candidate.end_time) continue;
+    const range = toMinuteRange(candidate.start_time, candidate.end_time);
+    const overlap = Math.min(shiftRange.end, range.end) - Math.max(shiftRange.start, range.start);
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      bestId = candidate.id;
+    }
+  }
+  if (bestId !== null) {
+    await sb.from("dienstplan_planned_slots").delete().eq("id", bestId);
+  }
+}
+
+/**
+ * Gegenstück zu consumeProjektionSlot: legt einen offenen "Projektion"-Slot
+ * wieder an, wenn eine Doppelrollen-Markierung entfernt oder die zugehörige
+ * Schicht gelöscht wird — außer es existiert bereits ein passender.
+ */
+async function reopenProjektionSlot(
+  sb: ReturnType<typeof createAdminClient>,
+  args: { slotDate: string; startTime: string; endTime: string }
+) {
+  const startKey = args.startTime.slice(0, 5);
+  const endKey = args.endTime.slice(0, 5);
+  const { data: openSlots } = await sb
+    .from("dienstplan_planned_slots")
+    .select("id, start_time, end_time, position")
+    .eq("slot_date", args.slotDate)
+    .is("assigned_employee_id", null);
+
+  const alreadyOpen = (openSlots ?? []).some(
+    (s) =>
+      inferPositionCategory(s.position) === "projektion" &&
+      s.start_time?.slice(0, 5) === startKey &&
+      s.end_time?.slice(0, 5) === endKey
+  );
+  if (alreadyOpen) return;
+
+  await sb.from("dienstplan_planned_slots").insert({
+    slot_date: args.slotDate,
+    position: "Projektion",
+    track_key: null,
+    start_time: args.startTime,
+    end_time: args.endTime,
+    note: null,
+    source: "reopened-after-double-duty-removed",
+  });
+}
+
 async function assertAuthenticatedForDienstplanWrite() {
   const user = await currentUser();
   if (!user) {
@@ -148,7 +229,7 @@ export async function saveShiftAction(formData: FormData) {
   if (!startTimeRaw.trim() || !endTimeRaw.trim()) {
     const { data: existingShift } = await sb
       .from("dienstplan_shifts")
-      .select("start_time, end_time, comment")
+      .select("start_time, end_time, comment, covers_projektion")
       .eq("employee_id", employeeId)
       .eq("shift_date", shiftDate)
       .maybeSingle();
@@ -161,6 +242,13 @@ export async function saveShiftAction(formData: FormData) {
         note: existingShift.comment ?? null,
         previousEmployeeId: employeeId,
       });
+      if (existingShift.covers_projektion) {
+        await reopenProjektionSlot(sb, {
+          slotDate: shiftDate,
+          startTime: existingShift.start_time,
+          endTime: existingShift.end_time,
+        });
+      }
     }
     await auditDienstplan(actor, "dienstplan_shift_delete", { employeeId, date: shiftDate });
     revalidatePath(PLAN_PATH);
@@ -187,9 +275,16 @@ export async function saveShiftAction(formData: FormData) {
 
   await assertEmployeeAllowedForShift(sb, employeeId, matchingSlot?.position ?? null);
 
+  const { data: employeeRow } = await sb
+    .from("dienstplan_employees")
+    .select("can_double_as_projektion")
+    .eq("id", employeeId)
+    .maybeSingle();
+  const coversProjektion = employeeRow?.can_double_as_projektion === true && formData.get("covers_projektion") === "true";
+
   const { data: existingShift } = await sb
     .from("dienstplan_shifts")
-    .select("raw_input")
+    .select("raw_input, covers_projektion")
     .eq("employee_id", employeeId)
     .eq("shift_date", shiftDate)
     .maybeSingle();
@@ -203,11 +298,17 @@ export async function saveShiftAction(formData: FormData) {
       break_minutes: breakMinutes,
       comment: comment,
       raw_input: existingShift?.raw_input ?? null,
+      covers_projektion: coversProjektion,
     },
     { onConflict: "employee_id,shift_date" }
   );
 
   await consumeMatchingPlannedSlot(sb, shiftDate, startTime, endTime);
+  if (coversProjektion && !existingShift?.covers_projektion) {
+    await consumeProjektionSlot(sb, { slotDate: shiftDate, startTime, endTime });
+  } else if (!coversProjektion && existingShift?.covers_projektion) {
+    await reopenProjektionSlot(sb, { slotDate: shiftDate, startTime, endTime });
+  }
 
   await auditDienstplan(actor, "dienstplan_shift_save", {
     employeeId,
@@ -215,6 +316,7 @@ export async function saveShiftAction(formData: FormData) {
     start: startTime,
     end: endTime,
     mode: existingShift ? "update" : "create",
+    coversProjektion,
   });
 
   revalidatePath(PLAN_PATH);
@@ -382,6 +484,36 @@ export async function clearMonthAvailabilityAction(formData: FormData) {
 
   revalidatePath(PLAN_PATH);
   revalidatePath("/tools/dienstplaner/verfuegbarkeit");
+}
+
+/**
+ * Schaltet für einen einzelnen Benutzer die Bearbeitungsrechte für
+ * Verfügbarkeiten im Dienstplaner frei/zurück. Admin-only — betrifft nur
+ * Nicht-Admin-Benutzer, Admins dürfen ohnehin immer bearbeiten.
+ */
+export async function setDienstplanEditorAction(formData: FormData) {
+  const actor = await assertAdminForDienstplanAutomation();
+
+  const userId = String(formData.get("user_id") || "").trim();
+  const enabled = formData.get("enabled") === "true";
+  if (!userId) return;
+
+  const sb = createAdminClient();
+  if (enabled) {
+    await sb
+      .from("dienstplan_editors")
+      .upsert({ user_id: userId, granted_by: actor.id }, { onConflict: "user_id" });
+  } else {
+    await sb.from("dienstplan_editors").delete().eq("user_id", userId);
+  }
+
+  await auditDienstplan(actor, "dienstplan_settings_update", {
+    setting: "Bearbeitungsrechte Verfügbarkeiten",
+    userId,
+    enabled,
+  });
+
+  revalidatePath(SETTINGS_PATH);
 }
 
 export async function moveShiftAction(formData: FormData) {
@@ -610,6 +742,7 @@ export async function createEmployeeAction(formData: FormData) {
   const rawUserId = String(formData.get("user_id") || "").trim();
   const userId = callerIsAdmin && rawUserId ? rawUserId : null;
   const allowedPositions = extractAllowedPositions(formData);
+  const canDoubleAsProjektion = formData.get("can_double_as_projektion") === "true";
   if (!name) return;
 
   const sb = createAdminClient();
@@ -650,6 +783,7 @@ export async function createEmployeeAction(formData: FormData) {
         ? allowedPositions
         : (["serviceleitung", "projektionsleitung", "projektion"] as PositionCategory[]),
     user_id: userId,
+    can_double_as_projektion: canDoubleAsProjektion,
   });
 
   await auditDienstplan(actor, "dienstplan_employee_create", { name });
@@ -722,6 +856,10 @@ export async function updateEmployeeAction(formData: FormData) {
     updates.allowed_positions = extractAllowedPositions(formData);
   }
 
+  if (formData.has("can_double_as_projektion")) {
+    updates.can_double_as_projektion = formData.get("can_double_as_projektion") === "true";
+  }
+
   if (Object.keys(updates).length === 0) return;
 
   const sb = createAdminClient();
@@ -787,7 +925,7 @@ export async function deleteShiftAction(formData: FormData) {
   // Zuerst die Schicht laden, damit wir nach dem Löschen einen offenen Slot anlegen können.
   const { data: existingShift } = await sb
     .from("dienstplan_shifts")
-    .select("start_time, end_time, comment")
+    .select("start_time, end_time, comment, covers_projektion")
     .eq("employee_id", employeeId)
     .eq("shift_date", shiftDate)
     .maybeSingle();
@@ -802,6 +940,13 @@ export async function deleteShiftAction(formData: FormData) {
       note: existingShift.comment ?? null,
       previousEmployeeId: employeeId,
     });
+    if (existingShift.covers_projektion) {
+      await reopenProjektionSlot(sb, {
+        slotDate: shiftDate,
+        startTime: existingShift.start_time,
+        endTime: existingShift.end_time,
+      });
+    }
   }
 
   await auditDienstplan(actor, "dienstplan_shift_delete", { employeeId, date: shiftDate });
@@ -918,7 +1063,7 @@ export async function deletePauseRuleAction(formData: FormData) {
 }
 
 export async function saveAvailabilityAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
+  const actor = await assertDienstplanAvailabilityWrite();
 
   const employeeId = Number(formData.get("employee_id"));
   const availabilityDate = String(formData.get("availability_date") || "");
@@ -1979,6 +2124,10 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   );
 
   const currentHoursByEmployee = new Map<number, number>();
+  // Bereits verplante Wochen-Minuten je Mitarbeiter (Thursday-Woche, wie im
+  // deterministischen Auto-Plan) — Basis für die harte Wochenlimit-Prüfung
+  // der KI-Zuweisungen weiter unten.
+  const weeklyMinutesByEmployee = new Map<string, number>();
   for (const shift of shifts) {
     const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules, shift.break_minutes);
     if (!summary) continue;
@@ -1986,6 +2135,11 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
       shift.employee_id,
       (currentHoursByEmployee.get(shift.employee_id) ?? 0) + summary.workMinutes / 60
     );
+    const weekKey = getThursdayWeekKey(shift.shift_date);
+    if (weekKey) {
+      const key = `${shift.employee_id}-${weekKey}`;
+      weeklyMinutesByEmployee.set(key, (weeklyMinutesByEmployee.get(key) ?? 0) + summary.workMinutes);
+    }
   }
   for (const [empId, mins] of urlaubMinutesByEmployee) {
     currentHoursByEmployee.set(empId, (currentHoursByEmployee.get(empId) ?? 0) + mins / 60);
@@ -2028,10 +2182,9 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     })),
   });
 
-  if (aiResponse.assignments.length === 0) return;
+  if (aiResponse.assignments.length === 0) return { filled: 0, rejectedForFairness: 0 };
 
   const slotsById = new Map(slots.map((s) => [s.id, s]));
-  const employeeIds = new Set(employees.map((e) => e.id));
   // Bestehende Schichten belegen den Tag - sonst würde der Upsert sie überschreiben
   const usedEmployeeOnDay = new Set<string>(shifts.map((shift) => `${shift.employee_id}-${shift.shift_date}`));
   const employeesById = new Map(employees.map((e) => [e.id, e]));
@@ -2043,22 +2196,45 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     }
   }
   const validAssignments: { slot_id: number; employee_id: number }[] = [];
+  // Harte Nachprüfung: die KI wird im Prompt gebeten, Wochen-Sollstunden +20%
+  // nicht zu überschreiten — hier wird das erzwungen, statt der Zusage der
+  // KI blind zu vertrauen. Zuweisungen, die das Limit sprengen würden,
+  // werden verworfen (Slot bleibt offen) statt jemanden zu überlasten.
+  let rejectedForFairness = 0;
 
   for (const a of aiResponse.assignments) {
     const slot = slotsById.get(a.slot_id);
     if (!slot) continue;
-    if (!employeeIds.has(a.employee_id)) continue;
+    const employee = employeesById.get(a.employee_id);
+    if (!employee) continue;
     const dayKey = `${a.employee_id}-${slot.slot_date}`;
     if (blockedByAvailability.has(dayKey)) continue; // F/U/K hart sperren, falls die KI sich verirrt
     if (usedEmployeeOnDay.has(dayKey)) continue;
     const slotCategory = inferPositionCategory(slot.position);
     const allowed = employeesById.get(a.employee_id)?.allowed_positions ?? null;
     if (slotCategory && allowed && !allowed.includes(slotCategory)) continue;
+
+    const weeklyTargetMinutes = Math.max(0, Math.round(Number(employee.weekly_hours) * 60));
+    if (weeklyTargetMinutes > 0) {
+      const weekKey = getThursdayWeekKey(slot.slot_date);
+      const summary = calculateShiftMinutes(slot.start_time, slot.end_time, pauseRules);
+      const shiftMinutes = summary?.workMinutes ?? 0;
+      const weekMapKey = weekKey ? `${a.employee_id}-${weekKey}` : null;
+      const currentWeeklyMinutes = weekMapKey ? (weeklyMinutesByEmployee.get(weekMapKey) ?? 0) : 0;
+      if (currentWeeklyMinutes + shiftMinutes > weeklyTargetMinutes * 1.2) {
+        rejectedForFairness += 1;
+        continue;
+      }
+      if (weekMapKey) {
+        weeklyMinutesByEmployee.set(weekMapKey, currentWeeklyMinutes + shiftMinutes);
+      }
+    }
+
     usedEmployeeOnDay.add(dayKey);
     validAssignments.push({ slot_id: slot.id, employee_id: a.employee_id });
   }
 
-  if (validAssignments.length === 0) return;
+  if (validAssignments.length === 0) return { filled: 0, rejectedForFairness };
 
   const inserts = validAssignments
     .map(({ slot_id, employee_id }) => {
@@ -2077,11 +2253,11 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
   if (inserts.length > 0) {
-    const { error: aiUpsertError } = await sb
+    const { error: upsertError } = await sb
       .from("dienstplan_shifts")
       .upsert(inserts, { onConflict: "employee_id,shift_date" });
-    if (aiUpsertError) {
-      throw new Error(`KI-Zuweisungen konnten nicht gespeichert werden: ${aiUpsertError.message}`);
+    if (upsertError) {
+      throw new Error(`AI_PLAN_SAVE_FAILED: ${upsertError.message}`);
     }
     await sb
       .from("dienstplan_planned_slots")
@@ -2095,9 +2271,11 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   await auditDienstplan(actor, "dienstplan_planned_slots_ai_fill", {
     month,
     filled: inserts.length,
+    rejectedForFairness,
   });
 
   revalidatePath(PLAN_PATH);
+  return { filled: inserts.length, rejectedForFairness };
 }
 
 export async function applyWeekdayDefaultsToDateAction(formData: FormData) {

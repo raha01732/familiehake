@@ -3,7 +3,7 @@
 // Excel-Verfügbarkeiten). Bewusst frei von Server-Only-Imports, damit die
 // reinen Parser/Matcher-Helfer auch in Tests laufen.
 
-export type ImportKind = "schedule_pdf" | "availability_xlsx";
+export type ImportKind = "schedule_pdf" | "schedule_xlsx" | "availability_xlsx";
 
 export type MatchConfidence = "exact" | "high" | "low" | "none";
 

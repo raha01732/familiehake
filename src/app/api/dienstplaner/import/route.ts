@@ -8,6 +8,7 @@ import { applyRateLimit } from "@/lib/ratelimit";
 import { logAudit, actorFromUser } from "@/lib/audit";
 import { assertDienstplanImportAdmin } from "@/lib/dienstplaner/import-guard";
 import { extractScheduleFromPdf } from "@/lib/dienstplaner/schedule-pdf";
+import { extractScheduleFromXlsx } from "@/lib/dienstplaner/schedule-xlsx";
 import { parseAvailabilityWorkbook } from "@/lib/dienstplaner/availability-xlsx";
 import type { ImportKind } from "@/lib/dienstplaner/import-types";
 
@@ -48,7 +49,9 @@ export async function POST(req: Request) {
   const kindRaw = String(form.get("kind") || "");
   const month = String(form.get("month") || "").trim();
   const kind: ImportKind | null =
-    kindRaw === "schedule_pdf" || kindRaw === "availability_xlsx" ? kindRaw : null;
+    kindRaw === "schedule_pdf" || kindRaw === "schedule_xlsx" || kindRaw === "availability_xlsx"
+      ? kindRaw
+      : null;
 
   if (!kind) {
     return NextResponse.json({ ok: false, error: "invalid_kind" }, { status: 400 });
@@ -87,7 +90,8 @@ export async function POST(req: Request) {
   try {
     const path = `${user.id}/dienstplan-imports/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${fileName}`;
     const { error: upErr } = await sb.storage.from("files").upload(path, buffer, {
-      contentType: file.type || (kind === "schedule_pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+      contentType:
+        file.type || (kind === "schedule_pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
       upsert: false,
     });
     if (!upErr) storagePath = path;
@@ -96,13 +100,12 @@ export async function POST(req: Request) {
   }
 
   try {
-    if (kind === "schedule_pdf") {
+    if (kind === "schedule_pdf" || kind === "schedule_xlsx") {
       const fallbackYear = /^\d{4}-\d{2}$/.test(month) ? Number(month.slice(0, 4)) : new Date().getFullYear();
-      const result = await extractScheduleFromPdf({
-        pdf: buffer,
-        employees: employeeList,
-        fallbackYear,
-      });
+      const result =
+        kind === "schedule_pdf"
+          ? await extractScheduleFromPdf({ pdf: buffer, employees: employeeList, fallbackYear })
+          : await extractScheduleFromXlsx({ data: buffer, employees: employeeList, fallbackYear });
 
       const { data: inserted, error: insErr } = await sb
         .from("dienstplan_imports")

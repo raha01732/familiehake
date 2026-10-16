@@ -66,6 +66,35 @@ test("generateAutoPlanSlots penalises a shift-free-shift gap pattern", () => {
   assert.equal(result.plannedShifts[0]?.employee_id, 1);
 });
 
+test("generateAutoPlanSlots stops favouring continuity once the employee already hit their target", () => {
+  // Mitarbeiter 1 hat mit einer 8h-Schicht am 09.04. sein Wochen- UND
+  // Monatssoll (8h) bereits zu 100% erreicht und würde am 10.04. direkt
+  // anschließen (Block-Kontinuität). Mitarbeiter 2 hat noch Luft (nur 88.9%
+  // seines etwas höheren Solls) und keinen anschließenden Block — die
+  // Fairness-Lücke (~11 Punkte) ist kleiner als der frühere Kontinuitäts-
+  // Bonus (18 Punkte) und hätte Mitarbeiter 1 trotz voll erreichtem Soll
+  // gewinnen lassen. Erwartetes Verhalten: Mitarbeiter 2 (noch unter Soll)
+  // wird bevorzugt, sobald Mitarbeiter 1 sein Soll erreicht hat.
+  const result = generateAutoPlanSlots({
+    employees: [
+      { id: 1, position: "Serviceleitung", monthly_hours: 8, weekly_hours: 8 },
+      { id: 2, position: "Serviceleitung", monthly_hours: 9, weekly_hours: 9 },
+    ],
+    existingShifts: [
+      { employee_id: 1, shift_date: "2026-04-09", start_time: "09:00", end_time: "17:00" },
+      { employee_id: 2, shift_date: "2026-04-13", start_time: "09:00", end_time: "17:00" },
+    ],
+    availability: [],
+    slots: [
+      { shift_date: "2026-04-10", position: "Serviceleitung", start_time: "09:00", end_time: "13:00" },
+    ],
+    pauseRules: [],
+  });
+
+  assert.equal(result.plannedShifts.length, 1);
+  assert.equal(result.plannedShifts[0]?.employee_id, 2);
+});
+
 test("generateAutoPlanSlots respects allowed_positions", () => {
   // Slot verlangt Projektion. Mitarbeiter 1 ist nur für Serviceleitung
   // freigeschaltet. → unfilledSlots-Report mit Grund.

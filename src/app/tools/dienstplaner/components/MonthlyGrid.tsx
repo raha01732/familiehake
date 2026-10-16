@@ -41,6 +41,8 @@ type Props = {
   plannedSlots: PlannedSlot[];
   employmentHourDefaults: EmploymentHourDefault[];
   isAdmin: boolean;
+  /** Admin ODER in den Einstellungen freigeschalteter Bearbeiter (Verfügbarkeiten). */
+  canEditAvailability: boolean;
   aiEnabled: boolean;
   planningRules: AutoPlanConfig;
   saveShiftAction: (_fd: FormData) => Promise<void>;
@@ -50,7 +52,7 @@ type Props = {
   clearMonthAction: (_fd: FormData) => Promise<void>;
   buildPreplanAction: (_fd: FormData) => Promise<void>;
   autoFillSlotsAction: (_fd: FormData) => Promise<AutoPlanCallResult | void>;
-  aiFillSlotsAction: (_fd: FormData) => Promise<void>;
+  aiFillSlotsAction: (_fd: FormData) => Promise<{ filled: number; rejectedForFairness: number } | void>;
   createSpecialEventAction: (_fd: FormData) => Promise<void>;
   updateSpecialEventAction: (_fd: FormData) => Promise<void>;
   deleteSpecialEventAction: (_fd: FormData) => Promise<void>;
@@ -128,6 +130,7 @@ export default function MonthlyGrid({
   plannedSlots,
   employmentHourDefaults,
   isAdmin,
+  canEditAvailability,
   aiEnabled,
   planningRules,
   saveShiftAction,
@@ -305,8 +308,17 @@ export default function MonthlyGrid({
     setAiNotice(null);
     startAiFilling(async () => {
       try {
-        await aiFillSlotsAction(fd);
-        setAiNotice("KI hat die unbesetzten Slots verarbeitet.");
+        const result = await aiFillSlotsAction(fd);
+        if (result && result.rejectedForFairness > 0) {
+          setAiNotice(
+            `KI hat ${result.filled} Slot(s) besetzt — ${result.rejectedForFairness} Vorschlag/Vorschläge ` +
+              `wegen Wochenlimit-Überschreitung verworfen (Slot bleibt offen).`
+          );
+        } else if (result) {
+          setAiNotice(`KI hat ${result.filled} Slot(s) besetzt.`);
+        } else {
+          setAiNotice("KI hat die unbesetzten Slots verarbeitet.");
+        }
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "KI-Befüllung fehlgeschlagen");
       }
@@ -345,6 +357,7 @@ export default function MonthlyGrid({
   }
 
   function handleAvailSelect(emp: Employee, date: string, value: string) {
+    if (!canEditAvailability) return;
     const fd = new FormData();
     fd.set("employee_id", String(emp.id));
     fd.set("availability_date", date);
@@ -379,6 +392,14 @@ export default function MonthlyGrid({
               <span className="font-medium tabular-nums whitespace-nowrap">
                 {shift.start_time.slice(0, 5)}–{shift.end_time.slice(0, 5)}
               </span>
+              {shift.covers_projektion && (
+                <span
+                  className="rounded bg-fuchsia-500/20 px-1 text-[8px] font-bold text-fuchsia-400"
+                  title="Deckt zusätzlich die Projektion ab (Doppelrolle)"
+                >
+                  +P
+                </span>
+              )}
             </div>
             <div className="flex items-center justify-between gap-1 text-[10px] text-[hsl(var(--muted-foreground))]">
               <span className="tabular-nums">{summary ? `${formatMinutesAsHours(summary.workMinutes)} h` : ""}</span>
@@ -764,6 +785,7 @@ export default function MonthlyGrid({
                       onDrop={() => handleDrop(emp.id, day)}
                       onContextMenu={(e) => {
                         e.preventDefault();
+                        if (!canEditAvailability) return;
                         setAvailMenu({
                           employee: emp,
                           date: day,
