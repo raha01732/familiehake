@@ -77,11 +77,29 @@ export function inferPositionCategory(position: string | null | undefined): Posi
  */
 export function isEmployeeAllowedForPosition(
   allowed: PositionCategory[] | null | undefined,
-  positionRaw: string | null | undefined
+  positionRaw: string | null | undefined,
+  requireLeader = false
 ): boolean {
   const category = inferPositionCategory(positionRaw);
   if (!category) return true;
+  return isAllowedForCategory(allowed, category, requireLeader);
+}
+
+/**
+ * Darf jemand mit diesen Freischaltungen eine Schicht der Kategorie übernehmen?
+ * Bei „Projektion“ zählt die Projektionsleitung gleichwertig mit; mit `requireLeader`
+ * (oder einer reinen Projektionsleitungs-Schicht) ist sie Pflicht.
+ */
+export function isAllowedForCategory(
+  allowed: PositionCategory[] | null | undefined,
+  category: PositionCategory,
+  requireLeader = false
+): boolean {
   if (!allowed) return true;
+  if (category === "projektion") {
+    if (allowed.includes("projektionsleitung")) return true;
+    return !requireLeader && allowed.includes("projektion");
+  }
   return allowed.includes(category);
 }
 
@@ -110,6 +128,8 @@ export type PlannedSlot = {
   note: string | null;
   source: string;
   assigned_employee_id: number | null;
+  /** Nur Projektionsleitung darf diesen Slot besetzen. */
+  require_leader?: boolean;
 };
 
 export function sortEmployeesForGrid(employees: Employee[]): Employee[] {
@@ -251,6 +271,7 @@ export type AutoPlanEmployee = {
 
 export type UnfilledSlotReport = {
   slot_id?: number;
+  require_leader?: boolean;
   shift_date: string;
   position: string | null;
   start_time: string;
@@ -286,6 +307,8 @@ export type AutoPlanAvailability = {
 export type AutoPlanSlot = {
   /** Optionale Kennung (z.B. planned_slots.id) – wird in Ergebnis und Report durchgereicht. */
   id?: number;
+  /** Nur Projektionsleitung darf diesen Slot übernehmen. */
+  require_leader?: boolean;
   shift_date: string;
   position: string | null;
   start_time: string;
@@ -623,8 +646,9 @@ export function generateAutoPlanSlots(params: {
   function staticBlock(employee: AutoPlanEmployee, slot: AutoPlanSlot): BlockReason | null {
     const slotCategory = inferPositionCategory(slot.position);
     if (slotCategory) {
-      const allowed = employee.allowed_positions ?? null;
-      if (allowed && !allowed.includes(slotCategory)) return "position";
+      if (!isAllowedForCategory(employee.allowed_positions ?? null, slotCategory, slot.require_leader === true)) {
+        return "position";
+      }
     } else if (
       slot.position &&
       employee.position &&
@@ -757,11 +781,12 @@ export function generateAutoPlanSlots(params: {
     (slot) => employees.filter((employee) => staticBlock(employee, slot) === null).length
   );
   const order = sortedSlots.map((_, index) => index);
+  // Reihenfolge: Leitungs-Pflicht zuerst (sonst belegen Projektions-Slots die wenigen Leitungen), dann Engpässe
+  const priority = (index: number) =>
+    sortedSlots[index].require_leader ? 0 : eligibleCounts[index] <= 2 ? 1 : 2;
   order.sort((a, b) => {
-    const aTight = eligibleCounts[a] <= 2 ? 0 : 1;
-    const bTight = eligibleCounts[b] <= 2 ? 0 : 1;
-    if (aTight !== bTight) return aTight - bTight;
-    return a - b;
+    const diff = priority(a) - priority(b);
+    return diff !== 0 ? diff : a - b;
   });
 
   const placement = new Map<number, number>(); // slotIndex → employeeId
@@ -853,9 +878,11 @@ export function generateAutoPlanSlots(params: {
       let reason: string;
       if (positionMatches === 0) {
         const category = inferPositionCategory(slot.position);
-        reason = category
-          ? `Kein Mitarbeiter für Position "${slot.position ?? category}" freigeschaltet`
-          : "Kein Mitarbeiter mit passender Position";
+        reason = slot.require_leader
+          ? "Kein Mitarbeiter als Projektionsleitung freigeschaltet"
+          : category
+            ? `Kein Mitarbeiter für Position "${slot.position ?? category}" freigeschaltet`
+            : "Kein Mitarbeiter mit passender Position";
       } else {
         const parts = (Object.keys(REASON_LABEL) as (keyof typeof REASON_LABEL)[])
           .filter((key) => counts.has(key))
@@ -864,6 +891,7 @@ export function generateAutoPlanSlots(params: {
       }
       return {
         slot_id: slot.id,
+        require_leader: slot.require_leader === true,
         shift_date: slot.shift_date,
         position: slot.position,
         start_time: slot.start_time,

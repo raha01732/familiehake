@@ -28,6 +28,7 @@ import ShiftModal from "./ShiftModal";
 import AutoPlanConfigModal, { type AutoPlanConfig } from "./AutoPlanConfigModal";
 import EmployeeShiftSummaryModal from "./EmployeeShiftSummaryModal";
 import DayDetailsModal from "./DayDetailsModal";
+import type { DayRequirement, ShiftRule } from "../requirements";
 
 type Props = {
   month: string;
@@ -45,6 +46,8 @@ type Props = {
   canEditAvailability: boolean;
   aiEnabled: boolean;
   planningRules: AutoPlanConfig;
+  shiftRules: ShiftRule[];
+  dayRequirements: DayRequirement[];
   saveShiftAction: (_fd: FormData) => Promise<void>;
   deleteShiftAction: (_fd: FormData) => Promise<void>;
   moveShiftAction: (_fd: FormData) => Promise<void>;
@@ -133,6 +136,8 @@ export default function MonthlyGrid({
   canEditAvailability,
   aiEnabled,
   planningRules,
+  shiftRules,
+  dayRequirements,
   saveShiftAction,
   deleteShiftAction,
   moveShiftAction,
@@ -479,7 +484,10 @@ export default function MonthlyGrid({
                 <span className="tabular-nums">
                   {slot.start_time.slice(0, 5)}–{slot.end_time.slice(0, 5)}
                 </span>
-                <span className="truncate">{slot.position ?? "offen"}</span>
+                <span className="truncate">
+                  {slot.position ?? "offen"}
+                  {slot.require_leader && <span className="ml-1 text-fuchsia-400">· Ltg.</span>}
+                </span>
               </div>
             ))}
           </div>
@@ -923,6 +931,8 @@ export default function MonthlyGrid({
           employees={sortedEmployees}
           specialEvents={eventsByDate.get(dayDetails.date) ?? []}
           plannedSlots={(slotsByDate.get(dayDetails.date) ?? []) as PlannedSlot[]}
+          shiftRules={shiftRules}
+          dayRequirements={dayRequirements}
           onClose={() => setDayDetails(null)}
           createEventAction={createSpecialEventAction}
           updateEventAction={updateSpecialEventAction}

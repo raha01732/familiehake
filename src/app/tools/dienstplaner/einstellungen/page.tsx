@@ -9,6 +9,7 @@ import { setDienstplanEditorAction } from "../actions";
 import SettingsPanel from "../SettingsPanel";
 import { Settings } from "lucide-react";
 import { loadPlanningRules } from "@/lib/dienstplaner/planning-rules";
+import type { ShiftRule } from "../requirements";
 import type { EditableUser } from "../SettingsPanel";
 
 export const metadata = { title: "Dienstplaner – Einstellungen" };
@@ -21,20 +22,24 @@ export default async function EinstellungenPage() {
 
   const sb = createAdminClient();
   const planningRules = await loadPlanningRules(sb);
-  const [pauseResult, weekdayResult, trackResult, weekdayPosResult, hourDefaultsResult, cinemaRoleResult] =
+  const [pauseResult, rulesResult, hourDefaultsResult, cinemaRoleResult] =
     await Promise.all([
       sb.from("dienstplan_pause_rules").select("id, min_minutes, pause_minutes").order("min_minutes"),
-      sb.from("dienstplan_weekday_requirements").select("weekday, required_shifts").order("weekday"),
-      sb.from("dienstplan_shift_tracks").select("track_key, label, start_time, end_time").order("start_time"),
       sb
-        .from("dienstplan_weekday_position_requirements")
-        .select("id, weekday, track_key, position, note")
-        .order("weekday"),
+        .from("dienstplan_shift_rules")
+        .select("id, position, require_leader, start_time, end_time, weekdays, required_count, note")
+        .order("start_time")
+        .order("id"),
       sb
         .from("dienstplan_employment_hour_defaults")
         .select("employment_type, vacation_hours_per_day"),
       sb.from("user_roles").select("user_id, roles(name)"),
     ]);
+
+  const shiftRules = ((rulesResult.data ?? []) as ShiftRule[]).map((rule) => ({
+    ...rule,
+    weekdays: (rule.weekdays ?? []).map(Number),
+  }));
 
   // Nutzer des Kino-Bereichs (Zugriff auf den Dienstplaner) ohne Admin-Rolle —
   // für diese kann hier die Bearbeitung von Verfügbarkeiten freigeschaltet werden.
@@ -75,6 +80,8 @@ export default async function EinstellungenPage() {
       .sort((a, b) => a.displayName.localeCompare(b.displayName, "de"));
   }
 
+  const rulesMissing = Boolean(rulesResult.error);
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 flex flex-col gap-8 animate-fade-up">
       {/* Header */}
@@ -100,11 +107,15 @@ export default async function EinstellungenPage() {
           </p>
         </div>
       </div>
+      {rulesMissing && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-500">
+          Die Schichtregeln sind noch nicht eingerichtet. Bitte <code>dienstplaner-shift-rules-migration.sql</code> in
+          Supabase ausführen – danach erscheinen hier deine bisherigen Anforderungen als Regeln.
+        </div>
+      )}
       <SettingsPanel
         pauseRules={pauseResult.data ?? []}
-        weekdayRequirements={weekdayResult.data ?? []}
-        shiftTracks={trackResult.data ?? []}
-        weekdayPositionRequirements={weekdayPosResult.data ?? []}
+        shiftRules={shiftRules}
         employmentHourDefaults={hourDefaultsResult.data ?? []}
         planningRules={planningRules}
         editableUsers={editableUsers}

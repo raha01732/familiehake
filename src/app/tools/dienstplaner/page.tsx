@@ -33,6 +33,7 @@ import type {
   PlannedSlot,
 } from "./utils";
 import { buildMonthDays, getCurrentMonth } from "./utils";
+import { describePosition, type DayRequirement, type ShiftRule } from "./requirements";
 import type { PauseRule } from "./utils";
 import { dienstplanAiEnabled } from "@/lib/dienstplaner/ai";
 import { loadPlanningRules } from "@/lib/dienstplaner/planning-rules";
@@ -110,7 +111,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
 
   const shiftsBaseColumns = "employee_id, shift_date, start_time, end_time, break_minutes, comment";
 
-  const [shiftResult, availResult, pauseResult, trackResult, eventsResult, plannedResult, hourDefaultsResult] = await Promise.all([
+  const [shiftResult, availResult, pauseResult, trackResult, eventsResult, plannedResult, hourDefaultsResult, rulesResult, dayReqResult] = await Promise.all([
     sb
       .from("dienstplan_shifts")
       .select(`${shiftsBaseColumns}, covers_projektion`)
@@ -132,7 +133,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       .order("start_time"),
     sb
       .from("dienstplan_planned_slots")
-      .select("id, slot_date, position, track_key, start_time, end_time, note, source, assigned_employee_id")
+      .select("id, slot_date, position, track_key, start_time, end_time, note, source, assigned_employee_id, require_leader")
       .gte("slot_date", start)
       .lte("slot_date", end)
       .order("slot_date")
@@ -140,6 +141,16 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
     sb
       .from("dienstplan_employment_hour_defaults")
       .select("employment_type, vacation_hours_per_day"),
+    sb
+      .from("dienstplan_shift_rules")
+      .select("id, position, require_leader, start_time, end_time, weekdays, required_count, note")
+      .order("start_time")
+      .order("id"),
+    sb
+      .from("dienstplan_position_requirements")
+      .select("requirement_date, position, require_leader, start_time, end_time, required_count, note")
+      .gte("requirement_date", start)
+      .lte("requirement_date", end),
   ]);
 
   const employees: Employee[] = employeeRows.map((row) => ({
@@ -164,9 +175,58 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
 
   const availability = (availResult.data ?? []) as Availability[];
   const pauseRules = (pauseResult.data ?? []) as PauseRule[];
-  const shiftTracks = (trackResult.data ?? []) as ShiftTrack[];
   const specialEvents = (eventsResult.data ?? []) as SpecialEvent[];
-  const plannedSlots = (plannedResult.data ?? []) as PlannedSlot[];
+
+  // Fallback, solange die Spalte require_leader (Migration) noch fehlt
+  let plannedSlots = (plannedResult.data ?? []) as PlannedSlot[];
+  if (plannedResult.error) {
+    const fallback = await sb
+      .from("dienstplan_planned_slots")
+      .select("id, slot_date, position, track_key, start_time, end_time, note, source, assigned_employee_id")
+      .gte("slot_date", start)
+      .lte("slot_date", end)
+      .order("slot_date")
+      .order("start_time");
+    plannedSlots = (fallback.data ?? []) as PlannedSlot[];
+  }
+
+  const shiftRules = rulesResult.error
+    ? []
+    : ((rulesResult.data ?? []) as ShiftRule[]).map((rule) => ({
+        ...rule,
+        start_time: rule.start_time.slice(0, 5),
+        end_time: rule.end_time.slice(0, 5),
+        weekdays: (rule.weekdays ?? []).map(Number),
+      }));
+  const dayRequirements = dayReqResult.error
+    ? []
+    : ((dayReqResult.data ?? []) as DayRequirement[]).map((row) => ({
+        ...row,
+        start_time: row.start_time.slice(0, 5),
+        end_time: row.end_time.slice(0, 5),
+      }));
+
+  // Schnellauswahl im Schicht-Dialog: die Zeiten aus den Regeln (plus alte Schienen, falls vorhanden)
+  const shiftTracks: ShiftTrack[] = [];
+  const seenTimes = new Set<string>();
+  for (const rule of shiftRules) {
+    const key = `${rule.start_time}-${rule.end_time}`;
+    if (seenTimes.has(key)) continue;
+    seenTimes.add(key);
+    shiftTracks.push({
+      track_key: `rule-${key}`,
+      label: describePosition(rule.position, rule.require_leader),
+      start_time: rule.start_time,
+      end_time: rule.end_time,
+    });
+  }
+  for (const track of (trackResult.data ?? []) as ShiftTrack[]) {
+    const key = `${track.start_time.slice(0, 5)}-${track.end_time.slice(0, 5)}`;
+    if (seenTimes.has(key)) continue;
+    seenTimes.add(key);
+    shiftTracks.push(track);
+  }
+
   const employmentHourDefaults = (hourDefaultsResult.data ?? []) as EmploymentHourDefault[];
   const days = buildMonthDays(month);
   const aiEnabled = dienstplanAiEnabled();
@@ -187,6 +247,8 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
       isAdmin={isAdmin}
       canEditAvailability={canEditAvailability}
       aiEnabled={aiEnabled}
+      shiftRules={shiftRules}
+      dayRequirements={dayRequirements}
       planningRules={planningRules}
       saveShiftAction={saveShiftAction}
       deleteShiftAction={deleteShiftAction}

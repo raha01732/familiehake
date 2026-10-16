@@ -21,6 +21,13 @@
 - **Weich (Score):** Soll-Stunden-Fairness, Früh/Spät-Wunsch, Blockbildung, Überstunden-Strafe.
 - **Ablauf:** Engpass-Slots zuerst, dann chronologisch greedy, danach Reparatur offener Slots durch Umbuchung. Der Report nennt je offenem Slot die Sperrgründe.
 
+## Schichtanforderungen (Regeln)
+- Eine **Schichtregel** (`dienstplan_shift_rules`) = Position + Von/Bis + Wochentage + Anzahl (+ „nur Projektionsleitung“). Gepflegt in den Einstellungen.
+- **Projektion**: Projektionsleitung zählt gleichwertig mit; mit `require_leader` ist sie Pflicht (Engine: `isAllowedForCategory`, Leitungs-Slots werden zuerst verteilt).
+- **Einzelne Tage**: Klick auf den Tag im Monatsplan → „Nur für diesen Tag anpassen“ (`dienstplan_position_requirements`) ersetzt an dem Tag alle Wochenregeln; Anzahl 0 = „Tag ohne Bedarf“.
+- Die roten Slots werden aus Regeln, Tages-Anpassungen und Sonderveranstaltungen erzeugt (`regenerateSlotsForDates`). Tages-Änderungen bauen den Tag sofort neu auf, Regeländerungen wirken bei „1. Vorplanung“. Manuell angelegte Slots bleiben erhalten.
+- Migration: `dienstplaner-shift-rules-migration.sql` (übernimmt bestehende Wochentag-Anforderungen als Regeln).
+
 ## Empfohlene nächste Integrationen (kostenbewusst)
 
 ### 1) Supabase (kostenfrei startbar)

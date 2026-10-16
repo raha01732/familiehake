@@ -2,12 +2,16 @@
 
 import { useTransition, useState } from "react";
 import type { Employee, SpecialEvent, PlannedSlot } from "../utils";
+import { POSITION_KINDS, type DayRequirement, type PositionKindValue, type ShiftRule } from "../requirements";
+import DayRequirementsSection from "./DayRequirementsSection";
 
 type Props = {
   date: string;
   employees: Employee[];
   specialEvents: SpecialEvent[];
   plannedSlots: PlannedSlot[];
+  shiftRules: ShiftRule[];
+  dayRequirements: DayRequirement[];
   onClose: () => void;
   createEventAction: (_fd: FormData) => Promise<void>;
   updateEventAction: (_fd: FormData) => Promise<void>;
@@ -34,6 +38,8 @@ export default function DayDetailsModal({
   employees,
   specialEvents,
   plannedSlots,
+  shiftRules,
+  dayRequirements,
   onClose,
   createEventAction,
   updateEventAction,
@@ -44,6 +50,7 @@ export default function DayDetailsModal({
 }: Props) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [slotKind, setSlotKind] = useState<PositionKindValue>("serviceleitung");
 
   function withForm(action: (_fd: FormData) => Promise<void>) {
     return (fd: FormData) =>
@@ -86,6 +93,9 @@ export default function DayDetailsModal({
         )}
 
         <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-6">
+          {/* ── Schichtanforderungen des Tages ─────────────────────────── */}
+          <DayRequirementsSection date={date} rules={shiftRules} dayRequirements={dayRequirements} />
+
           {/* ── Sonderveranstaltungen ───────────────────────────────────── */}
           <section className="flex flex-col gap-3">
             <h3 className="text-sm font-semibold text-[hsl(var(--foreground))]">Sonderveranstaltungen</h3>
@@ -201,7 +211,14 @@ export default function DayDetailsModal({
                         <span className="w-2 h-2 rounded-full bg-red-500" />
                         {slot.start_time.slice(0, 5)}–{slot.end_time.slice(0, 5)}
                       </span>
-                      <span className="text-xs text-[hsl(var(--foreground))]">{slot.position ?? "Beliebig"}</span>
+                      <span className="text-xs text-[hsl(var(--foreground))]">
+                        {slot.position ?? "Beliebig"}
+                        {slot.require_leader && (
+                          <span className="ml-1 rounded bg-fuchsia-500/20 px-1 text-[10px] font-semibold text-fuchsia-400">
+                            nur Leitung
+                          </span>
+                        )}
+                      </span>
                       {slot.note && (
                         <span className="text-[11px] text-[hsl(var(--muted-foreground))]">— {slot.note}</span>
                       )}
@@ -256,15 +273,32 @@ export default function DayDetailsModal({
               className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_1fr_auto] gap-2 items-center pt-2 border-t border-[hsl(var(--border))]"
             >
               <input type="hidden" name="slot_date" value={date} />
-              <input
-                name="position"
-                placeholder="Position (z.B. Service, Projektion)"
+              <select
+                name="position_kind"
+                value={slotKind}
+                onChange={(event) => setSlotKind(event.target.value as PositionKindValue)}
                 className={inputCls}
                 disabled={isPending}
-              />
+              >
+                {POSITION_KINDS.map((entry) => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.label}
+                  </option>
+                ))}
+                <option value="custom">Andere Position …</option>
+              </select>
               <input name="start_time" type="time" className={`${inputCls} w-24`} required disabled={isPending} />
               <input name="end_time" type="time" className={`${inputCls} w-24`} required disabled={isPending} />
               <input name="note" placeholder="Notiz" className={inputCls} disabled={isPending} />
+              {slotKind === "custom" && (
+                <input
+                  name="position_custom"
+                  placeholder="Position"
+                  className={inputCls}
+                  required
+                  disabled={isPending}
+                />
+              )}
               <button
                 type="submit"
                 className="bg-red-600 hover:bg-red-500 text-white text-xs font-semibold px-3 py-1.5 rounded-md disabled:opacity-50"

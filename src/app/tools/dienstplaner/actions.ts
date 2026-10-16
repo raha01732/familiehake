@@ -13,6 +13,7 @@ import {
   generateAutoPlanSlots,
   getThursdayWeekKey,
   inferPositionCategory,
+  isAllowedForCategory,
   normalizeAllowedPositions,
   type PauseRule,
   type PositionCategory,
@@ -25,6 +26,16 @@ import {
   type HistoryShift,
 } from "@/lib/dienstplaner/history-insights";
 import { assertDienstplanAvailabilityWrite } from "@/lib/dienstplaner/availability-guard";
+
+import {
+  CLOSED_DAY_POSITION,
+  removeCoveredSlots,
+  resolvePositionKind,
+  slotRequiresLeader,
+  slotsForDate,
+  type DayRequirement,
+  type ShiftRule,
+} from "./requirements";
 
 const PLAN_PATH = "/tools/dienstplaner";
 const SETTINGS_PATH = "/tools/dienstplaner/settings";
@@ -100,6 +111,17 @@ async function auditDienstplan(
   await logAudit({ action, ...actorFromUser(user), target, detail });
 }
 
+let plannedSlotsHaveLeaderColumn = false;
+
+/** Spaltenliste für planned_slots; require_leader nur, wenn die Migration schon gelaufen ist. */
+async function plannedSlotColumns(sb: ReturnType<typeof createAdminClient>, base: string) {
+  if (!plannedSlotsHaveLeaderColumn) {
+    const { error } = await sb.from("dienstplan_planned_slots").select("require_leader").limit(1);
+    if (!error) plannedSlotsHaveLeaderColumn = true;
+  }
+  return plannedSlotsHaveLeaderColumn ? `${base}, require_leader` : base;
+}
+
 async function consumeMatchingPlannedSlot(
   sb: ReturnType<typeof createAdminClient>,
   shiftDate: string,
@@ -140,17 +162,21 @@ async function consumeProjektionSlot(
   sb: ReturnType<typeof createAdminClient>,
   args: { slotDate: string; startTime: string; endTime: string }
 ) {
-  const { data: openSlots } = await sb
+  const { data: openSlots } = (await sb
     .from("dienstplan_planned_slots")
-    .select("id, start_time, end_time, position")
+    .select(await plannedSlotColumns(sb, "id, start_time, end_time, position"))
     .eq("slot_date", args.slotDate)
-    .is("assigned_employee_id", null);
+    .is("assigned_employee_id", null)) as unknown as {
+    data: { id: number; start_time: string; end_time: string; position: string | null; require_leader?: boolean }[] | null;
+  };
 
   const shiftRange = toMinuteRange(args.startTime, args.endTime);
   let bestId: number | null = null;
   let bestOverlap = -1;
   for (const candidate of openSlots ?? []) {
     if (inferPositionCategory(candidate.position) !== "projektion") continue;
+    // Eine Doppelrolle (Serviceleitung) darf keinen Slot übernehmen, der die Projektionsleitung verlangt
+    if (candidate.require_leader) continue;
     if (!candidate.start_time || !candidate.end_time) continue;
     const range = toMinuteRange(candidate.start_time, candidate.end_time);
     const overlap = Math.min(shiftRange.end, range.end) - Math.max(shiftRange.start, range.start);
@@ -263,17 +289,23 @@ export async function saveShiftAction(formData: FormData) {
   const comment = formData.get("comment") ? String(formData.get("comment")) : null;
 
   // Vor dem Anlegen: prüfen, ob es einen passenden offenen Slot mit dezidierter Position gibt
-  const { data: matchingSlot } = await sb
+  const { data: matchingSlotRaw } = await sb
     .from("dienstplan_planned_slots")
-    .select("position")
+    .select(await plannedSlotColumns(sb, "position"))
     .eq("slot_date", shiftDate)
     .eq("start_time", startTime)
     .eq("end_time", endTime)
     .is("assigned_employee_id", null)
     .limit(1)
     .maybeSingle();
+  const matchingSlot = matchingSlotRaw as unknown as { position: string | null; require_leader?: boolean } | null;
 
-  await assertEmployeeAllowedForShift(sb, employeeId, matchingSlot?.position ?? null);
+  await assertEmployeeAllowedForShift(
+    sb,
+    employeeId,
+    matchingSlot?.position ?? null,
+    slotRequiresLeader(matchingSlot?.position ?? null, matchingSlot?.require_leader)
+  );
 
   const { data: employeeRow } = await sb
     .from("dienstplan_employees")
@@ -702,7 +734,8 @@ function extractAllowedPositions(formData: FormData): PositionCategory[] {
 async function assertEmployeeAllowedForShift(
   sb: ReturnType<typeof createAdminClient>,
   employeeId: number,
-  slotPosition?: string | null
+  slotPosition?: string | null,
+  requireLeader = false
 ) {
   const { data: emp } = await sb
     .from("dienstplan_employees")
@@ -716,8 +749,8 @@ async function assertEmployeeAllowedForShift(
     (emp.position_category as PositionCategory | null | undefined) ??
     inferPositionCategory(emp.position);
   if (!category) return;
-  if (allowed.length === 0 || !allowed.includes(category)) {
-    throw new Error(`POSITION_NOT_ALLOWED:${emp.name}:${category}`);
+  if (allowed.length === 0 || !isAllowedForCategory(allowed, category, requireLeader)) {
+    throw new Error(`POSITION_NOT_ALLOWED:${emp.name}:${requireLeader && category === "projektion" ? "projektionsleitung" : category}`);
   }
 }
 
@@ -1111,416 +1144,6 @@ export async function saveAvailabilityAction(formData: FormData) {
   revalidatePath(PLAN_PATH);
 }
 
-export async function saveWeekdayRequirementAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const weekday = Number(formData.get("weekday"));
-  const requiredShifts = Number(formData.get("required_shifts"));
-  if (Number.isNaN(weekday) || weekday < 0 || weekday > 6 || Number.isNaN(requiredShifts) || requiredShifts < 0) return;
-
-  const sb = createAdminClient();
-  await sb.from("dienstplan_weekday_requirements").upsert(
-    {
-      weekday,
-      required_shifts: requiredShifts,
-    },
-    { onConflict: "weekday" }
-  );
-
-  await auditDienstplan(actor, "dienstplan_requirement_save", {
-    kind: "Wochentag-Bedarf",
-    weekday,
-    requiredShifts,
-  });
-
-  revalidatePath(PLAN_PATH);
-}
-
-function slugifyTrackKey(value: string) {
-  const base = value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 30);
-  return base || "schiene";
-}
-
-export async function saveShiftTrackAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const trackKey = String(formData.get("track_key") || "").trim();
-  const label = String(formData.get("label") || "").trim();
-  const startTime = normalizeTimeInput(String(formData.get("start_time") || ""));
-  const endTime = normalizeTimeInput(String(formData.get("end_time") || ""));
-  if (!trackKey || !startTime || !endTime) return;
-
-  const updates: Record<string, unknown> = { start_time: startTime, end_time: endTime };
-  if (label) updates.label = label;
-
-  const sb = createAdminClient();
-  await sb.from("dienstplan_shift_tracks").update(updates).eq("track_key", trackKey);
-
-  await auditDienstplan(actor, "dienstplan_shift_track_save", {
-    mode: "update",
-    trackKey,
-    label: label || null,
-  });
-
-  revalidatePath(PLAN_PATH);
-  revalidatePath(SETTINGS_PATH);
-}
-
-export async function createShiftTrackAction(formData: FormData) {
-  const actor = await assertAdminForDienstplanAutomation();
-
-  const label = String(formData.get("label") || "").trim();
-  const startTime = normalizeTimeInput(String(formData.get("start_time") || ""));
-  const endTime = normalizeTimeInput(String(formData.get("end_time") || ""));
-  if (!label || !startTime || !endTime) return;
-
-  const sb = createAdminClient();
-  const baseSlug = slugifyTrackKey(label);
-  let candidateKey = baseSlug;
-  let suffix = 1;
-  while (true) {
-    const { data: existing } = await sb
-      .from("dienstplan_shift_tracks")
-      .select("track_key")
-      .eq("track_key", candidateKey)
-      .maybeSingle();
-    if (!existing) break;
-    suffix += 1;
-    candidateKey = `${baseSlug}-${suffix}`;
-    if (suffix > 50) return;
-  }
-
-  await sb.from("dienstplan_shift_tracks").insert({
-    track_key: candidateKey,
-    label,
-    start_time: startTime,
-    end_time: endTime,
-  });
-
-  await auditDienstplan(actor, "dienstplan_shift_track_save", {
-    mode: "create",
-    trackKey: candidateKey,
-    label,
-  });
-
-  revalidatePath(PLAN_PATH);
-  revalidatePath(SETTINGS_PATH);
-}
-
-export async function deleteShiftTrackAction(formData: FormData) {
-  const actor = await assertAdminForDienstplanAutomation();
-
-  const trackKey = String(formData.get("track_key") || "").trim();
-  if (!trackKey) return;
-
-  const sb = createAdminClient();
-  await sb.from("dienstplan_shift_tracks").delete().eq("track_key", trackKey);
-
-  await auditDienstplan(actor, "dienstplan_shift_track_delete", { trackKey });
-
-  revalidatePath(PLAN_PATH);
-  revalidatePath(SETTINGS_PATH);
-}
-
-export async function createWeekdayPositionRequirementAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const weekday = Number(formData.get("weekday"));
-  const trackKey = String(formData.get("track_key") || "").trim();
-  const position = String(formData.get("position") || "").trim();
-  const note = String(formData.get("note") || "").trim();
-  if (Number.isNaN(weekday) || weekday < 0 || weekday > 6 || !trackKey || !position) return;
-
-  const sb = createAdminClient();
-  await sb.from("dienstplan_weekday_position_requirements").insert({
-    weekday,
-    track_key: trackKey,
-    position,
-    note: note || null,
-  });
-
-  await auditDienstplan(actor, "dienstplan_requirement_save", {
-    kind: "Wochentag-Positionsbedarf",
-    mode: "create",
-    weekday,
-    position,
-  });
-
-  revalidatePath(PLAN_PATH);
-  revalidatePath(SETTINGS_PATH);
-}
-
-export async function updateWeekdayPositionRequirementAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const id = Number(formData.get("id"));
-  const weekday = Number(formData.get("weekday"));
-  const trackKey = String(formData.get("track_key") || "").trim();
-  const position = String(formData.get("position") || "").trim();
-  const note = String(formData.get("note") || "").trim();
-  if (!id || Number.isNaN(weekday) || weekday < 0 || weekday > 6 || !trackKey || !position) return;
-
-  const sb = createAdminClient();
-  await sb.from("dienstplan_weekday_position_requirements").update({
-    weekday,
-    track_key: trackKey,
-    position,
-    note: note || null,
-  }).eq("id", id);
-
-  await auditDienstplan(actor, "dienstplan_requirement_save", {
-    kind: "Wochentag-Positionsbedarf",
-    mode: "update",
-    weekday,
-    position,
-  });
-
-  revalidatePath(PLAN_PATH);
-  revalidatePath(SETTINGS_PATH);
-}
-
-export async function deleteWeekdayPositionRequirementAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const id = Number(formData.get("id"));
-  if (!id) return;
-
-  const sb = createAdminClient();
-  await sb.from("dienstplan_weekday_position_requirements").delete().eq("id", id);
-
-  await auditDienstplan(actor, "dienstplan_requirement_delete", {
-    kind: "Wochentag-Positionsbedarf",
-    id,
-  });
-
-  revalidatePath(PLAN_PATH);
-  revalidatePath(SETTINGS_PATH);
-}
-
-export async function savePositionMatrixRowAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const trackKey = String(formData.get("track_key") || "").trim();
-  const position = String(formData.get("position") || "").trim();
-  const originalPositionRaw = formData.get("original_position");
-  const originalPosition =
-    typeof originalPositionRaw === "string" && originalPositionRaw.trim() ? originalPositionRaw.trim() : position;
-  const note = String(formData.get("note") || "").trim();
-  if (!trackKey || !position) return;
-
-  const counts: Record<number, number> = {};
-  for (let weekday = 0; weekday <= 6; weekday += 1) {
-    const raw = formData.get(`count_${weekday}`);
-    const value = raw === null ? 0 : Number(raw);
-    counts[weekday] = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
-  }
-
-  const sb = createAdminClient();
-  await sb
-    .from("dienstplan_weekday_position_requirements")
-    .delete()
-    .eq("track_key", trackKey)
-    .eq("position", originalPosition);
-  if (originalPosition !== position) {
-    await sb
-      .from("dienstplan_weekday_position_requirements")
-      .delete()
-      .eq("track_key", trackKey)
-      .eq("position", position);
-  }
-
-  const inserts: { weekday: number; track_key: string; position: string; note: string | null }[] = [];
-  for (let weekday = 0; weekday <= 6; weekday += 1) {
-    const count = counts[weekday] ?? 0;
-    for (let index = 0; index < count; index += 1) {
-      inserts.push({ weekday, track_key: trackKey, position, note: note || null });
-    }
-  }
-  if (inserts.length > 0) {
-    await sb.from("dienstplan_weekday_position_requirements").insert(inserts);
-  }
-
-  await auditDienstplan(actor, "dienstplan_requirement_save", {
-    kind: "Positions-Matrix",
-    trackKey,
-    position,
-  });
-
-  revalidatePath(PLAN_PATH);
-  revalidatePath(SETTINGS_PATH);
-}
-
-export async function deletePositionMatrixRowAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const trackKey = String(formData.get("track_key") || "").trim();
-  const position = String(formData.get("position") || "").trim();
-  if (!trackKey || !position) return;
-
-  const sb = createAdminClient();
-  await sb
-    .from("dienstplan_weekday_position_requirements")
-    .delete()
-    .eq("track_key", trackKey)
-    .eq("position", position);
-
-  await auditDienstplan(actor, "dienstplan_requirement_delete", {
-    kind: "Positions-Matrix",
-    trackKey,
-    position,
-  });
-
-  revalidatePath(PLAN_PATH);
-  revalidatePath(SETTINGS_PATH);
-}
-
-export async function saveDateRequirementAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const date = String(formData.get("requirement_date") || "");
-  const requiredShifts = Number(formData.get("required_shifts"));
-  const serviceRequiredShifts = Number(formData.get("service_required_shifts"));
-  const projectionRequiredShifts = Number(formData.get("projection_required_shifts"));
-  const note = String(formData.get("note") || "").trim();
-  if (!date || Number.isNaN(requiredShifts) || requiredShifts < 0) return;
-  const normalizedServiceRequiredShifts =
-    Number.isNaN(serviceRequiredShifts) || serviceRequiredShifts < 0 ? 0 : serviceRequiredShifts;
-  const normalizedProjectionRequiredShifts =
-    Number.isNaN(projectionRequiredShifts) || projectionRequiredShifts < 0 ? 0 : projectionRequiredShifts;
-
-  const sb = createAdminClient();
-  await sb.from("dienstplan_date_requirements").upsert(
-    {
-      requirement_date: date,
-      required_shifts: requiredShifts,
-      service_required_shifts: normalizedServiceRequiredShifts,
-      projection_required_shifts: normalizedProjectionRequiredShifts,
-      note: note || null,
-    },
-    { onConflict: "requirement_date" }
-  );
-
-  await auditDienstplan(actor, "dienstplan_requirement_save", { kind: "Datums-Bedarf", date });
-
-  revalidatePath(PLAN_PATH);
-}
-
-export async function clearDateRequirementAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const date = String(formData.get("requirement_date") || "");
-  if (!date) return;
-
-  const sb = createAdminClient();
-  await sb.from("dienstplan_date_requirements").delete().eq("requirement_date", date);
-
-  await auditDienstplan(actor, "dienstplan_requirement_delete", { kind: "Datums-Bedarf", date });
-
-  revalidatePath(PLAN_PATH);
-}
-
-export async function upsertPositionRequirementAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const requirementDate = String(formData.get("requirement_date") || "").trim();
-  const position = String(formData.get("position") || "").trim();
-  const startTime = String(formData.get("start_time") || "").trim();
-  const endTime = String(formData.get("end_time") || "").trim();
-  const note = String(formData.get("note") || "").trim();
-  const trackKey = String(formData.get("track_key") || "").trim();
-  const originalPosition = String(formData.get("original_position") || "").trim();
-  const originalStartTime = String(formData.get("original_start_time") || "").trim();
-  const originalEndTime = String(formData.get("original_end_time") || "").trim();
-
-  if (!requirementDate || !position || !startTime || !endTime) return;
-
-  const sb = createAdminClient();
-  const hasOriginalKey = originalPosition && originalStartTime && originalEndTime;
-  const keyChanged =
-    hasOriginalKey &&
-    (originalPosition !== position || originalStartTime !== startTime || originalEndTime !== endTime);
-
-  if (keyChanged) {
-    await sb
-      .from("dienstplan_position_requirements")
-      .delete()
-      .eq("requirement_date", requirementDate)
-      .eq("position", originalPosition)
-      .eq("start_time", originalStartTime)
-      .eq("end_time", originalEndTime);
-  }
-
-  await sb.from("dienstplan_position_requirements").upsert(
-    {
-      requirement_date: requirementDate,
-      position,
-      start_time: startTime,
-      end_time: endTime,
-      note: note || null,
-      track_key: trackKey || null,
-    },
-    { onConflict: "requirement_date,position,start_time,end_time" }
-  );
-
-  await auditDienstplan(actor, "dienstplan_requirement_save", {
-    kind: "Positions-Bedarf",
-    date: requirementDate,
-    position,
-  });
-
-  revalidatePath(PLAN_PATH);
-}
-
-export async function deletePositionRequirementAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const requirementDate = String(formData.get("requirement_date") || "").trim();
-  const position = String(formData.get("position") || "").trim();
-  const startTime = String(formData.get("start_time") || "").trim();
-  const endTime = String(formData.get("end_time") || "").trim();
-  if (!requirementDate || !position || !startTime || !endTime) return;
-
-  const sb = createAdminClient();
-  await sb
-    .from("dienstplan_position_requirements")
-    .delete()
-    .eq("requirement_date", requirementDate)
-    .eq("position", position)
-    .eq("start_time", startTime)
-    .eq("end_time", endTime);
-
-  await auditDienstplan(actor, "dienstplan_requirement_delete", {
-    kind: "Positions-Bedarf",
-    date: requirementDate,
-    position,
-  });
-
-  revalidatePath(PLAN_PATH);
-}
-
-export async function clearPositionRequirementsAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
-
-  const requirementDate = String(formData.get("requirement_date") || "").trim();
-  if (!requirementDate) return;
-
-  const sb = createAdminClient();
-  await sb.from("dienstplan_position_requirements").delete().eq("requirement_date", requirementDate);
-
-  await auditDienstplan(actor, "dienstplan_requirement_delete", {
-    kind: "Positions-Bedarf (Tag geleert)",
-    date: requirementDate,
-  });
-
-  revalidatePath(PLAN_PATH);
-}
-
 // ──────────────────────────────────────────────────────────────────────
 // Sonderveranstaltungen
 // ──────────────────────────────────────────────────────────────────────
@@ -1617,7 +1240,12 @@ export async function createPlannedSlotAction(formData: FormData) {
   const actor = await assertAuthenticatedForDienstplanWrite();
 
   const slotDate = String(formData.get("slot_date") || "").trim();
-  const position = String(formData.get("position") || "").trim();
+  const kind = String(formData.get("position_kind") || "").trim();
+  const resolved = kind
+    ? resolvePositionKind(kind, String(formData.get("position_custom") || ""))
+    : null;
+  const position = resolved?.position ?? String(formData.get("position") || "").trim();
+  const requireLeader = resolved?.require_leader ?? false;
   const trackKey = String(formData.get("track_key") || "").trim();
   const startTime = normalizeTimeInput(String(formData.get("start_time") || ""));
   const endTime = normalizeTimeInput(String(formData.get("end_time") || ""));
@@ -1633,6 +1261,7 @@ export async function createPlannedSlotAction(formData: FormData) {
     end_time: endTime,
     note: note || null,
     source: "manual",
+    ...(requireLeader ? { require_leader: true } : {}),
   });
 
   await auditDienstplan(actor, "dienstplan_planned_slot_create", {
@@ -1667,14 +1296,23 @@ export async function assignPlannedSlotAction(formData: FormData) {
   if (!id || !employeeId) return;
 
   const sb = createAdminClient();
-  const { data: slot } = await sb
+  const { data: slotRaw } = await sb
     .from("dienstplan_planned_slots")
-    .select("id, slot_date, start_time, end_time, note, position")
+    .select(await plannedSlotColumns(sb, "id, slot_date, start_time, end_time, note, position"))
     .eq("id", id)
     .maybeSingle();
+  const slot = slotRaw as unknown as {
+    id: number;
+    slot_date: string;
+    start_time: string;
+    end_time: string;
+    note: string | null;
+    position: string | null;
+    require_leader?: boolean;
+  } | null;
   if (!slot) return;
 
-  await assertEmployeeAllowedForShift(sb, employeeId, slot.position ?? null);
+  await assertEmployeeAllowedForShift(sb, employeeId, slot.position ?? null, slotRequiresLeader(slot.position, slot.require_leader));
 
   await sb.from("dienstplan_shifts").upsert(
     {
@@ -1694,163 +1332,6 @@ export async function assignPlannedSlotAction(formData: FormData) {
   await auditDienstplan(actor, "dienstplan_planned_slot_assign", {
     employeeId,
     date: slot.slot_date,
-  });
-
-  revalidatePath(PLAN_PATH);
-}
-
-export async function buildPreplanForMonthAction(formData: FormData) {
-  const actor = await assertAdminForDienstplanAutomation();
-
-  const month = String(formData.get("month") || "");
-  const range = getMonthRange(month);
-  if (!range) return;
-
-  const overwriteExisting = formData.get("overwrite_existing") === "true";
-
-  const sb = createAdminClient();
-  const [trackResult, weekdayPosResult, specialEventsResult, existingShiftsResult] = await Promise.all([
-    sb.from("dienstplan_shift_tracks").select("track_key, start_time, end_time"),
-    sb
-      .from("dienstplan_weekday_position_requirements")
-      .select("weekday, track_key, position, note"),
-    sb
-      .from("dienstplan_special_events")
-      .select("event_date, title, position, start_time, end_time, note")
-      .gte("event_date", range.start)
-      .lte("event_date", range.end),
-    sb
-      .from("dienstplan_shifts")
-      .select("employee_id, shift_date, start_time, end_time")
-      .gte("shift_date", range.start)
-      .lte("shift_date", range.end),
-  ]);
-
-  const tracks = (trackResult.data ?? []) as { track_key: string; start_time: string; end_time: string }[];
-  const trackMap = new Map(tracks.map((t) => [t.track_key, t]));
-  const weekdayPositions = (weekdayPosResult.data ?? []) as {
-    weekday: number;
-    track_key: string;
-    position: string;
-    note: string | null;
-  }[];
-  const specialEvents = (specialEventsResult.data ?? []) as {
-    event_date: string;
-    title: string;
-    position: string | null;
-    start_time: string | null;
-    end_time: string | null;
-    note: string | null;
-  }[];
-  const existingShifts = (existingShiftsResult.data ?? []) as {
-    employee_id: number;
-    shift_date: string;
-    start_time: string | null;
-    end_time: string | null;
-  }[];
-
-  if (overwriteExisting) {
-    await sb
-      .from("dienstplan_planned_slots")
-      .delete()
-      .gte("slot_date", range.start)
-      .lte("slot_date", range.end);
-  } else {
-    await sb
-      .from("dienstplan_planned_slots")
-      .delete()
-      .is("assigned_employee_id", null)
-      .gte("slot_date", range.start)
-      .lte("slot_date", range.end);
-  }
-
-  const slotsByDate = new Map<string, { position: string | null; track_key: string | null; start_time: string; end_time: string; note: string | null; source: string }[]>();
-
-  for (const day of buildMonthDays(range.start, range.end)) {
-    const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
-    const list: NonNullable<ReturnType<typeof slotsByDate.get>> = [];
-
-    for (const requirement of weekdayPositions) {
-      if (requirement.weekday !== weekday) continue;
-      const track = trackMap.get(requirement.track_key);
-      if (!track) continue;
-      list.push({
-        position: requirement.position,
-        track_key: requirement.track_key,
-        start_time: track.start_time.slice(0, 5),
-        end_time: track.end_time.slice(0, 5),
-        note: requirement.note,
-        source: "weekday_default",
-      });
-    }
-
-    slotsByDate.set(day, list);
-  }
-
-  for (const event of specialEvents) {
-    if (!event.start_time || !event.end_time) continue;
-    const list = slotsByDate.get(event.event_date) ?? [];
-    list.push({
-      position: event.position,
-      track_key: null,
-      start_time: event.start_time.slice(0, 5),
-      end_time: event.end_time.slice(0, 5),
-      note: `${event.title}${event.note ? ` – ${event.note}` : ""}`,
-      source: "event",
-    });
-    slotsByDate.set(event.event_date, list);
-  }
-
-  const inserts: {
-    slot_date: string;
-    position: string | null;
-    track_key: string | null;
-    start_time: string;
-    end_time: string;
-    note: string | null;
-    source: string;
-  }[] = [];
-
-  if (!overwriteExisting) {
-    // Jede bestehende Schicht deckt höchstens einen Slot ab: erst exakt (Beginn+Ende), dann nach Beginn
-    const shiftsByDate = new Map<string, { start: string; end: string }[]>();
-    for (const shift of existingShifts) {
-      if (!shift.start_time || !shift.end_time) continue;
-      const list = shiftsByDate.get(shift.shift_date) ?? [];
-      list.push({ start: shift.start_time.slice(0, 5), end: shift.end_time.slice(0, 5) });
-      shiftsByDate.set(shift.shift_date, list);
-    }
-    for (const [date, list] of slotsByDate) {
-      const remaining = [...list];
-      const unmatched: { start: string; end: string }[] = [];
-      for (const shift of shiftsByDate.get(date) ?? []) {
-        const at = remaining.findIndex((slot) => slot.start_time === shift.start && slot.end_time === shift.end);
-        if (at >= 0) remaining.splice(at, 1);
-        else unmatched.push(shift);
-      }
-      for (const shift of unmatched) {
-        const at = remaining.findIndex((slot) => slot.start_time === shift.start);
-        if (at >= 0) remaining.splice(at, 1);
-      }
-      for (const slot of remaining) {
-        inserts.push({ slot_date: date, ...slot });
-      }
-    }
-  } else {
-    for (const [date, list] of slotsByDate) {
-      for (const slot of list) {
-        inserts.push({ slot_date: date, ...slot });
-      }
-    }
-  }
-
-  if (inserts.length > 0) {
-    await sb.from("dienstplan_planned_slots").insert(inserts);
-  }
-
-  await auditDienstplan(actor, "dienstplan_preplan_build", {
-    month,
-    created: inserts.length,
   });
 
   revalidatePath(PLAN_PATH);
@@ -1901,6 +1382,7 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
   if (!range) return;
 
   const sb = createAdminClient();
+  const slotColumns = await plannedSlotColumns(sb, "id, slot_date, position, start_time, end_time");
   // Admin-Einstellungen sind der Standard; der Dialog im Monatsplan kann sie pro Lauf überschreiben
   const rules = await loadPlanningRules(sb);
   const maxShiftsPerWeek = readNumberOption(formData, "max_shifts_per_week", rules.max_shifts_per_week, 1, 7);
@@ -1920,7 +1402,7 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
     loadPlannerEmployees(sb),
     sb
       .from("dienstplan_planned_slots")
-      .select("id, slot_date, position, start_time, end_time")
+      .select(slotColumns)
       .is("assigned_employee_id", null)
       .gte("slot_date", range.start)
       .lte("slot_date", range.end)
@@ -1951,12 +1433,13 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
   ]);
 
   const employees = employeesResult;
-  const slots = (slotsResult.data ?? []) as {
+  const slots = (slotsResult.data ?? []) as unknown as {
     id: number;
     slot_date: string;
     position: string | null;
     start_time: string;
     end_time: string;
+    require_leader?: boolean;
   }[];
   const availability = (availabilityResult.data ?? []) as {
     employee_id: number;
@@ -1992,6 +1475,7 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
       id: slot.id,
       shift_date: slot.slot_date,
       position: slot.position,
+      require_leader: slotRequiresLeader(slot.position, slot.require_leader),
       start_time: slot.start_time.slice(0, 5),
       end_time: slot.end_time.slice(0, 5),
     })),
@@ -2050,6 +1534,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   if (!range) return;
 
   const sb = createAdminClient();
+  const aiSlotColumns = await plannedSlotColumns(sb, "id, slot_date, position, start_time, end_time, note");
   const [
     employeesResult,
     slotsResult,
@@ -2062,7 +1547,7 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     loadPlannerEmployees(sb),
     sb
       .from("dienstplan_planned_slots")
-      .select("id, slot_date, position, start_time, end_time, note")
+      .select(aiSlotColumns)
       .is("assigned_employee_id", null)
       .gte("slot_date", range.start)
       .lte("slot_date", range.end)
@@ -2087,12 +1572,13 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   ]);
 
   const employees = employeesResult;
-  const slots = (slotsResult.data ?? []) as {
+  const slots = (slotsResult.data ?? []) as unknown as {
     id: number;
     slot_date: string;
     position: string | null;
     start_time: string;
     end_time: string;
+    require_leader?: boolean;
     note: string | null;
   }[];
   const availability = (availabilityResult.data ?? []) as {
@@ -2162,7 +1648,9 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
       position: slot.position,
       start_time: slot.start_time.slice(0, 5),
       end_time: slot.end_time.slice(0, 5),
-      note: slot.note,
+      note: slotRequiresLeader(slot.position, slot.require_leader)
+        ? [slot.note, "NUR Projektionsleitung einsetzen"].filter(Boolean).join(" – ")
+        : slot.note,
     })),
     employees: employees.map((emp) => ({
       id: emp.id,
@@ -2212,7 +1700,9 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
     if (usedEmployeeOnDay.has(dayKey)) continue;
     const slotCategory = inferPositionCategory(slot.position);
     const allowed = employeesById.get(a.employee_id)?.allowed_positions ?? null;
-    if (slotCategory && allowed && !allowed.includes(slotCategory)) continue;
+    if (slotCategory && !isAllowedForCategory(allowed, slotCategory, slotRequiresLeader(slot.position, slot.require_leader))) {
+      continue;
+    }
 
     const weeklyTargetMinutes = Math.max(0, Math.round(Number(employee.weekly_hours) * 60));
     if (weeklyTargetMinutes > 0) {
@@ -2278,62 +1768,411 @@ export async function aiFillPlannedSlotsAction(formData: FormData) {
   return { filled: inserts.length, rejectedForFairness };
 }
 
-export async function applyWeekdayDefaultsToDateAction(formData: FormData) {
-  const actor = await assertAuthenticatedForDienstplanWrite();
+// ──────────────────────────────────────────────────────────────────────
+// Schichtregeln (Position + Uhrzeit + Wochentage) und Tages-Anpassungen
+// ──────────────────────────────────────────────────────────────────────
 
-  const requirementDate = String(formData.get("requirement_date") || "").trim();
-  if (!requirementDate) return;
+const RULES_MISSING_HINT =
+  "Die Schichtregeln sind noch nicht eingerichtet. Bitte dienstplaner-shift-rules-migration.sql in Supabase ausführen.";
 
-  const date = new Date(`${requirementDate}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return;
-  const weekday = date.getUTCDay();
+function parseWeekdays(formData: FormData) {
+  const days = formData
+    .getAll("weekdays")
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
+  return Array.from(new Set(days)).sort((a, b) => a - b);
+}
+
+function parseRequirementFields(formData: FormData) {
+  const resolved = resolvePositionKind(
+    String(formData.get("position_kind") || ""),
+    String(formData.get("position_custom") || "")
+  );
+  if (!resolved) throw new Error("Bitte eine Position auswählen.");
+  const startTime = normalizeTimeInput(String(formData.get("start_time") || ""));
+  const endTime = normalizeTimeInput(String(formData.get("end_time") || ""));
+  if (!startTime || !endTime) throw new Error("Bitte Beginn und Ende angeben.");
+  if (startTime === endTime) throw new Error("Beginn und Ende dürfen nicht gleich sein.");
+  const count = Math.floor(Number(formData.get("required_count") || 1));
+  if (!Number.isFinite(count) || count < 1 || count > 10) throw new Error("Anzahl muss zwischen 1 und 10 liegen.");
+  const note = String(formData.get("note") || "").trim();
+  return { ...resolved, startTime, endTime, count, note: note || null };
+}
+
+export async function saveShiftRuleAction(formData: FormData) {
+  const actor = await assertAdminForDienstplanAutomation();
+
+  const id = Number(formData.get("id") || 0);
+  const fields = parseRequirementFields(formData);
+  const weekdays = parseWeekdays(formData);
+  if (weekdays.length === 0) throw new Error("Bitte mindestens einen Wochentag auswählen.");
 
   const sb = createAdminClient();
-  const { data: weekdayDefaults } = await sb
-    .from("dienstplan_weekday_position_requirements")
-    .select("weekday, track_key, position, note")
-    .eq("weekday", weekday);
-  const { data: shiftTracks } = await sb.from("dienstplan_shift_tracks").select("track_key, start_time, end_time");
-
-  const trackMap = new Map(
-    ((shiftTracks as { track_key: string; start_time: string; end_time: string }[] | null) ?? []).map((track) => [
-      track.track_key,
-      track,
-    ])
-  );
-
-  const inserts = ((weekdayDefaults as { track_key: string; position: string; note: string | null }[] | null) ?? [])
-    .map((entry) => {
-      const track = trackMap.get(entry.track_key);
-      if (!track) return null;
-      return {
-        requirement_date: requirementDate,
-        position: entry.position,
-        start_time: track.start_time,
-        end_time: track.end_time,
-        note: entry.note ?? null,
-        track_key: entry.track_key,
-      };
-    })
-    .filter(Boolean) as {
-    requirement_date: string;
-    position: string;
-    start_time: string;
-    end_time: string;
-    note: string | null;
-    track_key: string;
-  }[];
-
-  await sb.from("dienstplan_position_requirements").delete().eq("requirement_date", requirementDate);
-  if (inserts.length > 0) {
-    await sb.from("dienstplan_position_requirements").insert(inserts);
-  }
+  const payload = {
+    position: fields.position,
+    require_leader: fields.require_leader,
+    start_time: fields.startTime,
+    end_time: fields.endTime,
+    weekdays,
+    required_count: fields.count,
+    note: fields.note,
+    updated_at: new Date().toISOString(),
+  };
+  const result = id
+    ? await sb.from("dienstplan_shift_rules").update(payload).eq("id", id)
+    : await sb.from("dienstplan_shift_rules").insert(payload);
+  if (result.error) throw new Error(`${RULES_MISSING_HINT} (${result.error.message})`);
 
   await auditDienstplan(actor, "dienstplan_requirement_save", {
-    kind: "Wochentag-Vorlage angewendet",
-    date: requirementDate,
-    count: inserts.length,
+    kind: "Schichtregel",
+    mode: id ? "update" : "create",
+    position: fields.position,
+    leader: fields.require_leader,
+    weekdays,
   });
 
+  revalidatePath(SETTINGS_PATH);
+  revalidatePath("/tools/dienstplaner/einstellungen");
+  revalidatePath(PLAN_PATH);
+}
+
+export async function deleteShiftRuleAction(formData: FormData) {
+  const actor = await assertAdminForDienstplanAutomation();
+
+  const id = Number(formData.get("id") || 0);
+  if (!id) return;
+
+  const sb = createAdminClient();
+  const { error } = await sb.from("dienstplan_shift_rules").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
+  await auditDienstplan(actor, "dienstplan_requirement_delete", { kind: "Schichtregel", id });
+
+  revalidatePath(SETTINGS_PATH);
+  revalidatePath("/tools/dienstplaner/einstellungen");
+  revalidatePath(PLAN_PATH);
+}
+
+type RuleRow = {
+  id: number;
+  position: string;
+  require_leader: boolean;
+  start_time: string;
+  end_time: string;
+  weekdays: number[];
+  required_count: number;
+  note: string | null;
+};
+
+async function loadShiftRules(sb: ReturnType<typeof createAdminClient>): Promise<ShiftRule[]> {
+  const { data, error } = await sb
+    .from("dienstplan_shift_rules")
+    .select("id, position, require_leader, start_time, end_time, weekdays, required_count, note")
+    .order("start_time")
+    .order("id");
+  if (error) throw new Error(`${RULES_MISSING_HINT} (${error.message})`);
+  return ((data ?? []) as RuleRow[]).map((row) => ({
+    ...row,
+    start_time: row.start_time.slice(0, 5),
+    end_time: row.end_time.slice(0, 5),
+    weekdays: (row.weekdays ?? []).map(Number),
+  }));
+}
+
+async function loadDayRequirements(
+  sb: ReturnType<typeof createAdminClient>,
+  start: string,
+  end: string
+): Promise<DayRequirement[]> {
+  const { data, error } = await sb
+    .from("dienstplan_position_requirements")
+    .select("requirement_date, position, require_leader, start_time, end_time, required_count, note")
+    .gte("requirement_date", start)
+    .lte("requirement_date", end);
+  if (error) throw new Error(`${RULES_MISSING_HINT} (${error.message})`);
+  return ((data ?? []) as DayRequirement[]).map((row) => ({
+    ...row,
+    start_time: row.start_time.slice(0, 5),
+    end_time: row.end_time.slice(0, 5),
+  }));
+}
+
+/**
+ * Baut die offenen (roten) Slots der angegebenen Tage aus Wochenregeln, Tages-Anpassungen
+ * und Sonderveranstaltungen neu auf. Manuell angelegte Slots bleiben unangetastet, bereits
+ * eingetragene Schichten decken passende Slots ab. Gibt die Zahl der neuen Slots zurück.
+ */
+async function regenerateSlotsForDates(
+  sb: ReturnType<typeof createAdminClient>,
+  dates: string[],
+  options: { overwrite: boolean }
+): Promise<number> {
+  if (dates.length === 0) return 0;
+  const sorted = [...dates].sort();
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+
+  // Erst laden (wirft bei fehlender Migration), dann löschen - sonst gingen Slots verloren
+  const [rules, overrides, eventsResult, shiftsResult, hasLeaderColumn] = await Promise.all([
+    loadShiftRules(sb),
+    loadDayRequirements(sb, first, last),
+    sb
+      .from("dienstplan_special_events")
+      .select("event_date, title, position, start_time, end_time, note")
+      .gte("event_date", first)
+      .lte("event_date", last),
+    sb
+      .from("dienstplan_shifts")
+      .select("employee_id, shift_date, start_time, end_time")
+      .gte("shift_date", first)
+      .lte("shift_date", last),
+    plannedSlotColumns(sb, "id").then((columns) => columns.includes("require_leader")),
+  ]);
+
+  const events = (eventsResult.data ?? []) as {
+    event_date: string;
+    title: string;
+    position: string | null;
+    start_time: string | null;
+    end_time: string | null;
+    note: string | null;
+  }[];
+  const shifts = (shiftsResult.data ?? []) as {
+    shift_date: string;
+    start_time: string | null;
+    end_time: string | null;
+  }[];
+
+  let deletion = sb.from("dienstplan_planned_slots").delete().in("slot_date", sorted).neq("source", "manual");
+  if (!options.overwrite) deletion = deletion.is("assigned_employee_id", null);
+  const { error: deleteError } = await deletion;
+  if (deleteError) throw new Error(`Alte Slots konnten nicht ersetzt werden: ${deleteError.message}`);
+
+  const inserts: Record<string, unknown>[] = [];
+  for (const date of sorted) {
+    const { slots } = slotsForDate(date, rules, overrides);
+    const candidates: {
+      position: string | null;
+      require_leader: boolean;
+      start_time: string;
+      end_time: string;
+      note: string | null;
+      source: string;
+    }[] = [...slots];
+    for (const event of events) {
+      if (event.event_date !== date || !event.start_time || !event.end_time) continue;
+      candidates.push({
+        position: event.position,
+        require_leader: false,
+        start_time: event.start_time.slice(0, 5),
+        end_time: event.end_time.slice(0, 5),
+        note: `${event.title}${event.note ? ` – ${event.note}` : ""}`,
+        source: "event",
+      });
+    }
+    const remaining = options.overwrite
+      ? candidates
+      : removeCoveredSlots(
+          candidates,
+          shifts.filter((shift) => shift.shift_date === date)
+        );
+    for (const slot of remaining) {
+      inserts.push({
+        slot_date: date,
+        position: slot.position,
+        track_key: null,
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        note: slot.note,
+        source: slot.source,
+        ...(hasLeaderColumn ? { require_leader: slot.require_leader } : {}),
+      });
+    }
+  }
+
+  if (inserts.length > 0) {
+    const { error } = await sb.from("dienstplan_planned_slots").insert(inserts);
+    if (error) throw new Error(`Slots konnten nicht angelegt werden: ${error.message}`);
+  }
+  return inserts.length;
+}
+
+export async function buildPreplanForMonthAction(formData: FormData) {
+  const actor = await assertAdminForDienstplanAutomation();
+
+  const month = String(formData.get("month") || "");
+  const range = getMonthRange(month);
+  if (!range) return;
+
+  const overwriteExisting = formData.get("overwrite_existing") === "true";
+
+  const sb = createAdminClient();
+  const created = await regenerateSlotsForDates(sb, buildMonthDays(range.start, range.end), {
+    overwrite: overwriteExisting,
+  });
+
+  await auditDienstplan(actor, "dienstplan_preplan_build", { month, created });
+
+  revalidatePath(PLAN_PATH);
+}
+
+/** Tages-Anpassung vorbereiten: übernimmt die Wochenregeln des Tages als bearbeitbare Zeilen. */
+async function ensureDayOverride(sb: ReturnType<typeof createAdminClient>, date: string) {
+  const existing = await loadDayRequirements(sb, date, date);
+  if (existing.length > 0) return;
+
+  const rules = await loadShiftRules(sb);
+  const { slots } = slotsForDate(date, rules, []);
+  const grouped = new Map<string, DayRequirement>();
+  for (const slot of slots) {
+    const key = `${slot.position}|${slot.start_time}|${slot.end_time}`;
+    const current = grouped.get(key);
+    if (current) {
+      current.required_count += 1;
+      current.require_leader = current.require_leader || slot.require_leader;
+    } else {
+      grouped.set(key, {
+        requirement_date: date,
+        position: slot.position,
+        require_leader: slot.require_leader,
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        required_count: 1,
+        note: slot.note,
+      });
+    }
+  }
+  if (grouped.size > 0) {
+    const { error } = await sb.from("dienstplan_position_requirements").insert(Array.from(grouped.values()));
+    if (error) throw new Error(error.message);
+  }
+}
+
+function requireDate(formData: FormData) {
+  const date = String(formData.get("requirement_date") || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Ungültiges Datum.");
+  return date;
+}
+
+export async function startDayOverrideAction(formData: FormData) {
+  const actor = await assertAuthenticatedForDienstplanWrite();
+  const date = requireDate(formData);
+  const sb = createAdminClient();
+  await ensureDayOverride(sb, date);
+  await auditDienstplan(actor, "dienstplan_requirement_save", { kind: "Tages-Anpassung gestartet", date });
+  revalidatePath(PLAN_PATH);
+}
+
+export async function saveDayRequirementAction(formData: FormData) {
+  const actor = await assertAuthenticatedForDienstplanWrite();
+  const date = requireDate(formData);
+  const fields = parseRequirementFields(formData);
+  const originalPosition = String(formData.get("original_position") || "").trim();
+  const originalStart = String(formData.get("original_start_time") || "").trim();
+  const originalEnd = String(formData.get("original_end_time") || "").trim();
+
+  const sb = createAdminClient();
+  await ensureDayOverride(sb, date);
+
+  // „Kein Bedarf“-Platzhalter entfernen, sobald es wieder eine echte Zeile gibt
+  await sb.from("dienstplan_position_requirements").delete().eq("requirement_date", date).eq("required_count", 0);
+  if (originalPosition && originalStart && originalEnd) {
+    await sb
+      .from("dienstplan_position_requirements")
+      .delete()
+      .eq("requirement_date", date)
+      .eq("position", originalPosition)
+      .eq("start_time", originalStart)
+      .eq("end_time", originalEnd);
+  }
+  const { error } = await sb.from("dienstplan_position_requirements").upsert(
+    {
+      requirement_date: date,
+      position: fields.position,
+      require_leader: fields.require_leader,
+      start_time: fields.startTime,
+      end_time: fields.endTime,
+      required_count: fields.count,
+      note: fields.note,
+    },
+    { onConflict: "requirement_date,position,start_time,end_time" }
+  );
+  if (error) throw new Error(error.message);
+
+  await regenerateSlotsForDates(sb, [date], { overwrite: false });
+  await auditDienstplan(actor, "dienstplan_requirement_save", {
+    kind: "Tages-Anpassung",
+    date,
+    position: fields.position,
+    leader: fields.require_leader,
+  });
+  revalidatePath(PLAN_PATH);
+}
+
+export async function deleteDayRequirementAction(formData: FormData) {
+  const actor = await assertAuthenticatedForDienstplanWrite();
+  const date = requireDate(formData);
+  const position = String(formData.get("position") || "").trim();
+  const startTime = String(formData.get("start_time") || "").trim();
+  const endTime = String(formData.get("end_time") || "").trim();
+  if (!position || !startTime || !endTime) return;
+
+  const sb = createAdminClient();
+  await sb
+    .from("dienstplan_position_requirements")
+    .delete()
+    .eq("requirement_date", date)
+    .eq("position", position)
+    .eq("start_time", startTime)
+    .eq("end_time", endTime);
+
+  // Letzte Zeile entfernt → „kein Bedarf“ merken, damit nicht stillschweigend wieder die Wochenregeln greifen
+  const remaining = await loadDayRequirements(sb, date, date);
+  if (remaining.length === 0) {
+    await sb.from("dienstplan_position_requirements").insert({
+      requirement_date: date,
+      position: CLOSED_DAY_POSITION,
+      start_time: "00:00",
+      end_time: "00:00",
+      required_count: 0,
+    });
+  }
+
+  await regenerateSlotsForDates(sb, [date], { overwrite: false });
+  await auditDienstplan(actor, "dienstplan_requirement_delete", { kind: "Tages-Anpassung", date, position });
+  revalidatePath(PLAN_PATH);
+}
+
+export async function closeDayAction(formData: FormData) {
+  const actor = await assertAuthenticatedForDienstplanWrite();
+  const date = requireDate(formData);
+
+  const sb = createAdminClient();
+  await loadShiftRules(sb); // bricht bei fehlender Migration ab, bevor etwas gelöscht wird
+  await sb.from("dienstplan_position_requirements").delete().eq("requirement_date", date);
+  const { error } = await sb.from("dienstplan_position_requirements").insert({
+    requirement_date: date,
+    position: CLOSED_DAY_POSITION,
+    start_time: "00:00",
+    end_time: "00:00",
+    required_count: 0,
+  });
+  if (error) throw new Error(error.message);
+
+  await regenerateSlotsForDates(sb, [date], { overwrite: false });
+  await auditDienstplan(actor, "dienstplan_requirement_save", { kind: "Tag ohne Bedarf", date });
+  revalidatePath(PLAN_PATH);
+}
+
+export async function resetDayRequirementsAction(formData: FormData) {
+  const actor = await assertAuthenticatedForDienstplanWrite();
+  const date = requireDate(formData);
+
+  const sb = createAdminClient();
+  await loadShiftRules(sb);
+  await sb.from("dienstplan_position_requirements").delete().eq("requirement_date", date);
+
+  await regenerateSlotsForDates(sb, [date], { overwrite: false });
+  await auditDienstplan(actor, "dienstplan_requirement_delete", { kind: "Tages-Anpassung zurückgesetzt", date });
   revalidatePath(PLAN_PATH);
 }
