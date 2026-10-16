@@ -11,7 +11,7 @@ import {
   type RulePeriod,
   type ShiftRule,
 } from "../src/app/tools/dienstplaner/requirements";
-import { describeAvailabilityConflict, generateAutoPlanSlots, isAllowedForCategory } from "../src/app/tools/dienstplaner/utils";
+import { describeAvailabilityConflict, generateAutoPlanSlots, isAllowedForCategory, isServiceleitungInProjektion } from "../src/app/tools/dienstplaner/utils";
 
 const rule = (overrides: Partial<ShiftRule>): ShiftRule => ({
   id: 1,
@@ -342,4 +342,66 @@ test("describeAvailabilityConflict meldet nicht berücksichtigte Verfügbarkeite
   assert.equal(describeAvailabilityConflict({ status: "fr", ...none }, "09:00", "15:00"), null);
   assert.match(describeAvailabilityConflict({ status: "sp", ...none }, "10:00", "16:00") ?? "", /Spätdienst/);
   assert.equal(describeAvailabilityConflict(undefined, "10:00", "16:00"), null);
+});
+
+test("auto plan: sp bekommt die Schichten mit dem spätesten Ende, auch über Mitternacht", () => {
+  // Nachbildung des Falls aus dem Monatsplan: zwei sp-Wünsche, vier Schichten am selben Tag
+  const result = generateAutoPlanSlots({
+    employees: [
+      { id: 1, position: null, monthly_hours: 100, weekly_hours: 25 },
+      { id: 2, position: null, monthly_hours: 100, weekly_hours: 25 },
+      { id: 3, position: null, monthly_hours: 100, weekly_hours: 25 },
+      { id: 4, position: null, monthly_hours: 100, weekly_hours: 25 },
+    ],
+    existingShifts: [{ employee_id: 1, shift_date: "2026-10-05", start_time: "10:00", end_time: "18:00" }],
+    availability: [
+      { employee_id: 1, availability_date: "2026-10-30", status: "sp", fixed_start: null, fixed_end: null },
+      { employee_id: 2, availability_date: "2026-10-30", status: "sp", fixed_start: null, fixed_end: null },
+    ],
+    slots: [
+      { id: 1, shift_date: "2026-10-30", position: null, start_time: "13:30", end_time: "23:30" },
+      { id: 2, shift_date: "2026-10-30", position: null, start_time: "14:00", end_time: "22:00" },
+      { id: 3, shift_date: "2026-10-30", position: null, start_time: "16:00", end_time: "00:00" },
+      { id: 4, shift_date: "2026-10-30", position: null, start_time: "18:00", end_time: "02:00" },
+    ],
+    pauseRules: [],
+  });
+  const byId = new Map(result.plannedShifts.map((shift) => [shift.slot_id, shift.employee_id]));
+  assert.equal(result.unfilledSlots.length, 0);
+  assert.ok([1, 2].includes(byId.get(4) as number), "18:00–02:00 geht an einen sp-Mitarbeiter");
+  assert.ok([1, 2].includes(byId.get(3) as number), "16:00–00:00 geht an den anderen sp-Mitarbeiter");
+});
+
+test("auto plan: Serviceleitung mit sp wird nach dem 8-h-Ende gerankt", () => {
+  const result = generateAutoPlanSlots({
+    employees: [
+      { id: 1, position: "Serviceleitung", monthly_hours: 100, weekly_hours: 25 },
+      { id: 2, position: "Serviceleitung", monthly_hours: 100, weekly_hours: 25 },
+    ],
+    existingShifts: [],
+    availability: [{ employee_id: 2, availability_date: "2026-10-30", status: "sp", fixed_start: null, fixed_end: null }],
+    slots: [
+      { id: 1, shift_date: "2026-10-30", position: "Serviceleitung", start_time: "14:00", end_time: "22:00" },
+      { id: 2, shift_date: "2026-10-30", position: "Serviceleitung", start_time: "18:00", end_time: "23:00" },
+    ],
+    pauseRules: [],
+  });
+  const byId = new Map(result.plannedShifts.map((shift) => [shift.slot_id, shift.employee_id]));
+  assert.equal(byId.get(2), 2);
+  assert.equal(result.plannedShifts.find((shift) => shift.slot_id === 2)?.end_time, "02:00");
+});
+
+test("describeAvailabilityConflict: sp mit Ende nach Mitternacht ist kein Konflikt", () => {
+  assert.equal(describeAvailabilityConflict({ status: "sp", fixed_start: null, fixed_end: null }, "12:00", "02:00"), null);
+});
+
+test("isServiceleitungInProjektion erkennt Serviceleitung auf Projektionsschichten", () => {
+  assert.equal(isServiceleitungInProjektion({ position_category: "serviceleitung", position: null }, "Projektion"), true);
+  assert.equal(isServiceleitungInProjektion({ position_category: null, position: "Frühe Serviceleitung" }, "Projektion"), true);
+  assert.equal(isServiceleitungInProjektion({ position_category: "serviceleitung", position: null }, "Projektionsleitung"), true);
+  // normale Projektion, Serviceleitung auf Servicedienst, fehlende Daten: keine Kennzeichnung
+  assert.equal(isServiceleitungInProjektion({ position_category: "projektion", position: null }, "Projektion"), false);
+  assert.equal(isServiceleitungInProjektion({ position_category: "serviceleitung", position: null }, "Serviceleitung"), false);
+  assert.equal(isServiceleitungInProjektion({ position_category: "serviceleitung", position: null }, null), false);
+  assert.equal(isServiceleitungInProjektion(null, "Projektion"), false);
 });

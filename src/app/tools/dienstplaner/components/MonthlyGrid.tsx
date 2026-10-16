@@ -19,6 +19,8 @@ import {
   formatMinutesAsHours,
   getGermanHolidays,
   getInitials,
+  isServiceleitungInProjektion,
+  SERVICELEITUNG_IN_PROJEKTION_NOTE,
   getPrevMonth,
   getNextMonth,
   getTodayString,
@@ -415,6 +417,7 @@ export default function MonthlyGrid({
       const summary = calculateShiftMinutes(shift.start_time, shift.end_time, pauseRules, shift.break_minutes);
       const kind = classifyShift(shift.start_time, shift.end_time);
       const availConflict = describeAvailabilityConflict(avail, shift.start_time, shift.end_time);
+      const serviceInProjektion = isServiceleitungInProjektion(emp, shift.position);
       const availStatus = (avail?.status ?? "").toLowerCase();
       const availLabel =
         availStatus === "fix" && avail?.fixed_start && avail.fixed_end
@@ -463,7 +466,15 @@ export default function MonthlyGrid({
               )}
               <span className="uppercase tracking-wide text-[8px] font-semibold opacity-80">{kind.label}</span>
             </div>
-            {shift.comment && (
+            {serviceInProjektion && (
+              <div
+                className="mt-0.5 truncate rounded bg-orange-500/20 px-1 text-[9px] font-semibold text-orange-400"
+                title={`${emp.name} (Serviceleitung) ist auf einer Projektionsschicht eingeteilt.`}
+              >
+                SL → Projektion
+              </div>
+            )}
+            {shift.comment && !(serviceInProjektion && shift.comment === SERVICELEITUNG_IN_PROJEKTION_NOTE) && (
               <div className="text-[9px] text-[hsl(var(--muted-foreground))] truncate" title={shift.comment}>
                 {shift.comment}
               </div>

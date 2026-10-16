@@ -151,7 +151,28 @@ export type Shift = {
   comment: string | null;
   /** Deckt diese Schicht zusätzlich die Projektion ab (Doppelrolle)? */
   covers_projektion?: boolean;
+  /** Position des Slots, aus dem die Schicht entstanden ist (z. B. "Projektion") */
+  position?: string | null;
 };
+
+/** Automatischer Kommentar, wenn eine Serviceleitung eine Projektionsschicht bekommt. */
+export const SERVICELEITUNG_IN_PROJEKTION_NOTE = "Serviceleitung in Projektion";
+
+/**
+ * Übernimmt jemand mit der Rolle „Serviceleitung“ eine Projektionsschicht?
+ * `role` = Positionskategorie oder Positionsname des Mitarbeiters, `shiftPosition` = Position der Schicht.
+ */
+export function isServiceleitungInProjektion(
+  role: { position_category?: string | null; position?: string | null } | null | undefined,
+  shiftPosition: string | null | undefined
+): boolean {
+  if (!role) return false;
+  const isServiceleitung =
+    role.position_category === "serviceleitung" || inferPositionCategory(role.position) === "serviceleitung";
+  if (!isServiceleitung) return false;
+  const category = inferPositionCategory(shiftPosition);
+  return category === "projektion" || category === "projektionsleitung";
+}
 
 export type Availability = {
   employee_id: number;
@@ -500,7 +521,11 @@ export function describeAvailabilityConflict(
     }
     case "sp": {
       const minutes = toMinutes(start);
-      if (minutes !== null && minutes <= 13 * 60) return `Spätdienst gewünscht, die Schicht beginnt schon um ${start} Uhr.`;
+      const endMinutes = toMinutes(end);
+      const endsLate = endMinutes !== null && minutes !== null && (endMinutes <= minutes || endMinutes >= 22 * 60);
+      if (minutes !== null && minutes <= 13 * 60 && !endsLate) {
+        return `Spätdienst gewünscht, die Schicht beginnt schon um ${start} Uhr.`;
+      }
       return null;
     }
     default:
@@ -718,35 +743,56 @@ export function generateAutoPlanSlots(params: {
     list.push(slot);
     slotsByDate.set(slot.shift_date, list);
   }
-  const eligibleStartsCache = new Map<string, number[]>();
+  /** Ende als absolute Minute ab Tagesbeginn; Schichten über Mitternacht enden nach 24:00 (z. B. 02:00 → 1560). */
+  function endMinutesOf(startTime: string, endTime: string): number | null {
+    const start = toMinutes(startTime);
+    const end = toMinutes(endTime);
+    if (start === null || end === null) return null;
+    return end <= start ? end + MINUTES_PER_DAY : end;
+  }
 
-  function eligibleStarts(employee: AutoPlanEmployee, date: string): number[] {
-    const key = `${employee.id}-${date}`;
-    const cached = eligibleStartsCache.get(key);
+  // Pro Person/Tag: Beginn (für „fr“) bzw. Ende inkl. Mitternachts-Überlauf (für „sp“) aller infrage kommenden Schichten.
+  // Das Ende ist personenbezogen: Serviceleitungen arbeiten immer 8 h.
+  const eligibleKeyCache = new Map<string, number[]>();
+
+  function eligibleKeys(employee: AutoPlanEmployee, date: string, mode: "fr" | "sp"): number[] {
+    const cacheKey = `${employee.id}-${date}-${mode}`;
+    const cached = eligibleKeyCache.get(cacheKey);
     if (cached) return cached;
-    const starts = new Set<number>();
+    const keys = new Set<number>();
     for (const slot of slotsByDate.get(date) ?? []) {
       if (staticBlock(employee, slot) !== null) continue;
-      const minutes = toMinutes(slot.start_time);
-      if (minutes !== null) starts.add(minutes);
+      const times = slotTimesFor(employee, slot);
+      const value = mode === "fr" ? toMinutes(times.start) : endMinutesOf(times.start, times.end);
+      if (value !== null) keys.add(value);
     }
-    const sorted = Array.from(starts).sort((a, b) => a - b);
-    eligibleStartsCache.set(key, sorted);
+    const sorted = Array.from(keys).sort((a, b) => a - b);
+    eligibleKeyCache.set(cacheKey, sorted);
     return sorted;
   }
 
-  /** Negativ = passt zum Wunsch (Bonus), positiv = passt nicht (Strafe), 0 = kein Wunsch. */
-  function preferenceAdjustment(employee: AutoPlanEmployee, date: string, startTime: string): number {
+  /**
+   * Negativ = passt zum Wunsch (Bonus), positiv = passt nicht (Strafe), 0 = kein Wunsch.
+   * „fr“ = früheste Schicht (nach Beginn), „sp“ = späteste Schicht (nach Ende, auch über Mitternacht).
+   * Bewusst kräftig gewichtet, damit der Wunsch moderate Stunden-Unterschiede überstimmt.
+   */
+  function preferenceAdjustment(employee: AutoPlanEmployee, date: string, startTime: string, endTime: string): number {
     const status = availabilityMap.get(`${employee.id}-${date}`)?.status?.toLowerCase();
     if (status !== "fr" && status !== "sp") return 0;
     const startMinutes = toMinutes(startTime);
-    if (startMinutes === null) return 0;
+    const endMinutes = endMinutesOf(startTime, endTime);
+    if (startMinutes === null || endMinutes === null) return 0;
     const wrongHalfOfDay =
-      (status === "fr" && startMinutes >= 15 * 60) || (status === "sp" && startMinutes <= 13 * 60) ? 12 : 0;
-    const starts = eligibleStarts(employee, date);
-    if (starts.length <= 1) return wrongHalfOfDay;
-    const rank = status === "fr" ? starts.filter((value) => value < startMinutes).length : starts.filter((value) => value > startMinutes).length;
-    return (rank === 0 ? -10 : rank * 6) + wrongHalfOfDay;
+      (status === "fr" && startMinutes >= 15 * 60) || (status === "sp" && startMinutes <= 13 * 60 && endMinutes < 22 * 60)
+        ? 12
+        : 0;
+    const keys = eligibleKeys(employee, date, status);
+    if (keys.length <= 1) return wrongHalfOfDay;
+    const rank =
+      status === "fr"
+        ? keys.filter((value) => value < startMinutes).length
+        : keys.filter((value) => value > endMinutes).length;
+    return (rank === 0 ? -30 : rank * 20) + wrongHalfOfDay;
   }
 
   function listWithout(employeeId: number, ignoreSlotIndex: number | null) {
@@ -809,7 +855,8 @@ export function generateAutoPlanSlots(params: {
         ? 40 + ((currentMinutes + shiftMinutes - monthlyTarget) / monthlyTarget) * 200
         : 0;
 
-    const preferencePenalty = preferenceAdjustment(employee, slot.shift_date, slot.start_time);
+    const slotTimes = slotTimesFor(employee, slot);
+    const preferencePenalty = preferenceAdjustment(employee, slot.shift_date, slotTimes.start, slotTimes.end);
     const loadPenalty = (newCount.get(employee.id) ?? 0) * 1.5;
     const { continuityBonus, gapPenalty } = calculateBlockContinuityScore(
       new Set(list.map((a) => a.date)),
@@ -963,6 +1010,42 @@ export function generateAutoPlanSlots(params: {
         placement.set(slotIndex, best.id);
         if (best.id !== currentId) moved = true;
       }
+
+      // Tausch zweier Besetzungen am selben Tag (z. B. damit „sp“ die späteste Schicht bekommt,
+      // auch wenn der Einzelschritt keinen freien Ersatz findet)
+      const slotIndexes = [...placement.keys()];
+      for (let i = 0; i < slotIndexes.length; i += 1) {
+        for (let j = i + 1; j < slotIndexes.length; j += 1) {
+          const slotI = slotIndexes[i];
+          const slotJ = slotIndexes[j];
+          const idI = placement.get(slotI);
+          const idJ = placement.get(slotJ);
+          if (idI === undefined || idJ === undefined || idI === idJ) continue;
+          const sI = sortedSlots[slotI];
+          const sJ = sortedSlots[slotJ];
+          if (sI.shift_date !== sJ.shift_date) continue;
+          const eI = employeesById.get(idI);
+          const eJ = employeesById.get(idJ);
+          if (!eI || !eJ) continue;
+
+          unplace(idI, slotI);
+          unplace(idJ, slotJ);
+          const currentScore = scoreFor(eI, sI) + scoreFor(eJ, sJ);
+          const feasible =
+            !staticBlock(eI, sJ) && !dynamicBlock(eI, sJ, null) && !staticBlock(eJ, sI) && !dynamicBlock(eJ, sI, null);
+          const swappedScore = feasible ? scoreFor(eI, sJ) + scoreFor(eJ, sI) : Number.POSITIVE_INFINITY;
+          if (swappedScore < currentScore - 8) {
+            place(eI, sJ, slotJ);
+            place(eJ, sI, slotI);
+            placement.set(slotJ, eI.id);
+            placement.set(slotI, eJ.id);
+            moved = true;
+          } else {
+            place(eI, sI, slotI);
+            place(eJ, sJ, slotJ);
+          }
+        }
+      }
       if (!moved) break;
     }
 
@@ -1040,7 +1123,7 @@ export function generateAutoPlanSlots(params: {
     }
     for (const assignment of list) {
       if (assignment.slotIndex === null) continue;
-      if (preferenceAdjustment(employee, assignment.date, assignment.start) > 0) score += 12;
+      if (preferenceAdjustment(employee, assignment.date, assignment.start, assignment.end) > 0) score += 12;
     }
   }
 

@@ -116,7 +116,7 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
   const [shiftResult, availResult, pauseResult, trackResult, eventsResult, plannedResult, hourDefaultsResult, dayReqResult] = await Promise.all([
     sb
       .from("dienstplan_shifts")
-      .select(`${shiftsBaseColumns}, covers_projektion`)
+      .select(`${shiftsBaseColumns}, covers_projektion, position`)
       .gte("shift_date", start)
       .lte("shift_date", end),
     sb
@@ -157,10 +157,24 @@ export default async function DienstplanerPage({ searchParams }: PageProps) {
   }));
   let shifts = (shiftResult.data ?? []) as Shift[];
 
-  // Fallback wenn die neue Spalte covers_projektion in der DB noch nicht angelegt ist
-  if (shiftResult.error) {
+  // Fallback, solange die Spalte position (Migration) noch fehlt: ohne sie, aber mit covers_projektion
+  let shiftsLoaded = !shiftResult.error;
+  if (!shiftsLoaded) {
+    const withoutPosition = await sb
+      .from("dienstplan_shifts")
+      .select(`${shiftsBaseColumns}, covers_projektion`)
+      .gte("shift_date", start)
+      .lte("shift_date", end);
+    if (!withoutPosition.error) {
+      shifts = (withoutPosition.data ?? []) as Shift[];
+      shiftsLoaded = true;
+    }
+  }
+
+  // Fallback wenn auch die Spalte covers_projektion in der DB noch nicht angelegt ist
+  if (!shiftsLoaded) {
     if (process.env.NODE_ENV !== "production") {
-      console.warn("[dienstplaner] shifts with covers_projektion failed, fallback:", shiftResult.error.message);
+      console.warn("[dienstplaner] shifts with covers_projektion failed, fallback:", shiftResult.error?.message);
     }
     const fallback = await sb
       .from("dienstplan_shifts")

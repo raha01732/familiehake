@@ -14,9 +14,11 @@ import {
   generateAutoPlanSlots,
   inferPositionCategory,
   isAllowedForCategory,
+  isServiceleitungInProjektion,
   normalizeAllowedPositions,
   type PauseRule,
   type AutoPlanResult,
+  SERVICELEITUNG_IN_PROJEKTION_NOTE,
   type PositionCategory,
 } from "./utils";
 import { loadShiftRulesAndPeriods } from "@/lib/dienstplaner/rules-loader";
@@ -113,6 +115,17 @@ async function auditDienstplan(
   target: string | null = null
 ) {
   await logAudit({ action, ...actorFromUser(user), target, detail });
+}
+
+let shiftsHavePositionColumn = false;
+
+/** Gibt es dienstplan_shifts.position schon (Migration)? Nur ein positives Ergebnis wird gemerkt. */
+async function hasShiftPositionColumn(sb: ReturnType<typeof createAdminClient>) {
+  if (!shiftsHavePositionColumn) {
+    const { error } = await sb.from("dienstplan_shifts").select("position").limit(1);
+    if (!error) shiftsHavePositionColumn = true;
+  }
+  return shiftsHavePositionColumn;
 }
 
 let plannedSlotsHaveLeaderColumn = false;
@@ -313,7 +326,7 @@ export async function saveShiftAction(formData: FormData) {
 
   const { data: employeeRow } = await sb
     .from("dienstplan_employees")
-    .select("can_double_as_projektion")
+    .select("can_double_as_projektion, position_category, position")
     .eq("id", employeeId)
     .maybeSingle();
   const coversProjektion = employeeRow?.can_double_as_projektion === true && formData.get("covers_projektion") === "true";
@@ -325,6 +338,11 @@ export async function saveShiftAction(formData: FormData) {
     .eq("shift_date", shiftDate)
     .maybeSingle();
 
+  // Serviceleitung auf einer Projektionsschicht: automatisch kommentieren (nur bei neuen Schichten ohne eigenen Kommentar)
+  const slotPosition = matchingSlot?.position ?? null;
+  const serviceInProjektion = isServiceleitungInProjektion(employeeRow, slotPosition);
+  const finalComment = comment ?? (!existingShift && serviceInProjektion ? SERVICELEITUNG_IN_PROJEKTION_NOTE : null);
+
   await sb.from("dienstplan_shifts").upsert(
     {
       employee_id: employeeId,
@@ -332,9 +350,10 @@ export async function saveShiftAction(formData: FormData) {
       start_time: startTime,
       end_time: endTime,
       break_minutes: breakMinutes,
-      comment: comment,
+      comment: finalComment,
       raw_input: existingShift?.raw_input ?? null,
       covers_projektion: coversProjektion,
+      ...(slotPosition && (await hasShiftPositionColumn(sb)) ? { position: slotPosition } : {}),
     },
     { onConflict: "employee_id,shift_date" }
   );
@@ -563,15 +582,35 @@ export async function moveShiftAction(formData: FormData) {
   }
 
   const sb = createAdminClient();
-  const { data: sourceShift } = await sb
+  const hasPosition = await hasShiftPositionColumn(sb);
+  const { data: sourceRaw } = await sb
     .from("dienstplan_shifts")
-    .select("start_time, end_time, raw_input, break_minutes, comment")
+    .select(hasPosition ? "start_time, end_time, raw_input, break_minutes, comment, position" : "start_time, end_time, raw_input, break_minutes, comment")
     .eq("employee_id", fromEmployeeId)
     .eq("shift_date", shiftDate)
     .maybeSingle();
+  const sourceShift = sourceRaw as unknown as {
+    start_time: string | null;
+    end_time: string | null;
+    raw_input: string | null;
+    break_minutes: number | null;
+    comment: string | null;
+    position?: string | null;
+  } | null;
   if (!sourceShift?.start_time || !sourceShift.end_time) {
     throw new Error("Quelle der Schicht nicht gefunden.");
   }
+
+  // Automatischen Kommentar „Serviceleitung in Projektion“ an die neue Person anpassen
+  const { data: targetEmployee } = await sb
+    .from("dienstplan_employees")
+    .select("position_category, position")
+    .eq("id", toEmployeeId)
+    .maybeSingle();
+  const targetIsServiceInProjektion = isServiceleitungInProjektion(targetEmployee, sourceShift.position ?? null);
+  let movedComment = sourceShift.comment ?? null;
+  if (movedComment === SERVICELEITUNG_IN_PROJEKTION_NOTE && !targetIsServiceInProjektion) movedComment = null;
+  if (!movedComment && targetIsServiceInProjektion) movedComment = SERVICELEITUNG_IN_PROJEKTION_NOTE;
 
   const { error: insertError } = await sb.from("dienstplan_shifts").insert({
     employee_id: toEmployeeId,
@@ -579,8 +618,9 @@ export async function moveShiftAction(formData: FormData) {
     start_time: sourceShift.start_time,
     end_time: sourceShift.end_time,
     break_minutes: sourceShift.break_minutes ?? null,
-    comment: sourceShift.comment ?? null,
+    comment: movedComment,
     raw_input: sourceShift.raw_input ?? "drag-drop",
+    ...(hasPosition && sourceShift.position ? { position: sourceShift.position } : {}),
   });
   if (insertError) {
     throw new Error("Ziel hat bereits eine Schicht oder die Verschiebung ist fehlgeschlagen.");
@@ -1318,6 +1358,13 @@ export async function assignPlannedSlotAction(formData: FormData) {
 
   await assertEmployeeAllowedForShift(sb, employeeId, slot.position ?? null, slotRequiresLeader(slot.position, slot.require_leader));
 
+  const { data: assignee } = await sb
+    .from("dienstplan_employees")
+    .select("position_category, position")
+    .eq("id", employeeId)
+    .maybeSingle();
+  const serviceInProjektion = isServiceleitungInProjektion(assignee, slot.position);
+
   await sb.from("dienstplan_shifts").upsert(
     {
       employee_id: employeeId,
@@ -1325,8 +1372,9 @@ export async function assignPlannedSlotAction(formData: FormData) {
       start_time: slot.start_time,
       end_time: slot.end_time,
       break_minutes: null,
-      comment: slot.note ?? null,
+      comment: slot.note ?? (serviceInProjektion ? SERVICELEITUNG_IN_PROJEKTION_NOTE : null),
       raw_input: "from-planned-slot",
+      ...(slot.position && (await hasShiftPositionColumn(sb)) ? { position: slot.position } : {}),
     },
     { onConflict: "employee_id,shift_date" }
   );
@@ -1630,13 +1678,24 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
   const filledShifts = generated.filter((shift) => typeof shift.slot_id === "number");
   const assignedSlotIds = new Set(filledShifts.map((shift) => shift.slot_id as number));
 
+  const positionColumn = await hasShiftPositionColumn(sb);
+  const slotPositionById = new Map(slots.map((slot) => [slot.id, slot.position]));
+  const employeeRoleById = new Map(employees.map((employee) => [employee.id, employee]));
+
   const { error: upsertError } = await sb.from("dienstplan_shifts").upsert(
-    filledShifts.map(({ slot_id, ...shift }) => ({
-      ...shift,
-      break_minutes: null,
-      comment: null,
-      raw_input: slot_id !== undefined && changedBySlot.has(slot_id) ? "ai-assignment" : "auto-fill-slot",
-    })),
+    filledShifts.map(({ slot_id, ...shift }) => {
+      const slotPosition = slot_id !== undefined ? (slotPositionById.get(slot_id) ?? null) : null;
+      return {
+        ...shift,
+        break_minutes: null,
+        // Serviceleitung auf einer Projektionsschicht wird automatisch kommentiert
+        comment: isServiceleitungInProjektion(employeeRoleById.get(shift.employee_id), slotPosition)
+          ? SERVICELEITUNG_IN_PROJEKTION_NOTE
+          : null,
+        raw_input: slot_id !== undefined && changedBySlot.has(slot_id) ? "ai-assignment" : "auto-fill-slot",
+        ...(positionColumn && slotPosition ? { position: slotPosition } : {}),
+      };
+    }),
     { onConflict: "employee_id,shift_date" }
   );
   if (upsertError) {
