@@ -1360,10 +1360,13 @@ export async function assignPlannedSlotAction(formData: FormData) {
 
   const { data: assignee } = await sb
     .from("dienstplan_employees")
-    .select("position_category, position")
+    .select("position_category, position, can_double_as_projektion")
     .eq("id", employeeId)
     .maybeSingle();
   const serviceInProjektion = isServiceleitungInProjektion(assignee, slot.position);
+  // Serviceleitung mit Doppelrolle auf einer Projektionsschicht: „+Projektion“ (Haken) automatisch setzen
+  const coversProjektion =
+    serviceInProjektion && assignee?.can_double_as_projektion === true && inferPositionCategory(slot.position) === "projektion";
 
   await sb.from("dienstplan_shifts").upsert(
     {
@@ -1374,6 +1377,7 @@ export async function assignPlannedSlotAction(formData: FormData) {
       break_minutes: null,
       comment: slot.note ?? (serviceInProjektion ? SERVICELEITUNG_IN_PROJEKTION_NOTE : null),
       raw_input: "from-planned-slot",
+      ...(coversProjektion ? { covers_projektion: true } : {}),
       ...(slot.position && (await hasShiftPositionColumn(sb)) ? { position: slot.position } : {}),
     },
     { onConflict: "employee_id,shift_date" }
@@ -1681,6 +1685,15 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
   const positionColumn = await hasShiftPositionColumn(sb);
   const slotPositionById = new Map(slots.map((slot) => [slot.id, slot.position]));
   const employeeRoleById = new Map(employees.map((employee) => [employee.id, employee]));
+  // Doppelrolle (Haken „+Projektion“): Flag separat lesen, damit der Planer auch ohne diese Spalte läuft
+  const canDoubleResult = await sb.from("dienstplan_employees").select("id, can_double_as_projektion");
+  const canDoubleIds = new Set(
+    canDoubleResult.error
+      ? []
+      : ((canDoubleResult.data ?? []) as { id: number; can_double_as_projektion: boolean | null }[])
+          .filter((row) => row.can_double_as_projektion === true)
+          .map((row) => row.id)
+  );
 
   const { error: upsertError } = await sb.from("dienstplan_shifts").upsert(
     filledShifts.map(({ slot_id, ...shift }) => {
@@ -1694,6 +1707,12 @@ export async function autoFillPlannedSlotsAction(formData: FormData) {
           : null,
         raw_input: slot_id !== undefined && changedBySlot.has(slot_id) ? "ai-assignment" : "auto-fill-slot",
         ...(positionColumn && slotPosition ? { position: slotPosition } : {}),
+        // Serviceleitung mit Doppelrolle auf einer Projektionsschicht: „+Projektion“ (Haken) automatisch setzen
+        ...(canDoubleIds.has(shift.employee_id) &&
+        isServiceleitungInProjektion(employeeRoleById.get(shift.employee_id), slotPosition) &&
+        inferPositionCategory(slotPosition) === "projektion"
+          ? { covers_projektion: true }
+          : {}),
       };
     }),
     { onConflict: "employee_id,shift_date" }
